@@ -1,0 +1,33 @@
+[project]
+name = "dvizh-backend"
+version = "0.1.0"
+description = "Dvizh backend API"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "asyncpg>=0.30,<1.0",
+    "fastapi>=0.115,<1.0",
+    "minio>=7.2,<8.0",
+    "pydantic-settings>=2.6,<3.0",
+    "uvicorn[standard]>=0.30,<1.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3,<9.0",
+    "ruff>=0.8,<1.0",
+]
+
+[build-system]
+requires = ["uv_build>=0.12.19,<0.13"]
+build-backend = "uv_build"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+

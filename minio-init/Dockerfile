@@ -1,0 +1,2 @@
+FROM minio/mc:latest
+
