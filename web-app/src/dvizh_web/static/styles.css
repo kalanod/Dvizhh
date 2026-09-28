@@ -1,0 +1,24 @@
+:root {
+  color-scheme: dark;
+  font-family: system-ui, sans-serif;
+  background: #101114;
+  color: #f6f7f9;
+}
+
+body {
+  margin: 0;
+}
+
+.container {
+  width: min(720px, calc(100% - 2rem));
+  margin: 20vh auto 0;
+}
+
+h1 {
+  font-size: clamp(3rem, 10vw, 7rem);
+  margin: 0;
+}
+
+#status[data-ok="true"] {
+  color: #77e89b;
+}
