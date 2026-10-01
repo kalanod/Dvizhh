@@ -84,6 +84,15 @@ uv run ruff check .
 uv run pytest
 ```
 
+Запуск backend локально (Swagger: `http://localhost:8000/api/docs`):
+
+```shell
+uv run uvicorn dvizh_backend.main:app --reload --port 8000
+```
+
+Без PostgreSQL backend всё равно стартует и показывает Swagger, но запросы к данным
+вернут 500. Таблицы создаются автоматически при старте, если база доступна.
+
 Добавление зависимости и обновление lock-файла:
 
 ```shell

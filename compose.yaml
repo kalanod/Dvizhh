@@ -33,6 +33,7 @@ services:
       context: ./backend
     environment:
       APP_NAME: Dvizh API
+      REQUIRE_DATABASE: "true"
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-dvizh}:${POSTGRES_PASSWORD:-change-me}@postgres:5432/${POSTGRES_DB:-dvizh}
       VECTOR_DATABASE_URL: postgresql+asyncpg://${VECTOR_USER:-dvizh}:${VECTOR_PASSWORD:-change-me}@pgvector:5432/${VECTOR_DB:-dvizh_vectors}
       MINIO_ENDPOINT: minio:9000
