@@ -236,6 +236,7 @@ Table events {
   title varchar(200) [not null]
   summary varchar(500)
   description text [not null]
+  search_document tsvector [note: 'Generated weighted Russian full-text document. Add a GIN index in the migration.']
   origin event_origin [not null]
   status event_status [not null, default: 'DRAFT']
   visibility event_visibility [not null, default: 'PUBLIC']
