@@ -16,6 +16,8 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-dev --no-install-project
 
 COPY src ./src
+COPY alembic.ini ./
+COPY alembic ./alembic
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-dev --no-editable
 
@@ -30,8 +32,10 @@ RUN groupadd --system app && \
 
 WORKDIR /app
 COPY --from=builder --chown=app:app /app/.venv /app/.venv
+COPY --from=builder --chown=app:app /app/alembic.ini /app/alembic.ini
+COPY --from=builder --chown=app:app /app/alembic /app/alembic
 
 USER app
 EXPOSE 8000
 
-CMD ["uvicorn", "dvizh_backend.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["sh", "-c", "alembic upgrade head && exec uvicorn dvizh_backend.main:app --host 0.0.0.0 --port 8000"]
