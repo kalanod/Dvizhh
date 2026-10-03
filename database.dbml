@@ -1,0 +1,605 @@
+Project dvizh_core {
+  database_type: 'PostgreSQL'
+  Note: 'Core Dvizh database. Authentication credentials and vector embeddings live in separate services.'
+}
+
+Enum profile_status {
+  ACTIVE
+  SUSPENDED
+  DELETED
+}
+
+Enum organization_role {
+  OWNER
+  ADMIN
+  EDITOR
+}
+
+Enum event_origin {
+  USER
+  ORGANIZATION
+  EXTERNAL
+}
+
+Enum event_status {
+  DRAFT
+  PUBLISHED
+  CANCELLED
+  COMPLETED
+  ARCHIVED
+}
+
+Enum event_visibility {
+  PUBLIC
+  FRIENDS
+  UNLISTED
+  PRIVATE
+}
+
+Enum event_join_policy {
+  OPEN
+  REQUEST
+  INVITE_ONLY
+  EXTERNAL
+}
+
+Enum event_format {
+  OFFLINE
+  ONLINE
+  HYBRID
+}
+
+Enum event_price_type {
+  FREE
+  PAID
+}
+
+Enum event_manager_role {
+  OWNER
+  MANAGER
+}
+
+Enum occurrence_status {
+  SCHEDULED
+  CANCELLED
+  COMPLETED
+}
+
+Enum participation_status {
+  REQUESTED
+  GOING
+  REJECTED
+  CANCELLED
+}
+
+Enum invitation_status {
+  PENDING
+  ACCEPTED
+  DECLINED
+  REVOKED
+  EXPIRED
+}
+
+Enum friendship_status {
+  PENDING
+  ACCEPTED
+  DECLINED
+  REMOVED
+}
+
+Enum media_status {
+  UPLOADING
+  READY
+  FAILED
+  DELETED
+}
+
+Enum event_media_role {
+  COVER
+  GALLERY
+}
+
+Enum story_status {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+Enum interaction_type {
+  IMPRESSION
+  OPEN
+  FAVORITE_ADD
+  FAVORITE_REMOVE
+  NOT_INTERESTED
+  JOIN_CLICK
+  REQUEST_SUBMITTED
+  REQUEST_ACCEPTED
+  REQUEST_REJECTED
+  PARTICIPATION_CANCELLED
+  EXTERNAL_LINK_CLICK
+}
+
+Table profiles {
+  id uuid [pk, note: 'User identifier issued by the external auth service; no cross-database FK.']
+  username varchar(50) [not null, unique]
+  display_name varchar(120) [not null]
+  bio text
+  avatar_media_id uuid
+  city varchar(120)
+  latitude decimal(9,6)
+  longitude decimal(9,6)
+  status profile_status [not null, default: 'ACTIVE']
+  created_at timestamptz [not null, default: `now()`]
+  updated_at timestamptz [not null, default: `now()`]
+  deleted_at timestamptz
+
+  indexes {
+    display_name
+    (status, created_at)
+  }
+
+  Note: 'Public domain profile only. Passwords, sessions, email verification and other auth data are excluded.'
+}
+
+Table friendships {
+  user_low_id uuid [not null]
+  user_high_id uuid [not null]
+  requested_by_user_id uuid [not null]
+  status friendship_status [not null, default: 'PENDING']
+  requested_at timestamptz [not null, default: `now()`]
+  responded_at timestamptz
+  removed_at timestamptz
+  updated_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    (user_low_id, user_high_id) [pk]
+    (user_high_id, status)
+    (status, updated_at)
+  }
+
+  Note: 'Store a canonical pair with user_low_id < user_high_id. requested_by_user_id must be one of the pair.'
+}
+
+Table organizations {
+  id uuid [pk, default: `gen_random_uuid()`]
+  slug varchar(80) [not null, unique]
+  name varchar(160) [not null]
+  description text
+  avatar_media_id uuid
+  website_url text
+  is_verified boolean [not null, default: false]
+  created_by_user_id uuid [not null]
+  created_at timestamptz [not null, default: `now()`]
+  updated_at timestamptz [not null, default: `now()`]
+  deleted_at timestamptz
+
+  indexes {
+    name
+    created_by_user_id
+  }
+}
+
+Table organization_members {
+  organization_id uuid [not null]
+  user_id uuid [not null]
+  role organization_role [not null]
+  joined_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    (organization_id, user_id) [pk]
+    (user_id, role)
+  }
+}
+
+Table topics {
+  id uuid [pk, default: `gen_random_uuid()`]
+  parent_id uuid
+  slug varchar(80) [not null, unique]
+  name varchar(120) [not null]
+  description text
+  is_active boolean [not null, default: true]
+  sort_order integer [not null, default: 0]
+  created_at timestamptz [not null, default: `now()`]
+  updated_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    (parent_id, sort_order)
+    (is_active, sort_order)
+  }
+}
+
+Table locations {
+  id uuid [pk, default: `gen_random_uuid()`]
+  name varchar(200)
+  country_code char(2)
+  region varchar(120)
+  city varchar(120)
+  address_line text
+  postal_code varchar(20)
+  latitude decimal(9,6) [not null]
+  longitude decimal(9,6) [not null]
+  external_place_id varchar(255)
+  created_at timestamptz [not null, default: `now()`]
+  updated_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    (city, region)
+    external_place_id
+  }
+
+  Note: 'Use PostGIS geography and a GiST index in the physical migration when radius search is enabled.'
+}
+
+Table events {
+  id uuid [pk, default: `gen_random_uuid()`]
+  slug varchar(160) [not null, unique]
+  title varchar(200) [not null]
+  summary varchar(500)
+  description text [not null]
+  origin event_origin [not null]
+  status event_status [not null, default: 'DRAFT']
+  visibility event_visibility [not null, default: 'PUBLIC']
+  join_policy event_join_policy [not null, default: 'OPEN']
+  format event_format [not null]
+  price_type event_price_type [not null, default: 'FREE']
+  price_min decimal(12,2)
+  price_max decimal(12,2)
+  currency char(3)
+  capacity integer
+  location_id uuid
+  online_url text
+  registration_url text
+  organizer_user_id uuid
+  organizer_organization_id uuid
+  created_by_user_id uuid
+  published_at timestamptz
+  cancelled_at timestamptz
+  completed_at timestamptz
+  created_at timestamptz [not null, default: `now()`]
+  updated_at timestamptz [not null, default: `now()`]
+  deleted_at timestamptz
+
+  indexes {
+    (status, visibility, published_at)
+    (organizer_user_id, status)
+    (organizer_organization_id, status)
+    (location_id, status)
+    (price_type, price_min, price_max)
+  }
+
+  Note: '''Organizer rules:
+  USER origin requires organizer_user_id only.
+  ORGANIZATION origin requires organizer_organization_id only.
+  EXTERNAL origin may have neither, but must have at least one external_event_links row.
+  OFFLINE requires location_id; ONLINE requires online_url; HYBRID requires both.
+  FREE requires null prices/currency. PAID requires price_min >= 0, price_max >= price_min and ISO-4217 currency.
+  capacity must be positive or null (unlimited).'''
+}
+
+Table event_managers {
+  event_id uuid [not null]
+  user_id uuid [not null]
+  role event_manager_role [not null, default: 'MANAGER']
+  assigned_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    (event_id, user_id) [pk]
+    (user_id, role)
+  }
+}
+
+Table event_topics {
+  event_id uuid [not null]
+  topic_id uuid [not null]
+  created_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    (event_id, topic_id) [pk]
+    (topic_id, event_id)
+  }
+}
+
+Table recurrence_rules {
+  id uuid [pk, default: `gen_random_uuid()`]
+  event_id uuid [not null, unique]
+  timezone varchar(64) [not null, note: 'IANA timezone, for example Europe/Moscow.']
+  dtstart timestamptz [not null]
+  duration_minutes integer
+  rrule text [not null, note: 'RFC 5545 RRULE without DTSTART.']
+  generate_until timestamptz
+  is_active boolean [not null, default: true]
+  created_at timestamptz [not null, default: `now()`]
+  updated_at timestamptz [not null, default: `now()`]
+
+  Note: 'Occurrences are materialized ahead of time. duration_minutes must be positive when present.'
+}
+
+Table event_occurrences {
+  id uuid [pk, default: `gen_random_uuid()`]
+  event_id uuid [not null]
+  recurrence_rule_id uuid
+  starts_at timestamptz [not null]
+  ends_at timestamptz
+  timezone varchar(64) [not null]
+  is_all_day boolean [not null, default: false]
+  status occurrence_status [not null, default: 'SCHEDULED']
+  capacity_override integer
+  cancelled_at timestamptz
+  created_at timestamptz [not null, default: `now()`]
+  updated_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    (event_id, starts_at) [unique]
+    (status, starts_at)
+    (recurrence_rule_id, starts_at)
+  }
+
+  Note: '''Every event has at least one occurrence, including one-off events.
+  Date-only events use local midnight, is_all_day=true and an exclusive ends_at boundary.
+  Effective capacity is COALESCE(capacity_override, events.capacity); null means unlimited.
+  ends_at must be greater than starts_at when present.'''
+}
+
+Table event_favorites {
+  user_id uuid [not null]
+  event_id uuid [not null]
+  created_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    (user_id, event_id) [pk]
+    (event_id, created_at)
+  }
+}
+
+Table event_dismissals {
+  user_id uuid [not null]
+  event_id uuid [not null]
+  created_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    (user_id, event_id) [pk]
+    (event_id, created_at)
+  }
+}
+
+Table event_participations {
+  id uuid [pk, default: `gen_random_uuid()`]
+  occurrence_id uuid [not null]
+  user_id uuid [not null]
+  status participation_status [not null]
+  requested_at timestamptz
+  decided_at timestamptz
+  decided_by_user_id uuid
+  joined_at timestamptz
+  cancelled_at timestamptz
+  rejection_reason varchar(500)
+  created_at timestamptz [not null, default: `now()`]
+  updated_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    (occurrence_id, user_id) [unique]
+    (occurrence_id, status)
+    (user_id, status, created_at)
+  }
+
+  Note: 'Only GOING rows occupy capacity and appear in the calendar. Capacity checks must lock the occurrence in one transaction.'
+}
+
+Table participation_status_history {
+  id bigint [pk, increment]
+  participation_id uuid [not null]
+  from_status participation_status
+  to_status participation_status [not null]
+  changed_by_user_id uuid
+  reason varchar(500)
+  changed_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    (participation_id, changed_at)
+    (changed_by_user_id, changed_at)
+  }
+}
+
+Table event_invitations {
+  id uuid [pk, default: `gen_random_uuid()`]
+  occurrence_id uuid [not null]
+  inviter_user_id uuid [not null]
+  invitee_user_id uuid [not null]
+  status invitation_status [not null, default: 'PENDING']
+  message varchar(500)
+  expires_at timestamptz
+  responded_at timestamptz
+  created_at timestamptz [not null, default: `now()`]
+  updated_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    (occurrence_id, invitee_user_id) [unique]
+    (invitee_user_id, status, created_at)
+    (inviter_user_id, created_at)
+  }
+
+  Note: 'Accepting an invitation creates or updates the corresponding participation to GOING.'
+}
+
+Table media_assets {
+  id uuid [pk, default: `gen_random_uuid()`]
+  uploaded_by_user_id uuid [not null]
+  bucket varchar(100) [not null]
+  object_key varchar(1024) [not null]
+  original_filename varchar(255)
+  content_type varchar(120) [not null]
+  size_bytes bigint [not null]
+  checksum_sha256 char(64)
+  width integer
+  height integer
+  status media_status [not null, default: 'UPLOADING']
+  created_at timestamptz [not null, default: `now()`]
+  ready_at timestamptz
+  deleted_at timestamptz
+
+  indexes {
+    (bucket, object_key) [unique]
+    (uploaded_by_user_id, created_at)
+    (status, created_at)
+  }
+
+  Note: 'Contains MinIO object metadata only; binary content is not stored in PostgreSQL.'
+}
+
+Table event_media {
+  event_id uuid [not null]
+  media_id uuid [not null]
+  role event_media_role [not null, default: 'GALLERY']
+  sort_order integer [not null, default: 0]
+  created_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    (event_id, media_id) [pk]
+    (event_id, role, sort_order)
+  }
+
+  Note: 'Enforce at most one active COVER per event with a partial unique index in the migration.'
+}
+
+Table event_stories {
+  id uuid [pk, default: `gen_random_uuid()`]
+  event_id uuid [not null]
+  occurrence_id uuid
+  created_by_user_id uuid [not null]
+  status story_status [not null, default: 'DRAFT']
+  published_at timestamptz
+  expires_at timestamptz
+  created_at timestamptz [not null, default: `now()`]
+  updated_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    (event_id, status, published_at)
+    (occurrence_id, status)
+    (created_by_user_id, created_at)
+  }
+
+  Note: 'Application policy permits uploads only from event participants or managers.'
+}
+
+Table story_items {
+  id uuid [pk, default: `gen_random_uuid()`]
+  story_id uuid [not null]
+  media_id uuid [not null, unique]
+  caption varchar(500)
+  sort_order integer [not null, default: 0]
+  created_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    (story_id, sort_order)
+  }
+}
+
+Table external_sources {
+  id uuid [pk, default: `gen_random_uuid()`]
+  code varchar(80) [not null, unique]
+  name varchar(160) [not null]
+  base_url text
+  is_active boolean [not null, default: true]
+  created_at timestamptz [not null, default: `now()`]
+  updated_at timestamptz [not null, default: `now()`]
+}
+
+Table external_event_links {
+  id uuid [pk, default: `gen_random_uuid()`]
+  event_id uuid [not null]
+  source_id uuid [not null]
+  external_id varchar(255) [not null]
+  external_url text
+  raw_payload jsonb
+  first_imported_at timestamptz [not null, default: `now()`]
+  last_synced_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    (source_id, external_id) [unique]
+    (event_id, source_id) [unique]
+    (last_synced_at)
+  }
+}
+
+Table event_interactions {
+  id bigint [pk, increment]
+  user_id uuid [not null]
+  event_id uuid [not null]
+  occurrence_id uuid
+  type interaction_type [not null]
+  request_id uuid
+  session_id uuid
+  feed_kind varchar(40)
+  position integer
+  dwell_ms integer
+  context jsonb
+  occurred_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    (user_id, occurred_at)
+    (event_id, occurred_at)
+    (type, occurred_at)
+    request_id
+  }
+
+  Note: 'Append-only behavioral log. Partition by occurred_at when volume justifies it; embeddings are explicitly excluded.'
+}
+
+Ref: profiles.avatar_media_id > media_assets.id [delete: set null]
+
+Ref: friendships.user_low_id > profiles.id [delete: cascade]
+Ref: friendships.user_high_id > profiles.id [delete: cascade]
+Ref: friendships.requested_by_user_id > profiles.id [delete: cascade]
+
+Ref: organizations.avatar_media_id > media_assets.id [delete: set null]
+Ref: organizations.created_by_user_id > profiles.id [delete: restrict]
+Ref: organization_members.organization_id > organizations.id [delete: cascade]
+Ref: organization_members.user_id > profiles.id [delete: cascade]
+
+Ref: topics.parent_id > topics.id [delete: set null]
+
+Ref: events.location_id > locations.id [delete: set null]
+Ref: events.organizer_user_id > profiles.id [delete: restrict]
+Ref: events.organizer_organization_id > organizations.id [delete: restrict]
+Ref: events.created_by_user_id > profiles.id [delete: restrict]
+
+Ref: event_managers.event_id > events.id [delete: cascade]
+Ref: event_managers.user_id > profiles.id [delete: cascade]
+Ref: event_topics.event_id > events.id [delete: cascade]
+Ref: event_topics.topic_id > topics.id [delete: restrict]
+
+Ref: recurrence_rules.event_id - events.id [delete: cascade]
+Ref: event_occurrences.event_id > events.id [delete: cascade]
+Ref: event_occurrences.recurrence_rule_id > recurrence_rules.id [delete: set null]
+
+Ref: event_favorites.user_id > profiles.id [delete: cascade]
+Ref: event_favorites.event_id > events.id [delete: cascade]
+Ref: event_dismissals.user_id > profiles.id [delete: cascade]
+Ref: event_dismissals.event_id > events.id [delete: cascade]
+
+Ref: event_participations.occurrence_id > event_occurrences.id [delete: cascade]
+Ref: event_participations.user_id > profiles.id [delete: cascade]
+Ref: event_participations.decided_by_user_id > profiles.id [delete: set null]
+Ref: participation_status_history.participation_id > event_participations.id [delete: cascade]
+Ref: participation_status_history.changed_by_user_id > profiles.id [delete: set null]
+
+Ref: event_invitations.occurrence_id > event_occurrences.id [delete: cascade]
+Ref: event_invitations.inviter_user_id > profiles.id [delete: cascade]
+Ref: event_invitations.invitee_user_id > profiles.id [delete: cascade]
+
+Ref: media_assets.uploaded_by_user_id > profiles.id [delete: restrict]
+Ref: event_media.event_id > events.id [delete: cascade]
+Ref: event_media.media_id > media_assets.id [delete: restrict]
+
+Ref: event_stories.event_id > events.id [delete: cascade]
+Ref: event_stories.occurrence_id > event_occurrences.id [delete: set null]
+Ref: event_stories.created_by_user_id > profiles.id [delete: restrict]
+Ref: story_items.story_id > event_stories.id [delete: cascade]
+Ref: story_items.media_id > media_assets.id [delete: restrict]
+
+Ref: external_event_links.event_id > events.id [delete: cascade]
+Ref: external_event_links.source_id > external_sources.id [delete: restrict]
+
+Ref: event_interactions.user_id > profiles.id [delete: cascade]
+Ref: event_interactions.event_id > events.id [delete: cascade]
+Ref: event_interactions.occurrence_id > event_occurrences.id [delete: set null]

@@ -33,7 +33,7 @@ services:
       context: ./backend
     environment:
       APP_NAME: Dvizh API
-      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-dvizh}:${POSTGRES_PASSWORD:-change-me}@postgres:5432/${POSTGRES_DB:-dvizh}
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-dvizh_app}:${POSTGRES_PASSWORD:-change-me}@postgres:5432/${POSTGRES_DB:-dvizh_data}
       VECTOR_DATABASE_URL: postgresql+asyncpg://${VECTOR_USER:-dvizh}:${VECTOR_PASSWORD:-change-me}@pgvector:5432/${VECTOR_DB:-dvizh_vectors}
       MINIO_ENDPOINT: minio:9000
       MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-dvizh}
@@ -96,8 +96,8 @@ services:
     build:
       context: ./postgres
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:-dvizh}
-      POSTGRES_USER: ${POSTGRES_USER:-dvizh}
+      POSTGRES_DB: ${POSTGRES_DB:-dvizh_data}
+      POSTGRES_USER: ${POSTGRES_USER:-dvizh_app}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
     volumes:
       - postgres-data:/var/lib/postgresql/data
