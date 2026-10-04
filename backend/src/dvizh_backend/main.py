@@ -2,11 +2,11 @@ import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 
 from .config import get_settings
+from .database.database_service import DatabaseService
 from .db import engine
-from .models import Base
 from .routers import events, friends, users
 
 settings = get_settings()
@@ -15,15 +15,20 @@ logger = logging.getLogger("uvicorn.error")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    database_service = DatabaseService(settings.database_url)
+    app.state.database_service = database_service
     try:
-        async with engine.begin() as connection:
-            await connection.run_sync(Base.metadata.create_all)
+        await database_service.ping()
     except Exception as exc:
         if settings.require_database:
+            await database_service.dispose()
             raise
-        logger.warning("База данных недоступна, таблицы не созданы: %s", exc)
-    yield
-    await engine.dispose()
+        logger.warning("База данных недоступна: %s", exc)
+    try:
+        yield
+    finally:
+        await database_service.dispose()
+        await engine.dispose()
 
 
 app = FastAPI(
@@ -44,8 +49,10 @@ app.include_router(events.router)
     tags=["system"],
     summary="Состояние сервиса (используется healthcheck-ом контейнера).",
 )
-async def health() -> dict[str, str]:
-    return {"status": "ok", "service": "backend"}
+async def health(request: Request) -> dict[str, str]:
+    database_service: DatabaseService = request.app.state.database_service
+    await database_service.ping()
+    return {"status": "ok", "service": "backend", "database": "ok"}
 
 
 @app.get("/api", tags=["system"], summary="Проверка, что API запущен.")
