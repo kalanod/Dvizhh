@@ -6,8 +6,8 @@ from sqlalchemy import CheckConstraint
 
 from dvizh_backend.database import models  # noqa: F401
 from dvizh_backend.database.base import Base
-from dvizh_backend.database.services.exceptions import InvalidStateTransitionError
-from dvizh_backend.database.services.social import FriendshipService
+from dvizh_backend.services.errors import FriendshipStateError
+from dvizh_backend.services.user_service import UserService
 
 EXPECTED_TABLES = {
     "event_dismissals",
@@ -70,6 +70,6 @@ def test_friendship_pair_is_canonical() -> None:
     first = UUID("00000000-0000-0000-0000-000000000002")
     second = UUID("00000000-0000-0000-0000-000000000001")
 
-    assert FriendshipService._canonical_pair(first, second) == (second, first)
-    with pytest.raises(InvalidStateTransitionError):
-        FriendshipService._canonical_pair(first, first)
+    assert UserService._canonical_pair(first, second) == (second, first)
+    with pytest.raises(FriendshipStateError):
+        UserService._canonical_pair(first, first)
