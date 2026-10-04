@@ -6,8 +6,8 @@ from fastapi import FastAPI, Request
 
 from .config import get_settings
 from .database.database_service import DatabaseService
-from .db import engine
 from .routers import events, friends, users
+from .routers.errors import register_error_handlers
 
 settings = get_settings()
 logger = logging.getLogger("uvicorn.error")
@@ -28,7 +28,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         yield
     finally:
         await database_service.dispose()
-        await engine.dispose()
 
 
 app = FastAPI(
@@ -42,6 +41,7 @@ app = FastAPI(
 app.include_router(users.router)
 app.include_router(friends.router)
 app.include_router(events.router)
+register_error_handlers(app)
 
 
 @app.get(

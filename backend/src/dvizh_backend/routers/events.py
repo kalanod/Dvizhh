@@ -1,30 +1,18 @@
 import uuid
-from datetime import UTC, date, datetime
+from datetime import date
 from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, Query, status
-from sqlalchemy import delete, func, or_, select
-from sqlalchemy.ext.asyncio import AsyncSession
+from fastapi import APIRouter, Query, status
 
-from ..db import SessionDep
-from ..models import (
-    Event,
-    Friendship,
-    JoinMode,
-    Participation,
-    ParticipationStatus,
-    User,
-    Visibility,
+from ..dto.event import (
+    CreateEventDTO,
+    EventDTO,
+    JoinEventDTO,
+    ParticipantDTO,
+    ReviewParticipationDTO,
+    UpdateEventDTO,
 )
-from ..queries import fetch_events, going_count, select_events
-from ..schemas import (
-    EventCreate,
-    EventResponse,
-    EventUpdate,
-    JoinRequest,
-    ParticipantResponse,
-    ReviewRequest,
-)
+from ..services.dependencies import EventServiceDep
 
 router = APIRouter(prefix="/api/events", tags=["events"])
 
@@ -33,16 +21,18 @@ router = APIRouter(prefix="/api/events", tags=["events"])
     "",
     summary="Лента публичных событий.",
     description=(
-        "Возвращает только события с видимостью public, сортировка «По новизне» "
-        "(по времени публикации). Все фильтры необязательны и комбинируются между собой. "
-        "Если указан friends_of, среди подходящих под фильтры событий первыми идут те, "
-        "на которые идёт больше друзей пользователя; события без друзей остаются в выдаче "
-        "и идут после них."
+        "Возвращает только опубликованные события с видимостью PUBLIC, сортировка "
+        "«По новизне» (по времени публикации). Все фильтры необязательны и комбинируются "
+        "между собой. Если указан friends_of, среди подходящих под фильтры событий первыми "
+        "идут те, на которые идёт больше друзей пользователя; события без друзей остаются "
+        "в выдаче и идут после них."
     ),
 )
 async def list_events(
-    session: SessionDep,
-    q: Annotated[str | None, Query(description="Поиск по подстроке в названии и описании.")] = None,
+    events: EventServiceDep,
+    q: Annotated[
+        str | None, Query(description="Полнотекстовый поиск по названию и описанию.")
+    ] = None,
     tag: Annotated[str | None, Query(description="Тематика (тег) события.")] = None,
     date_from: Annotated[
         date | None,
@@ -75,42 +65,18 @@ async def list_events(
         int, Query(ge=0, description="Сколько событий пропустить (для пагинации).")
     ] = 0,
     limit: Annotated[int, Query(ge=1, le=100, description="Сколько событий вернуть.")] = 20,
-) -> list[EventResponse]:
-    query = select_events().where(Event.visibility == Visibility.PUBLIC)
-
-    if q and q.strip():
-        pattern = f"%{q.strip()}%"
-        query = query.where(or_(Event.title.ilike(pattern), Event.description.ilike(pattern)))
-    if tag and tag.strip():
-        query = query.where(Event.tags.contains([tag.strip().lower()]))
-    if date_from is not None:
-        query = query.where(func.coalesce(Event.end_date, Event.start_date) >= date_from)
-    if date_to is not None:
-        query = query.where(Event.start_date <= date_to)
-    if free_only:
-        query = query.where(Event.price.is_(None))
-    if available_only:
-        query = query.where(
-            or_(Event.max_participants.is_(None), going_count < Event.max_participants)
-        )
-
-    if friends_of is not None:
-        friend_ids = select(Friendship.friend_id).where(Friendship.user_id == friends_of)
-        friends_going = (
-            select(func.count())
-            .select_from(Participation)
-            .where(
-                Participation.event_id == Event.id,
-                Participation.status == ParticipationStatus.GOING,
-                Participation.user_id.in_(friend_ids),
-            )
-            .correlate(Event)
-            .scalar_subquery()
-        )
-        query = query.order_by(friends_going.desc())
-
-    query = query.order_by(Event.created_at.desc()).offset(offset).limit(limit)
-    return await fetch_events(session, query)
+) -> list[EventDTO]:
+    return await events.list_public(
+        text_query=q,
+        tag=tag,
+        date_from=date_from,
+        date_to=date_to,
+        free_only=free_only,
+        available_only=available_only,
+        friends_of=friends_of,
+        offset=offset,
+        limit=limit,
+    )
 
 
 @router.post(
@@ -118,18 +84,13 @@ async def list_events(
     status_code=status.HTTP_201_CREATED,
     summary="Создать событие.",
     description=(
-        "Обязательны название, дата начала и организатор. Цена не указана или 0 — событие "
-        "бесплатное; max_participants не указан — без лимита участников."
+        "Событие сразу публикуется. Обязательны название, начало и организатор; для формата "
+        "OFFLINE нужно место, для ONLINE — ссылка на трансляцию. Цена не указана или 0 — "
+        "событие бесплатное; capacity не указан — без лимита участников."
     ),
 )
-async def create_event(body: EventCreate, session: SessionDep) -> EventResponse:
-    if await session.get(User, body.organizer_id) is None:
-        raise HTTPException(404, "Организатор не найден.")
-
-    event = Event(**body.to_columns())
-    session.add(event)
-    await session.commit()
-    return await _load_event(session, event.id)
+async def create_event(body: CreateEventDTO, events: EventServiceDep) -> EventDTO:
+    return await events.create_event(body)
 
 
 @router.get(
@@ -137,8 +98,8 @@ async def create_event(body: EventCreate, session: SessionDep) -> EventResponse:
     summary="Получить событие по идентификатору.",
     description="Работает для событий с любой видимостью.",
 )
-async def get_event(event_id: uuid.UUID, session: SessionDep) -> EventResponse:
-    return await _load_event(session, event_id)
+async def get_event(event_id: uuid.UUID, events: EventServiceDep) -> EventDTO:
+    return await events.get_event(event_id)
 
 
 @router.put(
@@ -147,114 +108,60 @@ async def get_event(event_id: uuid.UUID, session: SessionDep) -> EventResponse:
     description="Заменяет все поля события переданными значениями. Организатор не меняется.",
 )
 async def update_event(
-    event_id: uuid.UUID, body: EventUpdate, session: SessionDep
-) -> EventResponse:
-    event = await _get_event(session, event_id)
-    for column, value in body.to_columns().items():
-        setattr(event, column, value)
-    await session.commit()
-    return await _load_event(session, event_id)
+    event_id: uuid.UUID, body: UpdateEventDTO, events: EventServiceDep
+) -> EventDTO:
+    return await events.update_event(event_id, body)
 
 
 @router.delete(
     "/{event_id}",
     status_code=status.HTTP_204_NO_CONTENT,
     summary="Удалить событие.",
-    description="Вместе с событием удаляются все заявки и участия.",
+    description="Событие помечается удалённым и пропадает из ленты, календарей и поиска.",
 )
-async def delete_event(event_id: uuid.UUID, session: SessionDep) -> None:
-    result = await session.execute(delete(Event).where(Event.id == event_id))
-    await session.commit()
-    if result.rowcount == 0:
-        raise HTTPException(404, "Событие не найдено.")
+async def delete_event(event_id: uuid.UUID, events: EventServiceDep) -> None:
+    await events.delete_event(event_id)
 
 
 @router.get(
     "/{event_id}/participants",
     summary="Список участников события.",
-    description="Возвращает участников (going) и ожидающие решения заявки (pending).",
+    description="Возвращает участников (GOING) и ожидающие решения заявки (REQUESTED).",
 )
-async def list_participants(event_id: uuid.UUID, session: SessionDep) -> list[ParticipantResponse]:
-    await _get_event(session, event_id)
-    participations = await session.scalars(
-        select(Participation)
-        .where(
-            Participation.event_id == event_id,
-            Participation.status.in_([ParticipationStatus.GOING, ParticipationStatus.PENDING]),
-        )
-        .order_by(Participation.updated_at)
-    )
-    return [ParticipantResponse.model_validate(p) for p in participations]
+async def list_participants(event_id: uuid.UUID, events: EventServiceDep) -> list[ParticipantDTO]:
+    return await events.list_participants(event_id)
 
 
 @router.post(
     "/{event_id}/participants",
     summary="«Иду»: присоединиться к событию.",
     description=(
-        "Для событий open пользователь сразу становится участником, если есть свободные места. "
-        "Для request создаётся заявка, которую рассматривает организатор. К событиям "
-        "invite_only и external присоединиться нельзя. Повторная заявка после отклонения "
-        "недоступна."
+        "Для событий OPEN пользователь сразу становится участником, если есть свободные места. "
+        "Для REQUEST создаётся заявка, которую рассматривает организатор. К событиям "
+        "INVITE_ONLY и EXTERNAL присоединиться нельзя. Повторный вызов возвращает текущее "
+        "участие; повторная заявка после отклонения недоступна."
     ),
 )
 async def join_event(
-    event_id: uuid.UUID, body: JoinRequest, session: SessionDep
-) -> ParticipantResponse:
-    event = await _get_event(session, event_id)
-    user = await session.get(User, body.user_id)
-    if user is None:
-        raise HTTPException(404, "Пользователь не найден.")
-
-    if event.join_mode in (JoinMode.INVITE_ONLY, JoinMode.EXTERNAL):
-        raise HTTPException(409, "К этому событию нельзя присоединиться напрямую.")
-
-    participation = await session.get(Participation, (event_id, user.id))
-    if participation is not None:
-        if participation.status in (ParticipationStatus.GOING, ParticipationStatus.PENDING):
-            raise HTTPException(409, "Пользователь уже участвует или отправил заявку.")
-        if participation.status == ParticipationStatus.REJECTED:
-            raise HTTPException(409, "Заявка отклонена, повторная подача недоступна.")
-
-    is_open = event.join_mode == JoinMode.OPEN
-    if is_open and await _is_full(session, event):
-        raise HTTPException(409, "Мест нет.")
-
-    if participation is None:
-        participation = Participation(event_id=event_id, user=user)
-        session.add(participation)
-
-    participation.status = ParticipationStatus.GOING if is_open else ParticipationStatus.PENDING
-    participation.updated_at = datetime.now(UTC)
-    await session.commit()
-    return ParticipantResponse.model_validate(participation)
+    event_id: uuid.UUID, body: JoinEventDTO, events: EventServiceDep
+) -> ParticipantDTO:
+    return await events.join(event_id, body.user_id)
 
 
 @router.patch(
     "/{event_id}/participants/{user_id}",
     summary="Принять или отклонить заявку на участие.",
     description=(
-        "Действие организатора. Рассмотреть можно только заявку в статусе pending; "
-        "принять нельзя, если мест уже нет."
+        "Действие организатора или менеджера события. Рассмотреть можно только заявку "
+        "в статусе REQUESTED; принять нельзя, если мест уже нет."
     ),
 )
 async def review_participation(
-    event_id: uuid.UUID, user_id: uuid.UUID, body: ReviewRequest, session: SessionDep
-) -> ParticipantResponse:
-    participation = await session.get(Participation, (event_id, user_id))
-    if participation is None:
-        raise HTTPException(404, "Заявка не найдена.")
-    if participation.status != ParticipationStatus.PENDING:
-        raise HTTPException(409, "Заявка уже рассмотрена.")
-
-    if body.accept and await _is_full(session, await _get_event(session, event_id)):
-        raise HTTPException(409, "Мест нет.")
-
-    participation.status = (
-        ParticipationStatus.GOING if body.accept else ParticipationStatus.REJECTED
+    event_id: uuid.UUID, user_id: uuid.UUID, body: ReviewParticipationDTO, events: EventServiceDep
+) -> ParticipantDTO:
+    return await events.review_participation(
+        event_id, user_id, body.actor_id, accept=body.accept, reason=body.reason
     )
-    participation.updated_at = datetime.now(UTC)
-    await session.commit()
-    return ParticipantResponse.model_validate(participation)
 
 
 @router.delete(
@@ -262,42 +169,5 @@ async def review_participation(
     status_code=status.HTTP_204_NO_CONTENT,
     summary="Отменить участие или отозвать заявку.",
 )
-async def leave_event(event_id: uuid.UUID, user_id: uuid.UUID, session: SessionDep) -> None:
-    participation = await session.get(Participation, (event_id, user_id))
-    if participation is None or participation.status in (
-        ParticipationStatus.REJECTED,
-        ParticipationStatus.CANCELLED,
-    ):
-        raise HTTPException(404, "Участие не найдено.")
-
-    participation.status = ParticipationStatus.CANCELLED
-    participation.updated_at = datetime.now(UTC)
-    await session.commit()
-
-
-async def _get_event(session: AsyncSession, event_id: uuid.UUID) -> Event:
-    event = await session.get(Event, event_id)
-    if event is None:
-        raise HTTPException(404, "Событие не найдено.")
-    return event
-
-
-async def _load_event(session: AsyncSession, event_id: uuid.UUID) -> EventResponse:
-    events = await fetch_events(session, select_events().where(Event.id == event_id))
-    if not events:
-        raise HTTPException(404, "Событие не найдено.")
-    return events[0]
-
-
-async def _is_full(session: AsyncSession, event: Event) -> bool:
-    if event.max_participants is None:
-        return False
-    going = await session.scalar(
-        select(func.count())
-        .select_from(Participation)
-        .where(
-            Participation.event_id == event.id,
-            Participation.status == ParticipationStatus.GOING,
-        )
-    )
-    return going >= event.max_participants
+async def leave_event(event_id: uuid.UUID, user_id: uuid.UUID, events: EventServiceDep) -> None:
+    await events.leave(event_id, user_id)
