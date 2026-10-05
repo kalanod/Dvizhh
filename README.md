@@ -4,14 +4,14 @@
 
 ## Сервисы
 
-- `nginx` — публичная входная точка на `http://localhost:8080`;
+- `nginx` — публичная входная точка;
 - `web-app` — FastAPI-прокси, который отдаёт HTML/CSS/JS и перенаправляет `/api` в backend;
 - `backend` — основной FastAPI API;
 - `auth-api` — внутренний FastAPI-сервис аутентификации;
 - `recommendation-service` — отдельный FastAPI-сервис рекомендаций;
 - `postgres` — основная реляционная база;
 - `pgvector` — отдельный PostgreSQL с расширением pgvector;
-- `minio` — S3-совместимое файловое хранилище, консоль на `http://localhost:9001`.
+- `minio` — S3-совместимое файловое хранилище;
 - `minio-init` — одноразовый контейнер для создания bucket в MinIO.
 
 ## Структура
@@ -57,47 +57,5 @@ backend и хранилища доступны только внутри сет�
 
 ## Запуск
 
-1. Скопируйте `.env.example` в `.env` и замените пароли.
-2. Запустите проект:
-
-   ```shell
-   docker compose up --build
-   ```
-
-3. Откройте `http://localhost:8080`.
-
-Проверка API:
-
-```shell
-curl http://localhost:8080/api/health
-```
-
-Swagger основного backend: `http://localhost:8080/api/docs`.
-
-## Локальная разработка Python-сервисов
-
-Команды выполняются из каталога нужного сервиса, например `backend`:
-
-```shell
-uv sync --locked
-uv run ruff check .
-uv run pytest
-```
-
-Добавление зависимости и обновление lock-файла:
-
-```shell
-uv add package-name
-```
-
-Остановка контейнеров:
-
-```shell
-docker compose down
-```
-
-Чтобы дополнительно удалить локальные данные PostgreSQL, pgvector и MinIO:
-
-```shell
-docker compose down --volumes
-```
+Как запустить проект в Docker, открыть Swagger и работать с сервисами локально,
+описано в [RUNNING.md](RUNNING.md).

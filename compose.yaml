@@ -33,6 +33,7 @@ services:
       context: ./backend
     environment:
       APP_NAME: Dvizh API
+      REQUIRE_DATABASE: "true"
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-dvizh_app}:${POSTGRES_PASSWORD:-change-me}@postgres:5432/${POSTGRES_DB:-dvizh_data}
       VECTOR_DATABASE_URL: postgresql+asyncpg://${VECTOR_USER:-dvizh}:${VECTOR_PASSWORD:-change-me}@pgvector:5432/${VECTOR_DB:-dvizh_vectors}
       MINIO_ENDPOINT: minio:9000
@@ -136,7 +137,7 @@ services:
     ports:
       - "9001:9001"
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      test: ["CMD", "mc", "ready", "local"]
       interval: 5s
       timeout: 5s
       retries: 10
