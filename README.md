@@ -8,7 +8,7 @@
 - `web-app` — FastAPI-прокси, который отдаёт HTML/CSS/JS и перенаправляет `/api` в backend;
 - `backend` — основной FastAPI API;
 - `auth-api` — внутренний FastAPI-сервис аутентификации;
-- `recommendation-service` — отдельный FastAPI-сервис рекомендаций;
+- [recommendation-service](recommendation-service/README.md) — отдельный FastAPI-сервис рекомендаций;
 - `postgres` — основная реляционная база;
 - `pgvector` — отдельный PostgreSQL с расширением pgvector;
 - `minio` — S3-совместимое файловое хранилище, консоль на `http://localhost:9001`.

@@ -1,0 +1,30 @@
+syntax = "proto3";
+
+package dvizh.recommendation.v1;
+
+import "google/protobuf/struct.proto";
+
+service RecommendationService {
+  rpc GetRecommendations(GetRecommendationsRequest)
+      returns (GetRecommendationsResponse);
+}
+
+message GetRecommendationsRequest {
+  optional string user_id = 1;
+  optional string session_id = 2;
+  optional string request_id = 3;
+  map<string, google.protobuf.Value> context = 4;
+  map<string, google.protobuf.Value> filters = 6;
+  optional int32 page_size = 7;
+  optional string page_token = 8;
+}
+
+message GetRecommendationsResponse {
+  repeated RecommendationItem items = 1;
+  optional string next_page_token = 2;
+}
+
+message RecommendationItem {
+  // Backend events.id.
+  optional string item_id = 1;
+}
