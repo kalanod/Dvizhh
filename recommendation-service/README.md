@@ -17,6 +17,10 @@
 
 Метод: [RecommendationService.GetRecommendations](recommendation_service.proto).
 
+Сервер проверяет запрос и пока возвращает пустую выдачу. Расчёт рекомендаций,
+каталог, Redis и запись логов ещё не подключены. Запрос с `page_token` пока
+не поддерживается.
+
 ### Запрос
 
 | Поле | Содержание |
@@ -59,3 +63,30 @@ Backend загружает карточки по полученным ID, сох
 | Взаимодействие | `user_id`, `item_id`, `event_type`, `timestamp`, `session_id` и `request_id` исходной выдачи. |
 
 Значения `event_type` будут определены отдельно.
+
+## Запуск
+
+Из каталога `recommendation-service`:
+
+```bash
+uv sync --locked
+uv run python -m dvizh_recommendation.main
+```
+
+`GRPC_BIND_ADDRESS` — адрес сервера, по умолчанию `0.0.0.0:8001`.
+`SHUTDOWN_GRACE_SECONDS` — время завершения активных запросов при остановке,
+по умолчанию 5 секунд.
+
+Проверка здоровья и тесты:
+
+```bash
+uv run python -m dvizh_recommendation.healthcheck
+uv run pytest
+```
+
+После изменения proto обновить Python-код:
+
+```bash
+uv run python generate_proto.py
+uv run python generate_proto.py --check
+```
