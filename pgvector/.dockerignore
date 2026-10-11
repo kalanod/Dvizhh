@@ -1,2 +1,5 @@
-.DS_Store
-
+DS_Store
+.venv/
+test.py
+*.png
+seed_demo.py
