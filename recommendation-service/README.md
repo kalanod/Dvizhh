@@ -13,6 +13,36 @@
 Кандидаты → признаки → ранжирование выполняются внутри одного сервиса.
 Источники кандидатов и модели заменяются без изменения внешнего контракта.
 
+## Two-Tower и HNSW
+
+Two-Tower рассчитывает векторы пользователя и мероприятий.
+HNSW в pgvector ищет мероприятия по вектору пользователя.
+Контракты определены в [retrieval.py](src/dvizh_recommendation/retrieval.py).
+
+| Тип | Данные |
+| --- | --- |
+| `EmbeddingSpace` | Версия модели `model_id`, размерность `dimension`, метрика `metric`. |
+| `Embedding` | Описание пространства `space` и координаты вектора `values`. |
+| `IndexedItem` | `item_id`, `embedding` и метаданные из схемы `event_embeddings`. |
+| `ItemSearchQuery` | Вектор пользователя `embedding`, `filters`, число айтемов `limit`. |
+| `ScoredItem` | `item_id`, `retrieval_score`. |
+
+`model_id` обозначает версию модели и подготовки признаков.
+Векторы и индекс должны совпадать по версии, размерности и метрике.
+Результат поиска — уникальные айтемы по убыванию `retrieval_score`.
+Оценка остаётся внутри сервиса и может использоваться как признак ранкера.
+`limit` задаёт число найденных айтемов, `page_size` — размер страницы выдачи.
+
+## pgvector
+
+Данные `IndexedItem` соответствуют схеме `event_embeddings`
+из [PR #15](https://github.com/kalanod/Dvizhh/pull/15):
+`item_id` соответствует `event_id`, `model_id` — `model_name`.
+В этой схеме заданы 384 координаты и cosine; при выборе модели они должны совпадать
+с размерностью векторов и метрикой поиска.
+
+Сервис пока не рассчитывает embeddings и не обращается к pgvector.
+
 ## gRPC
 
 Метод: [RecommendationService.GetRecommendations](recommendation_service.proto).
@@ -62,7 +92,7 @@ Backend загружает карточки по полученным ID, сох
 | Выдача | `user_id`, `session_id`, `request_id`, рекомендованные `item_id` в исходном порядке. |
 | Взаимодействие | `user_id`, `item_id`, `event_type`, `timestamp`, `session_id` и `request_id` исходной выдачи. |
 
-Значения `event_type` будут определены отдельно.
+Клиентские `event_type` определены в [контракте взаимодействий](../backend/interactions.md).
 
 ## Запуск
 
