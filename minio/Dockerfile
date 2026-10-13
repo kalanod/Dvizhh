@@ -1,2 +1,1 @@
-FROM minio/minio:latest
-
+FROM ghcr.io/coollabsio/minio:latest

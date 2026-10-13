@@ -5,11 +5,13 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     app_name: str = "Dvizh API"
-    database_url: str
-    vector_database_url: str
-    minio_endpoint: str
-    minio_access_key: str
-    minio_secret_key: str
+    database_url: str = "postgresql+asyncpg://dvizh:change-me@localhost:5432/dvizh"
+    # Если False, приложение стартует и без БД — удобно, чтобы локально открыть Swagger.
+    require_database: bool = False
+    vector_database_url: str = "postgresql+asyncpg://dvizh:change-me@localhost:5433/dvizh_vectors"
+    minio_endpoint: str = "localhost:9000"
+    minio_access_key: str = "dvizh"
+    minio_secret_key: str = "change-me-please"
     minio_bucket: str = "media"
     recommendation_url: str = "http://recommendation-service:8001"
     auth_url: str = "http://auth-api:8003"
