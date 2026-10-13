@@ -4,14 +4,15 @@ version = "0.1.0"
 description = "Dvizh recommendation service"
 requires-python = ">=3.12,<3.13"
 dependencies = [
-    "asyncpg>=0.30,<1.0",
-    "fastapi>=0.115,<1.0",
+    "grpcio>=1.84,<2.0",
+    "grpcio-health-checking>=1.84,<2.0",
+    "protobuf>=7.35.1,<8.0",
     "pydantic-settings>=2.6,<3.0",
-    "uvicorn[standard]>=0.30,<1.0",
 ]
 
 [dependency-groups]
 dev = [
+    "grpcio-tools>=1.84,<2.0",
     "pytest>=8.3,<9.0",
     "ruff>=0.8,<1.0",
 ]
@@ -26,7 +27,7 @@ testpaths = ["tests"]
 [tool.ruff]
 line-length = 100
 target-version = "py312"
+extend-exclude = ["src/dvizh_recommendation/generated"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"]
-

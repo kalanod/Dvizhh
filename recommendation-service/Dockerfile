@@ -34,4 +34,4 @@ COPY --from=builder --chown=app:app /app/.venv /app/.venv
 USER app
 EXPOSE 8001
 
-CMD ["uvicorn", "dvizh_recommendation.main:app", "--host", "0.0.0.0", "--port", "8001"]
+CMD ["python", "-m", "dvizh_recommendation.main"]

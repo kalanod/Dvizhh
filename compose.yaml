@@ -86,7 +86,7 @@ services:
       pgvector:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')"]
+      test: ["CMD", "python", "-m", "dvizh_recommendation.healthcheck"]
       interval: 10s
       timeout: 3s
       retries: 5
