@@ -152,6 +152,7 @@ def make_event_service() -> EventService:
     service.queries.topic_slugs = AsyncMock(return_value={EVENT_ID: ["игры"]})
     service.queries.locations = AsyncMock(return_value={})
     service.queries.profiles = AsyncMock(return_value={USER_ID: profile})
+    service.queries.covers = AsyncMock(return_value={})
     return service
 
 

@@ -546,6 +546,26 @@ Table event_interactions {
   Note: 'Append-only behavioral log. Partition by occurred_at when volume justifies it; embeddings are explicitly excluded.'
 }
 
+Table event_notifications {
+  id uuid [pk, not null, default: `gen_random_uuid()`]
+  user_id uuid [not null]
+  event_id uuid [not null]
+  actor_id uuid
+  kind varchar(32) [not null, note: 'EVENT_UPDATED or EVENT_CANCELLED']
+  payload jsonb [not null]
+  created_at timestamptz [not null, default: `now()`]
+  read_at timestamptz
+
+  indexes {
+    (user_id, created_at, id) [name: 'ix_event_notifications_user_created']
+    (user_id, read_at) [name: 'ix_event_notifications_user_unread']
+  }
+}
+
+Ref: event_notifications.user_id > profiles.id [delete: cascade]
+Ref: event_notifications.event_id > events.id [delete: cascade]
+Ref: event_notifications.actor_id > profiles.id [delete: set null]
+
 Ref: profiles.avatar_media_id > media_assets.id [delete: set null]
 
 Ref: friendships.user_low_id > profiles.id [delete: cascade]

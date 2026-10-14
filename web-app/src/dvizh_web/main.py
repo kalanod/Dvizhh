@@ -58,15 +58,32 @@ async def proxy_backend(request: Request, path: str = "") -> Response:
     headers = {
         key: value
         for key, value in request.headers.items()
-        if key.lower() not in {"host", "content-length"}
+        if key.lower() not in {"host", "content-length", "transfer-encoding", "connection"}
     }
+
+    limit = settings.media_max_mib * 1024 * 1024
+    declared = request.headers.get("content-length")
+    if declared is not None:
+        try:
+            size = int(declared)
+        except ValueError as exc:
+            raise HTTPException(400, "Invalid Content-Length") from exc
+        if size < 0:
+            raise HTTPException(400, "Invalid Content-Length")
+        if size > limit:
+            raise HTTPException(413, "Request body exceeds size limit")
+    body = bytearray()
+    async for chunk in request.stream():
+        if len(body) + len(chunk) > limit:
+            raise HTTPException(413, "Request body exceeds size limit")
+        body.extend(chunk)
 
     try:
         upstream = await request.app.state.backend_client.request(
             request.method,
             target,
             params=request.query_params,
-            content=await request.body(),
+            content=bytes(body),
             headers=headers,
         )
     except httpx.RequestError as exc:

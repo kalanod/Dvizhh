@@ -159,7 +159,7 @@ class UserService:
 
     @staticmethod
     def _require_active(profile: Profile) -> None:
-        if profile.status != ProfileStatus.ACTIVE:
+        if profile.status != ProfileStatus.ACTIVE or profile.deleted_at is not None:
             raise UserInactiveError("Profile is not active")
 
     async def _require_available_username(self, username: str) -> None:

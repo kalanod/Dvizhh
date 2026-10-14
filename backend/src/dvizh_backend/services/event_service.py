@@ -6,10 +6,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from dvizh_backend.database.models import Event, EventOccurrence, Profile
 from dvizh_backend.database.models.enums import EventOrigin, EventStatus, ProfileStatus
+from dvizh_backend.database.services.access import can_manage_event
 from dvizh_backend.database.services.catalog import LocationService, ProfileService
 from dvizh_backend.database.services.event_queries import EventQueryService, EventRow
 from dvizh_backend.database.services.events import EventService as EventCRUDService
-from dvizh_backend.database.services.exceptions import EntityNotFoundError
+from dvizh_backend.database.services.exceptions import (
+    EntityNotFoundError,
+    InvalidStateTransitionError,
+    PermissionDeniedError,
+)
 from dvizh_backend.database.services.participation import ParticipationService
 from dvizh_backend.dto.event import (
     CreateEventDTO,
@@ -21,6 +26,7 @@ from dvizh_backend.dto.event import (
 )
 
 from .errors import UserInactiveError, UserNotFoundError
+from .notification_service import NotificationService
 
 
 class EventService:
@@ -36,6 +42,8 @@ class EventService:
         self.participations = ParticipationService(session)
         self.profiles = ProfileService(session)
         self.locations = LocationService(session)
+        self.session = session
+        self.notifications = NotificationService(session)
 
     async def list_public(
         self,
@@ -67,18 +75,22 @@ class EventService:
         await self._require_active_profile(user_id)
         return await self._to_dtos(await self.queries.list_going(user_id))
 
-    async def get_event(self, event_id: UUID) -> EventDTO:
+    async def get_event(self, event_id: UUID, viewer_id: UUID | None = None) -> EventDTO:
         row = await self._require_row(event_id)
+        if row.event.status == EventStatus.DRAFT and (
+            viewer_id is None or not await can_manage_event(self.session, row.event, viewer_id)
+        ):
+            raise PermissionDeniedError("Draft is only available to its managers")
         return (await self._to_dtos([row]))[0]
 
-    async def create_event(self, data: CreateEventDTO) -> EventDTO:
+    async def create_event(self, data: CreateEventDTO, *, draft: bool = False) -> EventDTO:
         await self._require_active_profile(data.organizer_id)
         location_id = await self._save_location(None, data.location)
         event = Event(
             slug=self._make_slug(data.title),
             origin=EventOrigin.USER,
-            status=EventStatus.PUBLISHED,
-            published_at=datetime.now(UTC),
+            status=EventStatus.DRAFT if draft else EventStatus.PUBLISHED,
+            published_at=None if draft else datetime.now(UTC),
             organizer_user_id=data.organizer_id,
             created_by_user_id=data.organizer_id,
             location_id=location_id,
@@ -87,9 +99,39 @@ class EventService:
         occurrence = EventOccurrence(**data.occurrence_columns())
         topic_ids = await self.queries.ensure_topics(data.tags)
         await self.events.create_with_occurrence(event, occurrence, topic_ids=topic_ids)
-        return await self.get_event(event.id)
+        return await self.get_event(event.id, viewer_id=data.organizer_id)
 
-    async def update_event(self, event_id: UUID, data: UpdateEventDTO) -> EventDTO:
+    async def list_drafts(
+        self, user_id: UUID, *, offset: int = 0, limit: int = 20
+    ) -> list[EventDTO]:
+        await self._require_active_profile(user_id)
+        return await self._to_dtos(
+            await self.queries.list_drafts(user_id, offset=offset, limit=limit)
+        )
+
+    async def publish(self, event_id: UUID, actor_id: UUID) -> EventDTO:
+        await self._require_active_profile(actor_id)
+        await self.events.publish(event_id, actor_id)
+        return await self.get_event(event_id, viewer_id=actor_id)
+
+    async def cancel_event(self, event_id: UUID, actor_id: UUID) -> EventDTO:
+        await self._require_active_profile(actor_id)
+        event = await self.events._get_locked(event_id)
+        await self.events._require_manager(event, actor_id)
+        if event.status != EventStatus.CANCELLED:
+            await self.events.cancel(event_id, actor_id)
+            await self.notifications.event_changed(
+                event, actor_id, kind="EVENT_CANCELLED", changed_fields=["status"]
+            )
+        return await self.get_event(event_id, viewer_id=actor_id)
+
+    async def update_event(self, event_id: UUID, data: UpdateEventDTO, actor_id: UUID) -> EventDTO:
+        await self._require_active_profile(actor_id)
+        locked = await self.events._get_locked(event_id)
+        await self.events._require_manager(locked, actor_id)
+        if locked.status not in {EventStatus.DRAFT, EventStatus.PUBLISHED}:
+            raise InvalidStateTransitionError("Only drafts and published events can be edited")
+        before = await self.get_event(event_id, viewer_id=actor_id)
         row = await self._require_row(event_id)
         previous_location_id = row.event.location_id
         location_id = await self._save_location(previous_location_id, data.location)
@@ -99,10 +141,25 @@ class EventService:
         if location_id is None and previous_location_id is not None:
             await self._delete_location(previous_location_id)
         await self.queries.replace_topics(event_id, await self.queries.ensure_topics(data.tags))
-        return await self.get_event(event_id)
+        after = await self.get_event(event_id, viewer_id=actor_id)
+        changed = [
+            key
+            for key, value in before.model_dump(mode="json").items()
+            if value != after.model_dump(mode="json")[key]
+        ]
+        if changed and locked.status == EventStatus.PUBLISHED:
+            await self.notifications.event_changed(
+                locked, actor_id, kind="EVENT_UPDATED", changed_fields=changed
+            )
+        return after
 
-    async def delete_event(self, event_id: UUID) -> None:
+    async def delete_event(self, event_id: UUID, actor_id: UUID) -> None:
+        await self._require_active_profile(actor_id)
+        event = await self.events._get_locked(event_id)
+        await self.events._require_manager(event, actor_id)
         row = await self._require_row(event_id)
+        if event.status == EventStatus.PUBLISHED:
+            await self.cancel_event(event_id, actor_id)
         await self.events.update(row.event, deleted_at=datetime.now(UTC))
 
     async def list_participants(self, event_id: UUID) -> list[ParticipantDTO]:
@@ -160,7 +217,7 @@ class EventService:
 
     async def _require_active_profile(self, user_id: UUID) -> Profile:
         profile = await self._require_profile(user_id)
-        if profile.status != ProfileStatus.ACTIVE:
+        if profile.status != ProfileStatus.ACTIVE or profile.deleted_at is not None:
             raise UserInactiveError("Profile is not active")
         return profile
 
@@ -194,6 +251,7 @@ class EventService:
         )
 
         dtos = []
+        covers = await self.queries.covers(event.id for event in events)
         for row in rows:
             event, occurrence = row.event, row.occurrence
             location = locations.get(event.location_id)
@@ -226,6 +284,10 @@ class EventService:
                     organizer=UserSummaryDTO.model_validate(organizer) if organizer else None,
                     published_at=event.published_at,
                     created_at=event.created_at,
+                    cover_media_id=covers.get(event.id),
+                    cover_url=(
+                        f"/api/media/{covers[event.id]}/content" if event.id in covers else None
+                    ),
                 )
             )
         return dtos
