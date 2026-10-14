@@ -8,6 +8,7 @@ dependencies = [
     "asyncpg>=0.30,<1.0",
     "fastapi>=0.115,<1.0",
     "minio>=7.2,<8.0",
+    "pillow>=12.0,<13.0",
     "pydantic-settings>=2.6,<3.0",
     "sqlalchemy[asyncio]>=2.0,<3.0",
     "tzdata>=2026.5",
@@ -16,6 +17,7 @@ dependencies = [
 
 [dependency-groups]
 dev = [
+    "httpx>=0.28,<1.0",
     "pytest>=8.3,<9.0",
     "ruff>=0.8,<1.0",
 ]

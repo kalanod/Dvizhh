@@ -20,6 +20,7 @@ from .external import ExternalEventLink, ExternalSource
 from .identity import Friendship, Organization, OrganizationMember, Profile
 from .interactions import EventInteraction
 from .media import EventMedia, EventStory, MediaAsset, StoryItem
+from .notifications import EventNotification
 
 __all__ = [
     "Event",
@@ -29,6 +30,7 @@ __all__ = [
     "EventInvitation",
     "EventManager",
     "EventMedia",
+    "EventNotification",
     "EventOccurrence",
     "EventParticipation",
     "EventStory",

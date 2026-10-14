@@ -199,6 +199,8 @@ class EventDTO(BaseModel):
     organizer: UserSummaryDTO | None
     published_at: datetime | None
     created_at: datetime
+    cover_media_id: UUID | None = None
+    cover_url: str | None = None
 
 
 class JoinEventDTO(BaseModel):

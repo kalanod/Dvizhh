@@ -17,8 +17,18 @@ from ..services.errors import (
     UsernameTakenError,
     UserNotFoundError,
 )
+from ..services.media_errors import (
+    InvalidImageError,
+    MediaTooLargeError,
+    MediaUnavailableError,
+    StorageUnavailableError,
+)
 
 STATUS_BY_ERROR: dict[type[Exception], int] = {
+    InvalidImageError: 415,
+    MediaTooLargeError: 413,
+    MediaUnavailableError: 409,
+    StorageUnavailableError: 503,
     EntityNotFoundError: status.HTTP_404_NOT_FOUND,
     UserNotFoundError: status.HTTP_404_NOT_FOUND,
     PermissionDeniedError: status.HTTP_403_FORBIDDEN,

@@ -8,19 +8,23 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import (
     Event,
+    EventMedia,
     EventOccurrence,
     EventParticipation,
     EventTopic,
     Friendship,
     Location,
+    MediaAsset,
     Profile,
     Topic,
 )
 from ..models.enums import (
+    EventMediaRole,
     EventPriceType,
     EventStatus,
     EventVisibility,
     FriendshipStatus,
+    MediaStatus,
     OccurrenceStatus,
     ParticipationStatus,
 )
@@ -140,8 +144,39 @@ class EventQueryService:
             EventParticipation.status == ParticipationStatus.GOING,
         )
         return await self._fetch(
-            self._select_rows().where(is_going).order_by(EventOccurrence.starts_at)
+            self._select_rows()
+            .where(
+                is_going,
+                Event.status == EventStatus.PUBLISHED,
+                EventOccurrence.status == OccurrenceStatus.SCHEDULED,
+            )
+            .order_by(EventOccurrence.starts_at)
         )
+
+    async def list_drafts(self, user_id: UUID, *, offset: int, limit: int) -> list[EventRow]:
+        return await self._fetch(
+            self._select_rows()
+            .where(
+                Event.organizer_user_id == user_id,
+                Event.status == EventStatus.DRAFT,
+            )
+            .order_by(Event.updated_at.desc(), Event.id)
+            .offset(offset)
+            .limit(limit)
+        )
+
+    async def covers(self, event_ids: Iterable[UUID]) -> dict[UUID, UUID]:
+        result = await self.session.execute(
+            select(EventMedia.event_id, EventMedia.media_id)
+            .join(MediaAsset, MediaAsset.id == EventMedia.media_id)
+            .where(
+                EventMedia.event_id.in_(list(event_ids)),
+                EventMedia.role == EventMediaRole.COVER,
+                MediaAsset.status == MediaStatus.READY,
+                MediaAsset.deleted_at.is_(None),
+            )
+        )
+        return dict(result.all())
 
     async def list_participants(
         self, occurrence_id: UUID
