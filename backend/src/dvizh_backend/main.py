@@ -6,7 +6,7 @@ from fastapi import FastAPI, Request
 
 from .config import get_settings
 from .database.database_service import DatabaseService
-from .routers import events, friends, users
+from .routers import events, friends, personal, users
 from .routers.errors import register_error_handlers
 
 settings = get_settings()
@@ -41,6 +41,7 @@ app = FastAPI(
 app.include_router(users.router)
 app.include_router(friends.router)
 app.include_router(events.router)
+app.include_router(personal.router)
 register_error_handlers(app)
 
 

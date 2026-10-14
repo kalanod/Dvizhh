@@ -82,3 +82,8 @@ class FriendshipDTO(UserDTO):
     requested_at: datetime
     responded_at: datetime | None
     removed_at: datetime | None
+
+
+class FriendshipRequestDTO(UserDTO):
+    friendship: FriendshipDTO
+    user: ProfileDTO

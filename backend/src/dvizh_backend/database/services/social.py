@@ -34,11 +34,36 @@ class FriendshipService:
 
     async def list_accepted_for_user(self, user_id: UUID) -> list[Friendship]:
         result = await self.session.scalars(
-            select(Friendship).where(
+            select(Friendship)
+            .where(
                 Friendship.status == FriendshipStatus.ACCEPTED,
                 or_(Friendship.user_low_id == user_id, Friendship.user_high_id == user_id),
-            ).order_by(
+            )
+            .order_by(
                 Friendship.responded_at.desc(), Friendship.user_low_id, Friendship.user_high_id
             )
+        )
+        return list(result.all())
+
+    async def list_pending(
+        self, user_id: UUID, *, incoming: bool, offset: int = 0, limit: int = 20
+    ) -> list[Friendship]:
+        direction = (
+            Friendship.requested_by_user_id != user_id
+            if incoming
+            else Friendship.requested_by_user_id == user_id
+        )
+        result = await self.session.scalars(
+            select(Friendship)
+            .where(
+                Friendship.status == FriendshipStatus.PENDING,
+                or_(Friendship.user_low_id == user_id, Friendship.user_high_id == user_id),
+                direction,
+            )
+            .order_by(
+                Friendship.requested_at.desc(), Friendship.user_low_id, Friendship.user_high_id
+            )
+            .offset(offset)
+            .limit(limit)
         )
         return list(result.all())

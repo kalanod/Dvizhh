@@ -1,5 +1,6 @@
 import re
 from datetime import UTC, date, datetime
+from typing import Literal
 from uuid import UUID, uuid4
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -7,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from dvizh_backend.database.models import Event, EventOccurrence, Profile
 from dvizh_backend.database.models.enums import EventOrigin, EventStatus, ProfileStatus
 from dvizh_backend.database.services.catalog import LocationService, ProfileService
+from dvizh_backend.database.services.engagement import EngagementService, InvitationService
 from dvizh_backend.database.services.event_queries import EventQueryService, EventRow
 from dvizh_backend.database.services.events import EventService as EventCRUDService
 from dvizh_backend.database.services.exceptions import EntityNotFoundError
@@ -19,6 +21,7 @@ from dvizh_backend.dto.event import (
     UpdateEventDTO,
     UserSummaryDTO,
 )
+from dvizh_backend.dto.invitation import CreateInvitationDTO, InvitationCardDTO, InvitationDTO
 
 from .errors import UserInactiveError, UserNotFoundError
 
@@ -36,6 +39,8 @@ class EventService:
         self.participations = ParticipationService(session)
         self.profiles = ProfileService(session)
         self.locations = LocationService(session)
+        self.engagement = EngagementService(session)
+        self.invitations = InvitationService(session)
 
     async def list_public(
         self,
@@ -49,7 +54,10 @@ class EventService:
         friends_of: UUID | None = None,
         offset: int = 0,
         limit: int = 20,
+        viewer_id: UUID | None = None,
     ) -> list[EventDTO]:
+        if viewer_id is not None:
+            await self._require_active_profile(viewer_id)
         rows = await self.queries.list_public(
             text_query=text_query.strip() if text_query and text_query.strip() else None,
             tag=tag.strip().lower() if tag and tag.strip() else None,
@@ -60,16 +68,92 @@ class EventService:
             friends_of=friends_of,
             offset=offset,
             limit=limit,
+            viewer_id=viewer_id,
         )
-        return await self._to_dtos(rows)
+        return await self._to_dtos(rows, viewer_id=viewer_id)
 
     async def list_calendar(self, user_id: UUID) -> list[EventDTO]:
         await self._require_active_profile(user_id)
-        return await self._to_dtos(await self.queries.list_going(user_id))
+        return await self._to_dtos(await self.queries.list_going(user_id), viewer_id=user_id)
 
-    async def get_event(self, event_id: UUID) -> EventDTO:
+    async def get_event(self, event_id: UUID, viewer_id: UUID | None = None) -> EventDTO:
+        if viewer_id is not None:
+            await self._require_active_profile(viewer_id)
         row = await self._require_row(event_id)
-        return (await self._to_dtos([row]))[0]
+        return (await self._to_dtos([row], viewer_id=viewer_id))[0]
+
+    async def list_personal(
+        self,
+        user_id: UUID,
+        *,
+        kind: Literal["organized", "participating", "requested", "favorites", "dismissed"],
+        offset: int = 0,
+        limit: int = 20,
+    ) -> list[EventDTO]:
+        await self._require_active_profile(user_id)
+        rows = await self.queries.list_personal(user_id, kind=kind, offset=offset, limit=limit)
+        return await self._to_dtos(rows, viewer_id=user_id)
+
+    async def set_favorite(self, event_id: UUID, user_id: UUID, *, enabled: bool) -> EventDTO:
+        await self._require_active_profile(user_id)
+        await self._require_row(event_id)
+        if enabled:
+            await self.engagement.add_favorite(user_id, event_id)
+        else:
+            await self.engagement.remove_favorite(user_id, event_id)
+        return await self.get_event(event_id, viewer_id=user_id)
+
+    async def set_dismissed(self, event_id: UUID, user_id: UUID, *, enabled: bool) -> EventDTO:
+        await self._require_active_profile(user_id)
+        await self._require_row(event_id)
+        if enabled:
+            await self.engagement.dismiss(user_id, event_id)
+        else:
+            await self.engagement.undo_dismissal(user_id, event_id)
+        return await self.get_event(event_id, viewer_id=user_id)
+
+    async def invite(self, event_id: UUID, data: CreateInvitationDTO) -> InvitationDTO:
+        await self._require_active_profile(data.actor_id)
+        await self._require_active_profile(data.invitee_id)
+        row = await self._require_row(event_id)
+        invitation = await self.invitations.invite(
+            occurrence_id=row.occurrence.id,
+            inviter_user_id=data.actor_id,
+            invitee_user_id=data.invitee_id,
+            message=data.message,
+            expires_at=data.expires_at,
+        )
+        return InvitationDTO.model_validate(invitation)
+
+    async def list_invitations(
+        self, user_id: UUID, *, offset: int = 0, limit: int = 20
+    ) -> list[InvitationCardDTO]:
+        await self._require_active_profile(user_id)
+        invitations = await self.invitations.list_incoming(user_id, offset=offset, limit=limit)
+        rows = await self.queries.get_occurrences([item.occurrence_id for item in invitations])
+        dtos = {card.occurrence_id: card for card in await self._to_dtos(rows, viewer_id=user_id)}
+        return [
+            InvitationCardDTO(
+                invitation=InvitationDTO.model_validate(item), event=dtos[item.occurrence_id]
+            )
+            for item in invitations
+            if item.occurrence_id in dtos
+        ]
+
+    async def respond_to_invitation(
+        self, invitation_id: UUID, user_id: UUID, *, accept: bool
+    ) -> InvitationDTO:
+        await self._require_active_profile(user_id)
+        if accept:
+            await self.participations.accept_invitation(invitation_id, user_id)
+            invitation = await self.invitations.get(invitation_id)
+        else:
+            invitation = await self.invitations.decline(invitation_id, user_id)
+        return InvitationDTO.model_validate(invitation)
+
+    async def revoke_invitation(self, invitation_id: UUID, actor_id: UUID) -> InvitationDTO:
+        await self._require_active_profile(actor_id)
+        return InvitationDTO.model_validate(await self.invitations.revoke(invitation_id, actor_id))
 
     async def create_event(self, data: CreateEventDTO) -> EventDTO:
         await self._require_active_profile(data.organizer_id)
@@ -160,7 +244,7 @@ class EventService:
 
     async def _require_active_profile(self, user_id: UUID) -> Profile:
         profile = await self._require_profile(user_id)
-        if profile.status != ProfileStatus.ACTIVE:
+        if profile.status != ProfileStatus.ACTIVE or profile.deleted_at is not None:
             raise UserInactiveError("Profile is not active")
         return profile
 
@@ -181,7 +265,9 @@ class EventService:
         if location is not None:
             await self.locations.delete(location)
 
-    async def _to_dtos(self, rows: list[EventRow]) -> list[EventDTO]:
+    async def _to_dtos(
+        self, rows: list[EventRow], *, viewer_id: UUID | None = None
+    ) -> list[EventDTO]:
         if not rows:
             return []
         events = [row.event for row in rows]
@@ -194,6 +280,9 @@ class EventService:
         )
 
         dtos = []
+        personal_states = (
+            await self.queries.personal_states(viewer_id, rows) if viewer_id is not None else {}
+        )
         for row in rows:
             event, occurrence = row.event, row.occurrence
             location = locations.get(event.location_id)
@@ -226,6 +315,7 @@ class EventService:
                     organizer=UserSummaryDTO.model_validate(organizer) if organizer else None,
                     published_at=event.published_at,
                     created_at=event.created_at,
+                    personal_state=personal_states.get(occurrence.id),
                 )
             )
         return dtos
