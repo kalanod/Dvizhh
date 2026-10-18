@@ -81,8 +81,11 @@ services:
       context: ./recommendation-service
     environment:
       APP_NAME: Dvizh Recommendation Service
-      VECTOR_DATABASE_URL: postgresql+asyncpg://${VECTOR_USER:-dvizh}:${VECTOR_PASSWORD:-change-me}@pgvector:5432/${VECTOR_DB:-dvizh_vectors}
+      SOURCE_DATABASE_URL: postgresql://recsys_reader:${RECSYS_READER_PASSWORD:-change-me}@postgres:5432/${POSTGRES_DB:-dvizh_data}
+      VECTOR_DATABASE_URL: postgresql://${VECTOR_USER:-dvizh}:${VECTOR_PASSWORD:-change-me}@pgvector:5432/${VECTOR_DB:-dvizh_vectors}
     depends_on:
+      postgres:
+        condition: service_healthy
       pgvector:
         condition: service_healthy
     healthcheck:
@@ -100,6 +103,7 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-dvizh_data}
       POSTGRES_USER: ${POSTGRES_USER:-dvizh_app}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
+      RECSYS_READER_PASSWORD: ${RECSYS_READER_PASSWORD:-change-me}
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
