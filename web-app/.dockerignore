@@ -6,3 +6,6 @@ __pycache__
 .git
 tests
 .DS_Store
+frontend/node_modules
+frontend/dist
+src/dvizh_web/static

@@ -8,3 +8,9 @@ __pycache__/
 
 Concept.pdf
 database.md
+
+/pattern_front
+node_modules/
+
+# Сборка фронтенда (npm run build в web-app/frontend)
+web-app/src/dvizh_web/static/

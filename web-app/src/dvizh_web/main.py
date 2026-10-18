@@ -30,17 +30,17 @@ app = FastAPI(
     openapi_url=None,
     lifespan=lifespan,
 )
-app.mount("/static", StaticFiles(directory=static_dir), name="static")
+# Сборка фронтенда (web-app/frontend) появляется в static/ после `npm run build`.
+app.mount(
+    "/assets",
+    StaticFiles(directory=static_dir / "assets", check_dir=False),
+    name="assets",
+)
 
 
 @app.get("/health", include_in_schema=False)
 async def health() -> dict[str, str]:
     return {"status": "ok", "service": "web-app"}
-
-
-@app.get("/", include_in_schema=False)
-async def index() -> FileResponse:
-    return FileResponse(static_dir / "index.html")
 
 
 @app.api_route(
@@ -83,3 +83,17 @@ async def proxy_backend(request: Request, path: str = "") -> Response:
         status_code=upstream.status_code,
         headers=response_headers,
     )
+
+
+@app.get("/{path:path}", include_in_schema=False)
+async def frontend(path: str = "") -> FileResponse:
+    """Отдаёт файлы сборки, а для остальных путей — index.html (маршрутизация SPA)."""
+    root = static_dir.resolve()
+    candidate = (root / path).resolve()
+    if path and candidate.is_relative_to(root) and candidate.is_file():
+        return FileResponse(candidate)
+
+    index_file = root / "index.html"
+    if not index_file.is_file():
+        raise HTTPException(status_code=503, detail="Frontend is not built")
+    return FileResponse(index_file, headers={"Cache-Control": "no-cache"})

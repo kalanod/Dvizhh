@@ -79,3 +79,31 @@ uv run alembic upgrade head
 ```shell
 uv add package-name
 ```
+
+## Локальная разработка фронтенда
+
+Нужен Node.js 22+. Команды выполняются из `web-app/frontend`:
+
+```shell
+npm ci
+npm run dev     # http://localhost:5173, /api проксируется в backend
+npm run lint
+npm run build   # сборка в web-app/src/dvizh_web/static
+```
+
+Dev-сервер по умолчанию отправляет `/api` на `http://localhost:8000` (локальный backend).
+Чтобы работать с API из Docker, укажите адрес nginx:
+
+```shell
+BACKEND_URL=http://localhost:8080 npm run dev
+```
+
+После `npm run build` собранный фронтенд отдаёт и локальный web-app:
+
+```shell
+cd web-app
+uv run uvicorn dvizh_web.main:app --reload --port 8002
+```
+
+Авторизации пока нет: при регистрации создаётся профиль через `POST /api/users`,
+а вход выполняется по ID профиля (он показан на странице профиля).

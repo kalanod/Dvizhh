@@ -5,7 +5,7 @@ services:
     build:
       context: ./nginx
     ports:
-      - "8080:80"
+      - "${NGINX_PORT:-8080}:80"
     depends_on:
       web-app:
         condition: service_healthy
