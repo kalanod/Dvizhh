@@ -1,19 +1,38 @@
+from __future__ import annotations
+
 import os
 import socket
 import subprocess
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import grpc
+import pytest
+
+if TYPE_CHECKING:
+    from conftest import IntegrationDatabases
 
 
-def test_server_process_passes_healthcheck_and_exits_cleanly_on_sigterm() -> None:
+pytestmark = pytest.mark.integration
+
+
+def test_server_process_passes_healthcheck_and_exits_cleanly_on_sigterm(
+    integration_databases: IntegrationDatabases,
+) -> None:
     service_dir = Path(__file__).resolve().parents[1]
     with socket.socket() as reservation:
         reservation.bind(("127.0.0.1", 0))
         port = reservation.getsockname()[1]
     address = f"127.0.0.1:{port}"
-    environment = {**os.environ, "GRPC_BIND_ADDRESS": address}
+    environment = {
+        **os.environ,
+        "GRPC_BIND_ADDRESS": address,
+        "SOURCE_DATABASE_URL": integration_databases.source_url,
+        "VECTOR_DATABASE_URL": integration_databases.vector_url,
+        "DATABASE_TIMEOUT_SECONDS": "2",
+        "SHUTDOWN_GRACE_SECONDS": "1",
+    }
     healthcheck_command = [sys.executable, "-m", "dvizh_recommendation.healthcheck"]
 
     process = subprocess.Popen(
