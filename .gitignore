@@ -8,3 +8,6 @@ __pycache__/
 
 Concept.pdf
 database.md
+
+.DS_Store
+pgvector/.DS_Store
