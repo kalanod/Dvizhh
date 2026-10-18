@@ -20,11 +20,18 @@ class UserDTO(BaseModel):
 
 class CreateProfileDTO(UserDTO):
     id: UUID = Field(description="User ID issued by the auth service")
-    username: str = Field(min_length=3, max_length=50, pattern=r"^[a-z0-9_]+$")
-    display_name: str = Field(min_length=1, max_length=120)
-    bio: str | None = Field(default=None, max_length=2000)
-    avatar_media_id: UUID | None = None
-    city: str | None = Field(default=None, min_length=1, max_length=120)
+    username: str = Field(
+        min_length=3,
+        max_length=50,
+        pattern=r"^[a-z0-9_]+$",
+        description="Уникальное имя пользователя: строчные латинские буквы, цифры и «_».",
+    )
+    display_name: str = Field(min_length=1, max_length=120, description="Отображаемое имя.")
+    bio: str | None = Field(default=None, max_length=2000, description="О себе.")
+    avatar_media_id: UUID | None = Field(
+        default=None, description="Готовый медиафайл пользователя для аватара."
+    )
+    city: str | None = Field(default=None, min_length=1, max_length=120, description="Город.")
     latitude: Decimal | None = Field(default=None, ge=-90, le=90, max_digits=9, decimal_places=6)
     longitude: Decimal | None = Field(default=None, ge=-180, le=180, max_digits=9, decimal_places=6)
 

@@ -23,6 +23,7 @@ from dvizh_backend.database.services.exceptions import EntityNotFoundError
 from dvizh_backend.dto.event import CreateEventDTO, UpdateEventDTO
 from dvizh_backend.main import app
 from dvizh_backend.routers.errors import STATUS_BY_ERROR
+from dvizh_backend.routers.users import UserCreate
 from dvizh_backend.services.errors import UserNotFoundError
 from dvizh_backend.services.event_service import EventService
 
@@ -226,3 +227,30 @@ def test_missing_event_is_reported_before_any_write() -> None:
         service.participations.join.assert_not_awaited()
 
     asyncio.run(scenario())
+
+
+def test_user_create_body_follows_profile_rules() -> None:
+    body = UserCreate.model_validate({"username": "first", "display_name": "First"})
+    assert isinstance(body.id, UUID)
+
+    # В JSON идентификатор приходит строкой.
+    assert (
+        UserCreate.model_validate(
+            {"id": str(USER_ID), "username": "first", "display_name": "First"}
+        ).id
+        == USER_ID
+    )
+
+    for invalid in (
+        {"username": "first", "display_name": "  "},
+        {"username": "first", "display_name": " First"},
+        {"username": "Bad Name", "display_name": "First"},
+        {"username": "first", "display_name": "First", "latitude": 55.75},
+        {"username": "first", "display_name": "First", "unknown_field": True},
+    ):
+        with pytest.raises(ValidationError):
+            UserCreate.model_validate(invalid)
+
+
+def test_validation_errors_inside_the_server_are_not_reported_as_client_errors() -> None:
+    assert ValidationError not in app.exception_handlers
