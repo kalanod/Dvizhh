@@ -15,7 +15,7 @@ interface EventFormProps {
 }
 
 const Section = ({ title, children }: { title: string; children: ReactNode }) => (
-    <fieldset className="flex flex-col gap-4 rounded-lg border-2 border-borderlight p-4">
+    <fieldset className="flex min-w-0 flex-col gap-4 rounded-lg border-2 border-borderlight p-3 sm:p-4">
         <legend className="px-2 text-h3 text-textsecondary">{title}</legend>
         {children}
     </fieldset>
@@ -53,7 +53,7 @@ export const EventForm = ({ title, submitLabel, initial, onSubmit, onCancel }: E
         <form
             onSubmit={handleSubmit}
             noValidate
-            className="flex w-full flex-col gap-5 rounded-lg bg-cards-surface p-8"
+            className="flex w-full flex-col gap-5 rounded-lg bg-cards-surface p-4 sm:p-8"
         >
             <div className="flex flex-col gap-1">
                 <h1 className="text-h1 text-textprimary">{title}</h1>

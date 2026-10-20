@@ -9,7 +9,7 @@ interface MainLayoutProps {
 export const MainLayout = ({ children, showCreateButton = true }: MainLayoutProps) => (
     <div className="relative flex w-full flex-col gap-5">
         <PageHeader />
-        <div className="flex w-full flex-col">{children}</div>
+        <div className={`flex w-full flex-col ${showCreateButton ? "pb-16" : ""}`}>{children}</div>
         {showCreateButton && <CreateEventButton />}
     </div>
 );

@@ -23,7 +23,7 @@ export const RightPanel = ({
     canFilterByFriends,
     children,
 }: RightPanelProps) => (
-    <div className="flex w-full flex-col gap-[10px] md:w-[300px] md:shrink-0">
+    <div className="flex w-full flex-col gap-[10px] max-lg:order-first lg:w-[300px] lg:shrink-0">
         {children}
 
         <aside className="flex h-fit w-full flex-col gap-[10px] rounded-lg bg-background p-[10px]">

@@ -107,7 +107,7 @@ export const EventSection = ({ title }: EventSectionProps) => {
     );
 
     return (
-        <section className="flex w-full flex-col gap-[10px] md:flex-row md:items-start">
+        <section className="flex w-full flex-col gap-[10px] lg:flex-row lg:items-start">
             <div className="flex min-w-0 flex-1 flex-col gap-[10px]">
                 {activeChips.length > 0 && (
                     <div className="flex flex-wrap items-center gap-2 rounded-lg bg-cards-surface px-4 py-3">
@@ -154,7 +154,12 @@ export const EventSection = ({ title }: EventSectionProps) => {
                 suggestedTags={suggestedTags}
                 canFilterByFriends={Boolean(userId)}
             >
-                {userId && <CalendarPreview userId={userId} />}
+                {/* На телефоне и планшете превью календаря скрыто: оно отодвигало бы ленту, а календарь есть в меню. */}
+                {userId && (
+                    <div className="hidden lg:block">
+                        <CalendarPreview userId={userId} />
+                    </div>
+                )}
             </RightPanel>
         </section>
     );

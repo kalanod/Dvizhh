@@ -58,13 +58,13 @@ const ProfileDetailsSection = ({ profileId }: { profileId: string }) => {
                         <p className="text-h2 text-textprimary">{errorText(profileState.error)}</p>
                     </div>
                 ) : (
-                    <div className="flex w-full flex-col items-start gap-[10px] rounded-lg bg-cards-surface p-8">
+                    <div className="flex w-full flex-col items-start gap-[10px] rounded-lg bg-cards-surface p-4 sm:p-8">
                         <div className="mb-4 flex w-full flex-wrap items-center justify-between gap-2">
                             <h2 className="text-h2 text-textprimary">{isMe ? "Профиль" : "Профиль пользователя"}</h2>
                             {!isMe && userId && <FriendshipActions me={userId} other={profile} onChanged={friendsState.reload} />}
                         </div>
 
-                        <div className="flex w-full flex-wrap gap-8">
+                        <div className="flex w-full flex-wrap gap-6 sm:gap-8">
                             <Avatar name={profile.display_name} size="lg" />
                             <div className="flex min-w-0 flex-1 flex-col gap-6">
                                 <Field label="Имя">{profile.display_name}</Field>
@@ -78,7 +78,7 @@ const ProfileDetailsSection = ({ profileId }: { profileId: string }) => {
                     </div>
                 )}
 
-                <div className="flex w-full flex-col gap-[10px] rounded-lg bg-cards-surface p-8">
+                <div className="flex w-full flex-col gap-[10px] rounded-lg bg-cards-surface p-4 sm:p-8">
                     <h2 className="text-h2 text-textprimary">
                         Друзья{friendsState.data && friendsState.data.length > 0 ? ` (${friendsState.data.length})` : ""}
                     </h2>
@@ -158,7 +158,7 @@ const FriendshipActions = ({ me, other, onChanged }: FriendshipActionsProps) => 
     if (myFriends.loading) return null;
 
     return (
-        <div className="flex flex-col items-end gap-2">
+        <div className="flex flex-col items-start gap-2 sm:items-end">
             <div className="flex flex-wrap gap-2">
                 {isFriend ? (
                     <Button

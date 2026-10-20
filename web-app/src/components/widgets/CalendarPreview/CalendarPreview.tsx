@@ -32,7 +32,7 @@ export const CalendarPreview = ({ userId }: { userId: string }) => {
     return (
         <div className="flex flex-col gap-[10px] rounded-lg bg-background p-[10px]">
             <div className="flex items-center justify-between px-2">
-                <h3 className="text-h3 text-textprimary">Ближайшие</h3>
+                <h3 className="text-h3 text-textthird">Ближайшие</h3>
                 <ButtonGhost text="Весь календарь" className="!text-textthird" onClick={() => navigate("/calendar")} />
             </div>
             {loading && <span className="px-2 text-small text-textthird">Загрузка...</span>}

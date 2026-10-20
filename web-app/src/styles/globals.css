@@ -87,7 +87,7 @@
 
 @utility text-alexsandria {
     font-family: var(--font-h1);
-    font-size: 27px;
+    font-size: clamp(20px, 5vw, 27px);
     font-style: normal;
     font-weight: 900;
     letter-spacing: 3px;
@@ -105,7 +105,7 @@
 
 @utility text-h1 {
     font-family: var(--font-h1);
-    font-size: 32px;
+    font-size: clamp(24px, 6vw, 32px);
     font-style: normal;
     font-weight: 700;
     letter-spacing: 0px;
@@ -114,7 +114,7 @@
 
 @utility text-h2 {
     font-family: var(--font-h2);
-    font-size: 22px;
+    font-size: clamp(18px, 4.5vw, 22px);
     font-style: normal;
     font-weight: 700;
     letter-spacing: 0px;
@@ -133,7 +133,7 @@
 body {
     margin: 0;
     background: var(--color-backbackground);
-    background-image: url("../assets/images/background.png");
+    background-image: url("../assets/images/background.svg");
     background-size: cover;
     background-position: center;
     background-repeat: no-repeat;
@@ -156,5 +156,11 @@ body {
 @media (max-width: 1024px) {
     #root {
         padding: 16px;
+    }
+}
+
+@media (max-width: 640px) {
+    #root {
+        padding: 10px;
     }
 }

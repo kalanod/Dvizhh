@@ -27,17 +27,18 @@ export const EventCard = ({ event, onTagClick, className = "" }: EventCardProps)
 
     return (
         <article
-            className={`flex w-full cursor-pointer gap-[10px] rounded-lg bg-cards-surface p-4 transition-all hover:scale-[1.01] hover:shadow-lg ${className}`}
+            className={`flex w-full cursor-pointer gap-[10px] rounded-lg bg-cards-surface p-3 sm:p-4 transition-all hover:scale-[1.01] hover:shadow-lg ${className}`}
             onClick={() => navigate(`/events/${event.id}`)}
         >
-            <div className="h-[128px] w-[86px] flex-shrink-0">
+            <div className="h-[128px] w-[86px] flex-shrink-0 max-sm:hidden">
                 <EventCoverMicro startsAt={event.starts_at} timeZone={event.timezone} />
             </div>
 
             <div className="flex min-w-0 flex-1 flex-col justify-between gap-4">
+                {/* На телефоне обложка-дата не помещается сбоку — дата и так есть в тексте карточки. */}
                 <div className="flex w-full flex-wrap gap-4">
-                    <div className="flex min-w-[200px] flex-1 flex-col gap-2 py-1">
-                        <h3 className="text-h3 text-textprimary transition-colors hover:text-primary">{event.title}</h3>
+                    <div className="flex min-w-[min(200px,100%)] flex-1 flex-col gap-2 py-1">
+                        <h3 className="text-h3 break-words text-textprimary transition-colors hover:text-primary">{event.title}</h3>
                         <span className="text-duration text-textsecondary">{formatEventDate(event)}</span>
                         <span className="text-body text-textprimary">{formatPlace(event)}</span>
                         {event.organizer && (
@@ -45,7 +46,7 @@ export const EventCard = ({ event, onTagClick, className = "" }: EventCardProps)
                         )}
                     </div>
 
-                    <div className="flex w-[160px] flex-col gap-2 py-1">
+                    <div className="flex w-full flex-col gap-2 py-1 sm:w-[160px]">
                         <Tag label={formatPrice(event)} variant={isFree ? "free" : "price"} />
                         {event.format !== "OFFLINE" && <Tag label={FORMAT_LABELS[event.format]} variant="format" />}
                         {event.join_policy !== "OPEN" && <Tag label={JOIN_POLICY_LABELS[event.join_policy]} variant="policy" />}

@@ -17,7 +17,7 @@ export const EventCoverMain = ({ startsAt, timeZone }: { startsAt: string; timeZ
     const badge = dateBadge(startsAt, timeZone);
 
     return (
-        <div className="h-[279px] w-[186px] shrink-0 overflow-hidden rounded-lg bg-secondary">
+        <div className="h-[279px] w-[186px] shrink-0 self-center overflow-hidden rounded-lg bg-secondary max-sm:h-[160px] max-sm:w-full sm:self-start">
             <div className="flex h-full w-full flex-col items-center justify-center bg-gradient-to-b from-borderlight to-bordermain text-textthird">
                 <span className="text-[64px] leading-none font-bold">{badge.day}</span>
                 <span className="text-h2">{badge.month}</span>

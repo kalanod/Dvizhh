@@ -8,7 +8,7 @@ export const CreateEventButton = () => {
     const { userId } = useCurrentUser();
 
     return (
-        <div className="fixed right-6 bottom-6 z-40">
+        <div className="fixed right-4 bottom-4 z-40 sm:right-6 sm:bottom-6">
             <Button
                 state="fixed2"
                 ariaLabel="Создать событие"
