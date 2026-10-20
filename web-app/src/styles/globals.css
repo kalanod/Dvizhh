@@ -1,0 +1,160 @@
+@import "tailwindcss";
+
+/*
+ * Дизайн-токены шаблона Alexandria (pattern_front). Цвета доступны как утилиты Tailwind:
+ * bg-background, bg-cards-surface, text-textprimary, border-bordermain и т. д.
+ */
+@theme {
+    --color-backbackground: rgb(31, 20, 94);
+    --color-background: rgb(62, 44, 160);
+    --color-cards-surface: rgba(248, 226, 250, 1);
+
+    --color-bordererror: rgba(232, 20, 20, 1);
+    --color-borderfocus: rgb(208, 108, 230);
+    --color-borderlight: rgb(196, 190, 240);
+    --color-bordermain: rgb(45, 27, 140);
+    --color-bordersuccess: rgb(150, 12, 148);
+
+    --color-error: rgba(232, 20, 20, 1);
+    --color-primary: rgba(255, 255, 255, 1);
+    --color-secondary: rgba(149, 143, 141, 1);
+    --color-success: rgb(150, 12, 148);
+
+    --color-tagauthor: rgba(214, 25, 25, 1);
+    --color-taggenre: rgba(39, 14, 181, 1);
+    --color-taglanguage: rgb(255, 146, 3);
+    --color-tagtrops: rgba(172, 0, 202, 1);
+    --color-tagtype: rgb(135, 16, 215);
+
+    --color-textcardauthor: rgba(217, 217, 217, 1);
+    --color-textcardlanguage: rgba(217, 217, 217, 1);
+    --color-textcardname: rgba(217, 217, 217, 1);
+    --color-textcardtype: rgba(217, 217, 217, 1);
+
+    --color-texterror: rgba(232, 20, 20, 1);
+    --color-textghost: rgb(150, 140, 235);
+    --color-textprimary: rgb(14, 1, 66);
+    --color-textsecondary: rgba(149, 143, 141, 1);
+    --color-textsuccess: rgb(150, 12, 148);
+    --color-textthird: rgba(255, 255, 255, 1);
+
+    --font-body: "Sansation", Helvetica, system-ui, sans-serif;
+    --font-buttons: "Sansation", Helvetica, system-ui, sans-serif;
+    --font-duration: "Sansation", Helvetica, system-ui, sans-serif;
+    --font-h1: "Sansation", Helvetica, system-ui, sans-serif;
+    --font-h2: "Sansation", Helvetica, system-ui, sans-serif;
+    --font-h3: "Sansation", Helvetica, system-ui, sans-serif;
+    --font-small: "Sansation", Helvetica, system-ui, sans-serif;
+
+    --shadow-hover: 0px 4px 18px 0px rgba(140, 140, 140, 1);
+}
+
+@layer base {
+    button,
+    input,
+    select,
+    textarea {
+        @apply appearance-none bg-transparent border-0 outline-none;
+    }
+}
+
+@utility text-body {
+    font-family: var(--font-body);
+    font-size: 14px;
+    font-style: normal;
+    font-weight: 400;
+    letter-spacing: 0px;
+    line-height: normal;
+}
+
+@utility text-small {
+    font-family: var(--font-small);
+    font-size: 11px;
+    font-style: normal;
+    font-weight: 700;
+    letter-spacing: 0px;
+    line-height: normal;
+}
+
+@utility text-duration {
+    font-family: var(--font-duration);
+    font-size: 12px;
+    font-style: italic;
+    font-weight: 400;
+    letter-spacing: 0px;
+    line-height: normal;
+}
+
+@utility text-alexsandria {
+    font-family: var(--font-h1);
+    font-size: 27px;
+    font-style: normal;
+    font-weight: 900;
+    letter-spacing: 3px;
+    line-height: normal;
+}
+
+@utility text-buttons {
+    font-family: var(--font-buttons);
+    font-size: 16px;
+    font-style: normal;
+    font-weight: 700;
+    letter-spacing: 0px;
+    line-height: normal;
+}
+
+@utility text-h1 {
+    font-family: var(--font-h1);
+    font-size: 32px;
+    font-style: normal;
+    font-weight: 700;
+    letter-spacing: 0px;
+    line-height: normal;
+}
+
+@utility text-h2 {
+    font-family: var(--font-h2);
+    font-size: 22px;
+    font-style: normal;
+    font-weight: 700;
+    letter-spacing: 0px;
+    line-height: normal;
+}
+
+@utility text-h3 {
+    font-family: var(--font-h3);
+    font-size: 15px;
+    font-style: normal;
+    font-weight: 700;
+    letter-spacing: 0px;
+    line-height: normal;
+}
+
+body {
+    margin: 0;
+    background: var(--color-backbackground);
+    background-image: url("../assets/images/background.png");
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+    background-attachment: fixed;
+    color: var(--color-textsecondary);
+    font-family: var(--font-body);
+}
+
+#root {
+    width: 1126px;
+    max-width: 100%;
+    margin: 0 auto;
+    min-height: 100svh;
+    display: flex;
+    flex-direction: column;
+    box-sizing: border-box;
+    padding: 24px;
+}
+
+@media (max-width: 1024px) {
+    #root {
+        padding: 16px;
+    }
+}

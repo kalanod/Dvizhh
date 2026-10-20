@@ -1,2 +1,0 @@
-"""Dvizh web proxy service."""
-

@@ -82,27 +82,31 @@ uv add package-name
 
 ## Локальная разработка фронтенда
 
-Нужен Node.js 22+. Команды выполняются из `web-app/frontend`:
+Нужен Node.js 22+. Команды выполняются из `web-app`:
 
 ```shell
 npm ci
 npm run dev     # http://localhost:5173, /api проксируется в backend
 npm run lint
-npm run build   # сборка в web-app/src/dvizh_web/static
+npm run build   # сборка в web-app/dist
 ```
 
+Вход
+- Ник: admin
+- Имя: admin
+- Id: 6c0a9fe0-bdd6-4f24-b0f8-1d626a252f4b
+
 Dev-сервер по умолчанию отправляет `/api` на `http://localhost:8000` (локальный backend).
-Чтобы работать с API из Docker, укажите адрес nginx:
+Чтобы работать с API из Docker, укажите адрес nginx (порт из `NGINX_PORT`, по умолчанию 8080):
 
 ```shell
 BACKEND_URL=http://localhost:8080 npm run dev
 ```
 
-После `npm run build` собранный фронтенд отдаёт и локальный web-app:
+Адрес можно сохранить в `web-app/.env.development.local` (файл не попадает в git):
 
 ```shell
-cd web-app
-uv run uvicorn dvizh_web.main:app --reload --port 8002
+BACKEND_URL=http://127.0.0.1:8080
 ```
 
 Авторизации пока нет: при регистрации создаётся профиль через `POST /api/users`,

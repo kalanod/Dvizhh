@@ -5,8 +5,8 @@
 ## Сервисы
 
 - `nginx` — публичная входная точка;
-- `web-app` — FastAPI-сервис, который отдаёт собранный React-фронтенд
-  (`web-app/frontend`) и перенаправляет `/api` в backend;
+- `web-app` — React-фронтенд; в Docker его отдаёт nginx, он же перенаправляет
+  `/api` в backend;
 - `backend` — основной FastAPI API;
 - `auth-api` — внутренний FastAPI-сервис аутентификации;
 - [recommendation-service](recommendation-service/README.md) — отдельный gRPC-сервис рекомендаций;
@@ -32,7 +32,7 @@ recommendation-service/
 web-app/
 ```
 
-Python-сервисы `auth-api`, `backend`, `recommendation-service` и `web-app` имеют
+Python-сервисы `auth-api`, `backend` и `recommendation-service` имеют
 одинаковый production-oriented layout:
 
 ```text
@@ -53,25 +53,31 @@ service/
 собираются в два этапа, устанавливают пакет в non-editable режиме и запускаются
 от непривилегированного пользователя без uv и исходников в runtime-слое.
 
-Фронтенд — React + TypeScript + Vite + Tailwind CSS в `web-app/frontend`:
+Фронтенд `web-app` — React + TypeScript + Vite + Tailwind CSS:
 
 ```text
-web-app/frontend/src/
-├── api/          # запросы к backend (/api/...)
-├── app/          # роутинг и текущий пользователь
-├── components/
-│   ├── ui/       # базовые компоненты: Button, Input, Tag, Toggle…
-│   ├── widgets/  # шапка, карточка события, лента, фильтры, календарь
-│   ├── layouts/
-│   └── pages/    # афиша, событие, создание события, календарь, профиль, вход
-├── hooks/
-├── models/       # типы, повторяющие DTO backend
-├── styles/       # дизайн-токены и глобальные стили
-└── utils/
+web-app/
+├── src/
+│   ├── api/          # запросы к backend (/api/...)
+│   ├── app/          # роутинг и текущий пользователь
+│   ├── components/
+│   │   ├── ui/       # базовые компоненты: Button, Input, Tag, Toggle…
+│   │   ├── widgets/  # шапка, карточка события, лента, фильтры, календарь
+│   │   ├── layouts/
+│   │   └── pages/    # афиша, событие, создание события, календарь, профиль, вход
+│   ├── hooks/
+│   ├── models/       # типы, повторяющие DTO backend
+│   ├── styles/       # дизайн-токены и глобальные стили
+│   └── utils/
+├── public/
+├── nginx.conf        # раздача сборки и прокси /api в backend
+├── Dockerfile
+├── package.json
+└── vite.config.ts
 ```
 
-Docker-образ `web-app` собирает фронтенд отдельным этапом на Node и кладёт
-результат в `dvizh_web/static`; в runtime-слое Node нет.
+Docker-образ `web-app` собирается в два этапа: на Node собирается фронтенд,
+а в runtime-слое остаётся только непривилегированный nginx со статикой.
 
 Запрос проходит по цепочке `Nginx → web-app → backend`. Recommendation-service,
 backend и хранилища доступны только внутри сети Compose.

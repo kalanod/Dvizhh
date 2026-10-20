@@ -1,11 +1,8 @@
-__pycache__
-*.py[cod]
-.venv
-.pytest_cache
-.ruff_cache
+node_modules
+dist
+*.local
+.env*
 .git
-tests
 .DS_Store
-frontend/node_modules
-frontend/dist
-src/dvizh_web/static
+Dockerfile
+.dockerignore
