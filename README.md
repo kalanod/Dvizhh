@@ -1,5 +1,15 @@
 # Dvizh
 
+Запуск всего проекта из корня:
+
+```shell
+docker compose up --build
+```
+
+Сайт: **http://localhost:8080**. Сборка React, подготовка БД, миграции и создание
+bucket выполняются внутри Compose. Node.js, npm и Python на хосте не нужны.
+`.env` необязателен для локального запуска; настройки по умолчанию заданы в Compose.
+
 API изображений, черновиков и уведомлений: [MEDIA_LIFECYCLE_API.md](backend/MEDIA_LIFECYCLE_API.md).
 
 Основной пользовательский API: [профиль, личные списки и приглашения](backend/PERSONAL_API.md).
@@ -16,6 +26,7 @@ API изображений, черновиков и уведомлений: [MED
 - [recommendation-service](recommendation-service/README.md) — отдельный gRPC-сервис рекомендаций;
 - `postgres` — основная реляционная база;
 - `pgvector` — отдельный PostgreSQL с расширением pgvector;
+- `database-init` — подготовка роли рекомендаций и схемы pgvector перед запуском API;
 - `minio` — S3-совместимое файловое хранилище;
 - `minio-init` — одноразовый контейнер для создания bucket в MinIO.
 
@@ -27,6 +38,7 @@ API изображений, черновиков и уведомлений: [MED
 ```text
 auth-api/
 backend/
+database-init/
 minio/
 minio-init/
 nginx/
