@@ -205,6 +205,8 @@ class EventDTO(BaseModel):
     organizer: UserSummaryDTO | None
     published_at: datetime | None
     created_at: datetime
+    cover_media_id: UUID | None = None
+    cover_url: str | None = None
     personal_state: EventPersonalStateDTO | None = Field(
         None, description="Состояние для viewer_id; null, если пользователь не указан."
     )

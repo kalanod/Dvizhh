@@ -13,18 +13,21 @@ export const listEvents = (filters: EventFilters = {}) =>
             friends_of: filters.friendsOf,
             offset: filters.offset,
             limit: filters.limit,
+            viewer_id: filters.viewerId,
         },
     });
 
-export const getEvent = (eventId: string) => request<DvizhEvent>(`/events/${eventId}`);
+export const getEvent = (eventId: string, viewerId?: string | null) =>
+    request<DvizhEvent>(`/events/${eventId}`, { query: { viewer_id: viewerId } });
 
 export const createEvent = (body: CreateEventInput) =>
     request<DvizhEvent>("/events", { method: "POST", body });
 
-export const updateEvent = (eventId: string, body: EventInput) =>
-    request<DvizhEvent>(`/events/${eventId}`, { method: "PUT", body });
+export const updateEvent = (eventId: string, body: EventInput, actorId: string) =>
+    request<DvizhEvent>(`/events/${eventId}`, { method: "PUT", body, query: { actor_id: actorId } });
 
-export const deleteEvent = (eventId: string) => request<void>(`/events/${eventId}`, { method: "DELETE" });
+export const deleteEvent = (eventId: string, actorId: string) =>
+    request<void>(`/events/${eventId}`, { method: "DELETE", query: { actor_id: actorId } });
 
 export const listParticipants = (eventId: string) =>
     request<Participant[]>(`/events/${eventId}/participants`);

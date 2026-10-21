@@ -214,8 +214,20 @@ uv add package-name
 npm ci          # установка зависимостей
 npm run dev     # dev-сервер на http://localhost:5173, изменения видны сразу
 npm run lint    # проверка ESLint
+npm test        # контракт запросов React-клиента к backend
 npm run build   # сборка в web-app/dist
 ```
+
+Проверка Docker-прокси из корня репозитория:
+
+```shell
+python web-app/tests/test_proxy.py
+```
+
+Нужны Python 3.12+, Docker и локальный образ `python:3.12-slim`.
+Тест создаёт отдельную цепочку nginx → web-app → backend-заглушка, проверяет
+маршруты SPA, query-параметры и `MEDIA_MAX_MIB` для обычных и chunked-загрузок,
+затем удаляет свои контейнеры, сеть и теги тестовых образов.
 
 ### Подключение к backend
 

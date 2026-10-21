@@ -14,6 +14,7 @@ export interface Profile {
     display_name: string;
     bio: string | null;
     avatar_media_id: string | null;
+    avatar_url: string | null;
     city: string | null;
     latitude: string | null;
     longitude: string | null;

@@ -29,7 +29,7 @@ export const EventPage = () => {
     const { userId } = useCurrentUser();
     const [actionError, setActionError] = useState<string | null>(null);
 
-    const eventState = useAsync(() => getEvent(id), id);
+    const eventState = useAsync(() => getEvent(id, userId), `${id}:${userId}`);
     const participantsState = useAsync(() => listParticipants(id), id);
     const event = eventState.data;
 
@@ -54,11 +54,12 @@ export const EventPage = () => {
     const isFree = event.price_type === "FREE" || !event.price_min;
 
     const handleDelete = async () => {
+        if (!userId) return;
         if (!window.confirm(`Удалить событие «${event.title}»? Оно пропадёт из ленты и календарей.`)) {
             return;
         }
         try {
-            await deleteEvent(event.id);
+            await deleteEvent(event.id, userId);
             navigate("/", { replace: true });
         } catch (err) {
             setActionError(errorText(err));
@@ -144,9 +145,11 @@ export const EventPage = () => {
 
                         {isOrganizer && (
                             <div className="flex flex-wrap gap-2">
-                                <Button state="fixed2" className="!h-[30px] !px-4" onClick={() => navigate(`/events/${event.id}/edit`)}>
-                                    Редактировать
-                                </Button>
+                                {(event.status === "DRAFT" || event.status === "PUBLISHED") && (
+                                    <Button state="fixed2" className="!h-[30px] !px-4" onClick={() => navigate(`/events/${event.id}/edit`)}>
+                                        Редактировать
+                                    </Button>
+                                )}
                                 <Button state="hover1" className="!h-[30px] !px-4" onClick={handleDelete}>
                                     Удалить
                                 </Button>

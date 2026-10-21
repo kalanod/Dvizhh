@@ -31,8 +31,8 @@ pytestmark = pytest.mark.skipif(not TEST_DATABASE_URL, reason="Requires isolated
 @asynccontextmanager
 async def client() -> AsyncIterator[tuple[httpx.AsyncClient, DatabaseService]]:
     assert TEST_DATABASE_URL is not None
-    assert make_url(TEST_DATABASE_URL).database == "dvizh_scenarios_test", (
-        "Integration tests require the disposable database dvizh_scenarios_test"
+    assert make_url(TEST_DATABASE_URL).database in {"dvizh_scenarios_test", "dvizh_media_test"}, (
+        "Integration tests require a disposable dvizh_scenarios_test or dvizh_media_test database"
     )
     database = DatabaseService(TEST_DATABASE_URL)
     app.dependency_overrides[get_database_service] = lambda: database

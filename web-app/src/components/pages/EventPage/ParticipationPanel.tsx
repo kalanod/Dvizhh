@@ -30,7 +30,8 @@ export const ParticipationPanel = ({
     const [message, setMessage] = useState<string | null>(null);
 
     const seats = seatsLeft(event);
-    const myStatus = participants?.find((p) => p.user.id === userId)?.status;
+    const myStatus = event.personal_state?.participation_status
+        ?? participants?.find((p) => p.user.id === userId)?.status;
     const going = participants?.filter((p) => p.status === "GOING") ?? [];
     const requests = participants?.filter((p) => p.status === "REQUESTED") ?? [];
 
@@ -50,6 +51,9 @@ export const ParticipationPanel = ({
     };
 
     const renderAction = () => {
+        if (event.status !== "PUBLISHED") {
+            return <span className="text-h3 text-textsecondary">Запись на это событие закрыта.</span>;
+        }
         if (!userId) {
             return (
                 <Button state="hover1" onClick={() => navigate(`/login?next=/events/${event.id}`)}>
@@ -77,6 +81,9 @@ export const ParticipationPanel = ({
                 </>
             );
         }
+        if (myStatus === "REJECTED") {
+            return <span className="text-h3 text-textsecondary">Заявка отклонена организатором.</span>;
+        }
         switch (event.join_policy) {
             case "OPEN":
                 return (
@@ -92,10 +99,10 @@ export const ParticipationPanel = ({
                 return (
                     <Button
                         state="hover2"
-                        disabled={busy || seats === 0}
+                        disabled={busy}
                         onClick={() => run(() => joinEvent(event.id, userId), "Заявка отправлена организатору.")}
                     >
-                        {seats === 0 ? "Мест нет" : "Подать заявку"}
+                        Подать заявку
                     </Button>
                 );
             case "INVITE_ONLY":
@@ -132,7 +139,7 @@ export const ParticipationPanel = ({
                 {error && <Notice tone="error">{error}</Notice>}
             </div>
 
-            {isOrganizer && requests.length > 0 && (
+            {isOrganizer && event.status === "PUBLISHED" && requests.length > 0 && (
                 <div className="flex w-full flex-col gap-2.5 rounded-lg bg-cards-surface p-4">
                     <h2 className="text-h2 text-textprimary">Заявки ({requests.length})</h2>
                     <PeopleList

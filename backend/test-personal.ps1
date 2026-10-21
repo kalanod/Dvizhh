@@ -14,7 +14,8 @@ Push-Location $projectDirectory
 try {
     $testContainerId = docker run --detach --rm --name $testContainerName `
         --env POSTGRES_DB=dvizh_scenarios_test --env POSTGRES_USER=scenarios `
-        --env POSTGRES_PASSWORD=scenarios --publish '127.0.0.1::5432' $PostgresImage
+        --env POSTGRES_PASSWORD=scenarios --env RECSYS_READER_PASSWORD=scenarios-reader `
+        --publish '127.0.0.1::5432' $PostgresImage
     if ($LASTEXITCODE -ne 0 -or $testContainerId -notmatch '^[a-f0-9]{64}$') {
         $testContainerId = $null
         throw 'Could not start disposable PostgreSQL.'

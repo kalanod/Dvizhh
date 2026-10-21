@@ -28,6 +28,7 @@ export const EventSection = ({ title }: EventSectionProps) => {
         freeOnly: filters.freeOnly,
         availableOnly: filters.availableOnly,
         friendsOf: filters.withFriends && userId ? userId : undefined,
+        viewerId: userId,
         limit,
     };
     const { data: events, error, loading } = useAsync(() => listEvents(query), JSON.stringify(query));

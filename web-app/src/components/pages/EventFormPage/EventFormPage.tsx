@@ -54,17 +54,20 @@ const CreateEvent = ({ userId }: { userId: string }) => {
 };
 
 const EditEvent = ({ eventId, userId }: { eventId: string; userId: string }) => {
-    const { data: event, error, loading } = useAsync(() => getEvent(eventId), eventId);
+    const { data: event, error, loading } = useAsync(() => getEvent(eventId, userId), `${eventId}:${userId}`);
 
     if (loading) return <Loader />;
     if (!event) return <Notice tone="error">{errorText(error)}</Notice>;
     if (event.organizer?.id !== userId) {
         return <Notice tone="error">Редактировать событие может только организатор.</Notice>;
     }
-    return <EditEventForm event={event} />;
+    if (event.status !== "DRAFT" && event.status !== "PUBLISHED") {
+        return <Notice>Редактирование этого события закрыто.</Notice>;
+    }
+    return <EditEventForm event={event} userId={userId} />;
 };
 
-const EditEventForm = ({ event }: { event: DvizhEvent }) => {
+const EditEventForm = ({ event, userId }: { event: DvizhEvent; userId: string }) => {
     const navigate = useNavigate();
     const [initial] = useState(() => formFromEvent(event));
 
@@ -75,7 +78,7 @@ const EditEventForm = ({ event }: { event: DvizhEvent }) => {
             initial={initial}
             onCancel={() => navigate(`/events/${event.id}`)}
             onSubmit={async (input) => {
-                await updateEvent(event.id, input);
+                await updateEvent(event.id, input, userId);
                 navigate(`/events/${event.id}`, { replace: true });
             }}
         />

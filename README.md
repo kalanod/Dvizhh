@@ -1,5 +1,7 @@
 # Dvizh
 
+API изображений, черновиков и уведомлений: [MEDIA_LIFECYCLE_API.md](backend/MEDIA_LIFECYCLE_API.md).
+
 Основной пользовательский API: [профиль, личные списки и приглашения](backend/PERSONAL_API.md).
 
 ![img_2.png](img_2.png)

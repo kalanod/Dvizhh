@@ -34,7 +34,13 @@ def test_deleted_events_disappear_from_personal_lists_and_invitations() -> None:
                 await http.put(f"/api/users/{recipient}/dismissed/{event_id}")
             ).status_code == 200
             invitation_id = await invite(http, event_id, owner, recipient)
-            assert (await http.delete(f"/api/events/{event_id}")).status_code == 204
+            assert (await http.delete(f"/api/events/{event_id}")).status_code == 422
+            assert (
+                await http.delete(f"/api/events/{event_id}?actor_id={recipient}")
+            ).status_code == 403
+            assert (
+                await http.delete(f"/api/events/{event_id}?actor_id={owner}")
+            ).status_code == 204
             for path in (
                 f"/api/users/{owner}/events",
                 f"/api/users/{recipient}/favorites",

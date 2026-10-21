@@ -115,9 +115,9 @@ async def get_event(
     description="Заменяет все поля события переданными значениями. Организатор не меняется.",
 )
 async def update_event(
-    event_id: uuid.UUID, body: UpdateEventDTO, events: EventServiceDep
+    event_id: uuid.UUID, body: UpdateEventDTO, events: EventServiceDep, actor_id: uuid.UUID
 ) -> EventDTO:
-    return await events.update_event(event_id, body)
+    return await events.update_event(event_id, body, actor_id)
 
 
 @router.delete(
@@ -126,8 +126,8 @@ async def update_event(
     summary="Удалить событие.",
     description="Событие помечается удалённым и пропадает из ленты, календарей и поиска.",
 )
-async def delete_event(event_id: uuid.UUID, events: EventServiceDep) -> None:
-    await events.delete_event(event_id)
+async def delete_event(event_id: uuid.UUID, events: EventServiceDep, actor_id: uuid.UUID) -> None:
+    await events.delete_event(event_id, actor_id)
 
 
 @router.get(

@@ -7,6 +7,12 @@ export type EventVisibility = "PUBLIC" | "FRIENDS" | "UNLISTED" | "PRIVATE";
 export type EventJoinPolicy = "OPEN" | "REQUEST" | "INVITE_ONLY" | "EXTERNAL";
 export type ParticipationStatus = "REQUESTED" | "GOING" | "REJECTED" | "CANCELLED";
 
+export interface EventPersonalState {
+    is_favorite: boolean;
+    is_dismissed: boolean;
+    participation_status: ParticipationStatus | null;
+}
+
 // Decimal-поля backend сериализует строками.
 export interface EventLocation {
     name: string | null;
@@ -44,6 +50,9 @@ export interface DvizhEvent {
     organizer: UserSummary | null;
     published_at: string | null;
     created_at: string;
+    cover_media_id: string | null;
+    cover_url: string | null;
+    personal_state: EventPersonalState | null;
 }
 
 export interface EventLocationInput {
@@ -94,6 +103,7 @@ export interface EventFilters {
     freeOnly?: boolean;
     availableOnly?: boolean;
     friendsOf?: string;
+    viewerId?: string | null;
     offset?: number;
     limit?: number;
 }

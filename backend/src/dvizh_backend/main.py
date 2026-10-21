@@ -6,8 +6,9 @@ from fastapi import FastAPI, Request
 
 from .config import get_settings
 from .database.database_service import DatabaseService
-from .routers import events, friends, personal, users
+from .routers import events, friends, lifecycle, media, personal, users
 from .routers.errors import register_error_handlers
+from .storage import MediaStorage
 
 settings = get_settings()
 logger = logging.getLogger("uvicorn.error")
@@ -17,6 +18,7 @@ logger = logging.getLogger("uvicorn.error")
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     database_service = DatabaseService(settings.database_url)
     app.state.database_service = database_service
+    app.state.media_storage = MediaStorage(settings)
     try:
         await database_service.ping()
     except Exception as exc:
@@ -41,6 +43,8 @@ app = FastAPI(
 app.include_router(users.router)
 app.include_router(friends.router)
 app.include_router(events.router)
+app.include_router(lifecycle.router)
+app.include_router(media.router)
 app.include_router(personal.router)
 register_error_handlers(app)
 
