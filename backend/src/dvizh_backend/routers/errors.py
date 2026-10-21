@@ -1,6 +1,5 @@
 from fastapi import FastAPI, Request, status
 from fastapi.responses import JSONResponse
-from pydantic import ValidationError
 
 from ..database.services.exceptions import (
     CapacityReachedError,
@@ -44,10 +43,3 @@ def register_error_handlers(app: FastAPI) -> None:
 
     for error, status_code in STATUS_BY_ERROR.items():
         add(error, status_code)
-
-    # DTO, собранный в обработчике из уже разобранного запроса, не прошёл валидацию.
-    async def invalid_dto(request: Request, exc: ValidationError) -> JSONResponse:
-        errors = exc.errors(include_url=False, include_context=False, include_input=False)
-        return JSONResponse({"detail": errors}, status_code=422)
-
-    app.add_exception_handler(ValidationError, invalid_dto)

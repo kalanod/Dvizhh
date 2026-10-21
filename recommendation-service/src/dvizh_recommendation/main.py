@@ -8,12 +8,19 @@ import grpc
 from grpc_health.v1 import health, health_pb2, health_pb2_grpc
 
 from .config import Settings, get_settings
+from .database import connect_databases
 from .generated import recommendation_service_pb2_grpc
 from .service import SERVICE_NAME, RecommendationService
 
 
 @asynccontextmanager
 async def running_server(settings: Settings) -> AsyncIterator[tuple[grpc.aio.Server, int]]:
+    async with connect_databases(settings), _grpc_server(settings) as server:
+        yield server
+
+
+@asynccontextmanager
+async def _grpc_server(settings: Settings) -> AsyncIterator[tuple[grpc.aio.Server, int]]:
     server = grpc.aio.server()
     recommendation_service_pb2_grpc.add_RecommendationServiceServicer_to_server(
         RecommendationService(), server
