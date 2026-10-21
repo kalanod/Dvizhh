@@ -8,3 +8,7 @@ __pycache__/
 
 Concept.pdf
 database.md
+
+/pattern_front
+node_modules/
+
