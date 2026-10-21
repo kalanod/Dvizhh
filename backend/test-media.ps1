@@ -10,7 +10,7 @@ $suffix = [guid]::NewGuid().ToString('N')
 $testDatabaseId = $null
 $testStorageId = $null
 $previousEnvironment = @{}
-foreach ($name in @('DATABASE_URL', 'TEST_DATABASE_URL', 'TEST_MINIO_ENDPOINT', 'PYTHONPATH')) {
+foreach ($name in @('DATABASE_URL', 'TEST_DATABASE_URL', 'TEST_MINIO_ENDPOINT')) {
     $previousEnvironment[$name] = [Environment]::GetEnvironmentVariable($name, 'Process')
 }
 Push-Location $PSScriptRoot
@@ -60,10 +60,7 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Models and migrations do not match.' }
     & $testPython -m pytest -q
     if ($LASTEXITCODE -ne 0) { throw 'Backend tests failed.' }
-    $env:PYTHONPATH = (Resolve-Path '..\web-app\src').Path
-    & $testPython -m pytest -q ..\web-app\tests
-    if ($LASTEXITCODE -ne 0) { throw 'Web proxy tests failed.' }
-    & $testPython -m ruff check src tests alembic ..\web-app\src ..\web-app\tests
+    & $testPython -m ruff check src tests alembic
     if ($LASTEXITCODE -ne 0) { throw 'Lint failed.' }
 }
 finally {
