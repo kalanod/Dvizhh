@@ -6,7 +6,7 @@ from fastapi import FastAPI, Request
 
 from .config import get_settings
 from .database.database_service import DatabaseService
-from .routers import events, friends, lifecycle, media, users
+from .routers import events, friends, lifecycle, media, personal, users
 from .routers.errors import register_error_handlers
 from .storage import MediaStorage
 
@@ -45,6 +45,7 @@ app.include_router(friends.router)
 app.include_router(events.router)
 app.include_router(lifecycle.router)
 app.include_router(media.router)
+app.include_router(personal.router)
 register_error_handlers(app)
 
 

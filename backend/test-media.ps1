@@ -17,7 +17,8 @@ Push-Location $PSScriptRoot
 try {
     $testDatabaseId = docker run --detach --rm --name "dvizh-media-test-db-$suffix" `
         --env POSTGRES_DB=dvizh_media_test --env POSTGRES_USER=media_test `
-        --env POSTGRES_PASSWORD=media-test-password --publish '127.0.0.1::5432' $PostgresImage
+        --env POSTGRES_PASSWORD=media-test-password --env RECSYS_READER_PASSWORD=media-test-reader `
+        --publish '127.0.0.1::5432' $PostgresImage
     if ($LASTEXITCODE -ne 0 -or $testDatabaseId -notmatch '^[a-f0-9]{64}$') {
         $testDatabaseId = $null
         throw 'Could not start test PostgreSQL.'

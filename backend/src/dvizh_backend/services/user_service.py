@@ -1,13 +1,20 @@
 from datetime import UTC, datetime
 from uuid import UUID
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from dvizh_backend.database.models import Friendship, Profile
 from dvizh_backend.database.models.enums import FriendshipStatus, MediaStatus, ProfileStatus
 from dvizh_backend.database.services.catalog import MediaAssetService, ProfileService
 from dvizh_backend.database.services.social import FriendshipService
-from dvizh_backend.dto.user import CreateProfileDTO, FriendshipDTO, ProfileDTO, UpdateProfileDTO
+from dvizh_backend.dto.user import (
+    CreateProfileDTO,
+    FriendshipDTO,
+    FriendshipRequestDTO,
+    ProfileDTO,
+    UpdateProfileDTO,
+)
 
 from .errors import (
     AvatarUnavailableError,
@@ -66,7 +73,13 @@ class UserService:
             await self._require_available_username(changes["username"])
         if "avatar_media_id" in changes:
             await self._require_usable_avatar(changes["avatar_media_id"], user_id)
-        profile = await self.profiles.update(profile, **changes)
+        try:
+            profile = await self.profiles.update(profile, **changes)
+        except IntegrityError as exc:
+            constraint = getattr(exc.orig.__cause__, "constraint_name", None)
+            if constraint in {"uq_profiles_username", "profiles_username_key"}:
+                raise UsernameTakenError("Username is already taken") from exc
+            raise
         return ProfileDTO.model_validate(profile)
 
     async def request_friendship(self, user_id: UUID, other_user_id: UUID) -> FriendshipDTO:
@@ -149,6 +162,29 @@ class UserService:
         await self._require_active_profile(second_user_id)
         friendship = await self.friendships.get_pair(low_id, high_id)
         return friendship is not None and friendship.status == FriendshipStatus.ACCEPTED
+
+    async def list_friendship_requests(
+        self, user_id: UUID, *, incoming: bool = True, offset: int = 0, limit: int = 20
+    ) -> list[FriendshipRequestDTO]:
+        await self._require_active_profile(user_id)
+        requests = await self.friendships.list_pending(
+            user_id, incoming=incoming, offset=offset, limit=limit
+        )
+        other_ids = [
+            item.user_high_id if item.user_low_id == user_id else item.user_low_id
+            for item in requests
+        ]
+        profiles = {
+            profile.id: profile for profile in await self.profiles.list_active_by_ids(other_ids)
+        }
+        return [
+            FriendshipRequestDTO(
+                friendship=FriendshipDTO.model_validate(item),
+                user=ProfileDTO.model_validate(profiles[other_id]),
+            )
+            for item, other_id in zip(requests, other_ids, strict=True)
+            if other_id in profiles
+        ]
 
     async def _require_active_profile(self, user_id: UUID) -> Profile:
         profile = await self.profiles.get_by_id(user_id)

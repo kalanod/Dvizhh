@@ -1,13 +1,17 @@
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from datetime import date
+from typing import Literal
 from uuid import UUID
 
 from sqlalchemy import Date, Select, case, cast, delete, exists, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ...dto.event import EventPersonalStateDTO
 from ..models import (
     Event,
+    EventDismissal,
+    EventFavorite,
     EventMedia,
     EventOccurrence,
     EventParticipation,
@@ -65,6 +69,11 @@ class EventQueryService:
         rows = await self._fetch(statement)
         return rows[0] if rows else None
 
+    async def get_occurrences(self, occurrence_ids: list[UUID]) -> list[EventRow]:
+        if not occurrence_ids:
+            return []
+        return await self._fetch(self._select_rows().where(EventOccurrence.id.in_(occurrence_ids)))
+
     async def list_public(
         self,
         *,
@@ -77,12 +86,19 @@ class EventQueryService:
         friends_of: UUID | None = None,
         offset: int = 0,
         limit: int = 20,
+        viewer_id: UUID | None = None,
     ) -> list[EventRow]:
         statement = self._select_rows().where(
             Event.status == EventStatus.PUBLISHED,
             Event.visibility == EventVisibility.PUBLIC,
             EventOccurrence.status == OccurrenceStatus.SCHEDULED,
         )
+        if viewer_id is not None:
+            statement = statement.where(
+                ~exists().where(
+                    EventDismissal.user_id == viewer_id, EventDismissal.event_id == Event.id
+                )
+            )
 
         if text_query:
             tsquery = func.websearch_to_tsquery("russian", text_query)
@@ -131,11 +147,90 @@ class EventQueryService:
             statement = statement.order_by(friends_going.desc())
 
         statement = (
-            statement.order_by(Event.published_at.desc(), EventOccurrence.starts_at)
+            statement.order_by(Event.published_at.desc(), EventOccurrence.starts_at, Event.id)
             .offset(offset)
             .limit(limit)
         )
         return await self._fetch(statement)
+
+    async def list_personal(
+        self,
+        user_id: UUID,
+        *,
+        kind: Literal["organized", "participating", "requested", "favorites", "dismissed"],
+        offset: int = 0,
+        limit: int = 20,
+    ) -> list[EventRow]:
+        statement = self._select_rows()
+        if kind == "organized":
+            statement = statement.where(Event.organizer_user_id == user_id)
+        elif kind in {"participating", "requested"}:
+            target = (
+                ParticipationStatus.GOING
+                if kind == "participating"
+                else ParticipationStatus.REQUESTED
+            )
+            statement = statement.where(
+                exists().where(
+                    EventParticipation.occurrence_id == EventOccurrence.id,
+                    EventParticipation.user_id == user_id,
+                    EventParticipation.status == target,
+                )
+            )
+        elif kind in {"favorites", "dismissed"}:
+            model = EventFavorite if kind == "favorites" else EventDismissal
+            statement = statement.where(
+                exists().where(model.user_id == user_id, model.event_id == Event.id)
+            )
+        else:
+            raise ValueError("Unknown personal event list")
+        return await self._fetch(
+            statement.order_by(EventOccurrence.starts_at, Event.id).offset(offset).limit(limit)
+        )
+
+    async def personal_states(
+        self, user_id: UUID, rows: Sequence[EventRow]
+    ) -> dict[UUID, EventPersonalStateDTO]:
+        if not rows:
+            return {}
+        event_ids = [row.event.id for row in rows]
+        occurrence_ids = [row.occurrence.id for row in rows]
+        favorites = set(
+            (
+                await self.session.scalars(
+                    select(EventFavorite.event_id).where(
+                        EventFavorite.user_id == user_id, EventFavorite.event_id.in_(event_ids)
+                    )
+                )
+            ).all()
+        )
+        dismissals = set(
+            (
+                await self.session.scalars(
+                    select(EventDismissal.event_id).where(
+                        EventDismissal.user_id == user_id, EventDismissal.event_id.in_(event_ids)
+                    )
+                )
+            ).all()
+        )
+        participations = dict(
+            (
+                await self.session.execute(
+                    select(EventParticipation.occurrence_id, EventParticipation.status).where(
+                        EventParticipation.user_id == user_id,
+                        EventParticipation.occurrence_id.in_(occurrence_ids),
+                    )
+                )
+            ).all()
+        )
+        return {
+            row.occurrence.id: EventPersonalStateDTO(
+                is_favorite=row.event.id in favorites,
+                is_dismissed=row.event.id in dismissals,
+                participation_status=participations.get(row.occurrence.id),
+            )
+            for row in rows
+        }
 
     async def list_going(self, user_id: UUID) -> list[EventRow]:
         is_going = exists().where(

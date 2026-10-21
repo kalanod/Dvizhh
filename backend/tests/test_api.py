@@ -20,9 +20,10 @@ from dvizh_backend.database.models.enums import (
 )
 from dvizh_backend.database.services.event_queries import EventQueryService, EventRow
 from dvizh_backend.database.services.exceptions import EntityNotFoundError
-from dvizh_backend.dto.event import CreateEventDTO, UpdateEventDTO
+from dvizh_backend.dto.event import CreateEventDTO, EventPersonalStateDTO, UpdateEventDTO
 from dvizh_backend.main import app
 from dvizh_backend.routers.errors import STATUS_BY_ERROR
+from dvizh_backend.routers.users import UserCreate
 from dvizh_backend.services.errors import UserNotFoundError
 from dvizh_backend.services.event_service import EventService
 
@@ -153,6 +154,7 @@ def make_event_service() -> EventService:
     service.queries.locations = AsyncMock(return_value={})
     service.queries.profiles = AsyncMock(return_value={USER_ID: profile})
     service.queries.covers = AsyncMock(return_value={})
+    service.queries.personal_states = AsyncMock(return_value={})
     return service
 
 
@@ -167,6 +169,38 @@ def test_event_is_assembled_from_event_occurrence_and_lookups() -> None:
         assert event.organizer is not None
         assert event.organizer.username == "first"
         assert event.location is None
+
+    asyncio.run(scenario())
+
+
+def test_personal_state_changes_do_not_create_event_update_notifications() -> None:
+    async def scenario() -> None:
+        service = make_event_service()
+        before = await service.get_event(EVENT_ID)
+        after = before.model_copy(
+            update={"personal_state": EventPersonalStateDTO(is_favorite=True)}
+        )
+        row = await service._require_row(EVENT_ID)
+        service.get_event = AsyncMock(side_effect=[before, after])
+        service.events._get_locked = AsyncMock(return_value=row.event)
+        service.events._require_manager = AsyncMock()
+        service.events.update = AsyncMock()
+        service._save_location = AsyncMock(return_value=None)
+        service.queries.ensure_topics = AsyncMock(return_value=[])
+        service.queries.replace_topics = AsyncMock()
+        service.notifications.event_changed = AsyncMock()
+        data = UpdateEventDTO(
+            title=before.title,
+            starts_at=before.starts_at,
+            format="ONLINE",
+            online_url=before.online_url,
+        )
+
+        result = await service.update_event(EVENT_ID, data, USER_ID)
+
+        assert result.personal_state is not None and result.personal_state.is_favorite
+        service.events.update.assert_awaited_once()
+        service.notifications.event_changed.assert_not_awaited()
 
     asyncio.run(scenario())
 
@@ -227,3 +261,30 @@ def test_missing_event_is_reported_before_any_write() -> None:
         service.participations.join.assert_not_awaited()
 
     asyncio.run(scenario())
+
+
+def test_user_create_body_follows_profile_rules() -> None:
+    body = UserCreate.model_validate({"username": "first", "display_name": "First"})
+    assert isinstance(body.id, UUID)
+
+    # В JSON идентификатор приходит строкой.
+    assert (
+        UserCreate.model_validate(
+            {"id": str(USER_ID), "username": "first", "display_name": "First"}
+        ).id
+        == USER_ID
+    )
+
+    for invalid in (
+        {"username": "first", "display_name": "  "},
+        {"username": "first", "display_name": " First"},
+        {"username": "Bad Name", "display_name": "First"},
+        {"username": "first", "display_name": "First", "latitude": 55.75},
+        {"username": "first", "display_name": "First", "unknown_field": True},
+    ):
+        with pytest.raises(ValidationError):
+            UserCreate.model_validate(invalid)
+
+
+def test_validation_errors_inside_the_server_are_not_reported_as_client_errors() -> None:
+    assert ValidationError not in app.exception_handlers

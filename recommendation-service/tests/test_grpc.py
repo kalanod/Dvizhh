@@ -1,4 +1,6 @@
 import asyncio
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 
 import grpc
 import pytest
@@ -7,6 +9,15 @@ from dvizh_recommendation.config import Settings
 from dvizh_recommendation.generated import recommendation_service_pb2 as pb
 from dvizh_recommendation.generated import recommendation_service_pb2_grpc
 from dvizh_recommendation.main import running_server
+
+
+@pytest.fixture(autouse=True)
+def stub_database_connections(monkeypatch: pytest.MonkeyPatch) -> None:
+    @asynccontextmanager
+    async def connect_databases(_settings: Settings) -> AsyncIterator[None]:
+        yield
+
+    monkeypatch.setattr("dvizh_recommendation.main.connect_databases", connect_databases)
 
 
 def valid_request() -> pb.GetRecommendationsRequest:
@@ -18,7 +29,12 @@ def valid_request() -> pb.GetRecommendationsRequest:
 async def call_recommendations(
     request: pb.GetRecommendationsRequest,
 ) -> pb.GetRecommendationsResponse:
-    settings = Settings(grpc_bind_address="127.0.0.1:0", _env_file=None)
+    settings = Settings(
+        grpc_bind_address="127.0.0.1:0",
+        source_database_url="postgresql://reader:unused@source.invalid/source",
+        vector_database_url="postgresql://writer:unused@vector.invalid/vectors",
+        _env_file=None,
+    )
     async with (
         running_server(settings) as (_, port),
         grpc.aio.insecure_channel(f"127.0.0.1:{port}") as channel,

@@ -172,6 +172,12 @@ class CreateEventDTO(UpdateEventDTO):
     )
 
 
+class EventPersonalStateDTO(BaseModel):
+    is_favorite: bool = False
+    is_dismissed: bool = False
+    participation_status: ParticipationStatus | None = None
+
+
 class EventDTO(BaseModel):
     id: UUID
     occurrence_id: UUID = Field(description="Проведение события, к которому относятся участия.")
@@ -201,6 +207,9 @@ class EventDTO(BaseModel):
     created_at: datetime
     cover_media_id: UUID | None = None
     cover_url: str | None = None
+    personal_state: EventPersonalStateDTO | None = Field(
+        None, description="Состояние для viewer_id; null, если пользователь не указан."
+    )
 
 
 class JoinEventDTO(BaseModel):
