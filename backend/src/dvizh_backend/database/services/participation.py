@@ -74,17 +74,22 @@ class ParticipationService:
         approve: bool,
         reason: str | None = None,
     ) -> EventParticipation:
+        participation = await self.session.get(EventParticipation, participation_id)
+        if participation is None:
+            raise EntityNotFoundError("Participation not found")
+        # All participation changes lock occurrence before participation.
+        occurrence, event = await self._lock_occurrence_and_event(participation.occurrence_id)
         participation = await self.session.scalar(
             select(EventParticipation)
             .where(EventParticipation.id == participation_id)
             .with_for_update()
+            .execution_options(populate_existing=True)
         )
         if participation is None:
             raise EntityNotFoundError("Participation not found")
         if participation.status != ParticipationStatus.REQUESTED:
             raise InvalidStateTransitionError("Only a pending request can be decided")
 
-        occurrence, event = await self._lock_occurrence_and_event(participation.occurrence_id)
         if not await can_manage_event(self.session, event, actor_user_id):
             raise PermissionDeniedError("User cannot decide requests for this event")
 
@@ -119,18 +124,27 @@ class ParticipationService:
             actor_user_id=user_id,
         )
 
-    async def accept_invitation(
-        self, invitation_id: UUID, user_id: UUID
-    ) -> EventParticipation:
+    async def accept_invitation(self, invitation_id: UUID, user_id: UUID) -> EventParticipation:
+        invitation = await self.session.get(EventInvitation, invitation_id)
+        if invitation is None:
+            raise EntityNotFoundError("Invitation not found")
+        # Use the same lock order as invite(): occurrence, then invitation.
+        occurrence, event = await self._lock_occurrence_and_event(invitation.occurrence_id)
         invitation = await self.session.scalar(
             select(EventInvitation)
             .where(EventInvitation.id == invitation_id)
             .with_for_update()
+            .execution_options(populate_existing=True)
         )
         if invitation is None:
             raise EntityNotFoundError("Invitation not found")
         if invitation.invitee_user_id != user_id:
             raise PermissionDeniedError("Invitation belongs to another user")
+        if invitation.status == InvitationStatus.ACCEPTED:
+            participation = await self._get_participation(occurrence.id, user_id, lock=True)
+            if participation is not None and participation.status == ParticipationStatus.GOING:
+                return participation
+            raise InvalidStateTransitionError("Accepted invitation cannot be used again")
         if invitation.status != InvitationStatus.PENDING:
             raise InvalidStateTransitionError("Invitation is no longer pending")
 
@@ -138,24 +152,27 @@ class ParticipationService:
         if invitation.expires_at is not None and invitation.expires_at <= now:
             raise InvalidStateTransitionError("Invitation has expired")
 
-        occurrence, event = await self._lock_occurrence_and_event(invitation.occurrence_id)
         self._require_joinable(occurrence, event)
-        await self._require_capacity(occurrence, event)
+        if event.join_policy == EventJoinPolicy.EXTERNAL:
+            raise JoinUnavailableError("Participation is handled by an external system")
 
         participation = await self._get_participation(occurrence.id, user_id, lock=True)
         if participation is not None and participation.status == ParticipationStatus.REJECTED:
             raise InvalidStateTransitionError("Rejected participation cannot be restored")
 
-        participation = await self._set_status(
-            participation,
-            occurrence_id=occurrence.id,
-            user_id=user_id,
-            target_status=ParticipationStatus.GOING,
-            actor_user_id=user_id,
-        )
+        if participation is None or participation.status != ParticipationStatus.GOING:
+            await self._require_capacity(occurrence, event)
+            participation = await self._set_status(
+                participation,
+                occurrence_id=occurrence.id,
+                user_id=user_id,
+                target_status=ParticipationStatus.GOING,
+                actor_user_id=user_id,
+            )
         invitation.status = InvitationStatus.ACCEPTED
         invitation.responded_at = now
         await self.session.flush()
+        await self.session.refresh(invitation)
         return participation
 
     async def _lock_occurrence_and_event(
@@ -175,7 +192,7 @@ class ParticipationService:
 
     @staticmethod
     def _require_joinable(occurrence: EventOccurrence, event: Event) -> None:
-        if event.status != EventStatus.PUBLISHED:
+        if event.status != EventStatus.PUBLISHED or event.deleted_at is not None:
             raise JoinUnavailableError("Event is not published")
         if occurrence.status != OccurrenceStatus.SCHEDULED:
             raise JoinUnavailableError("Event occurrence is not scheduled")

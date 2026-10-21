@@ -65,6 +65,10 @@ async def list_events(
         int, Query(ge=0, description="Сколько событий пропустить (для пагинации).")
     ] = 0,
     limit: Annotated[int, Query(ge=1, le=100, description="Сколько событий вернуть.")] = 20,
+    viewer_id: Annotated[
+        uuid.UUID | None,
+        Query(description="Пользователь для персональных состояний и исключения «Не интересно»."),
+    ] = None,
 ) -> list[EventDTO]:
     return await events.list_public(
         text_query=q,
@@ -76,6 +80,7 @@ async def list_events(
         friends_of=friends_of,
         offset=offset,
         limit=limit,
+        viewer_id=viewer_id,
     )
 
 
@@ -98,8 +103,10 @@ async def create_event(body: CreateEventDTO, events: EventServiceDep) -> EventDT
     summary="Получить событие по идентификатору.",
     description="Работает для событий с любой видимостью.",
 )
-async def get_event(event_id: uuid.UUID, events: EventServiceDep) -> EventDTO:
-    return await events.get_event(event_id)
+async def get_event(
+    event_id: uuid.UUID, events: EventServiceDep, viewer_id: uuid.UUID | None = None
+) -> EventDTO:
+    return await events.get_event(event_id, viewer_id=viewer_id)
 
 
 @router.put(
