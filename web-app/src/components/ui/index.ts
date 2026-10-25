@@ -1,5 +1,6 @@
 export * from "./Avatar";
 export * from "./Button";
+export * from "./FileButton";
 export * from "./FormField";
 export * from "./Input";
 export * from "./Notice";

@@ -1,12 +1,12 @@
 import type { ReactNode } from "react";
-import { useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
-import { deleteEvent, errorText, getEvent, listParticipants } from "../../../api";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
+import { errorText, getEvent, listParticipants, mediaSrc } from "../../../api";
 import { useAsync, useCurrentUser } from "../../../hooks";
 import { MainLayout } from "../../layouts";
-import { Button, Loader, Notice, Tag } from "../../ui";
-import { EventCoverMain } from "../../widgets";
+import { Loader, Notice, Tag } from "../../ui";
+import { EventCoverMain, PersonalToggles } from "../../widgets";
 import {
+    EVENT_STATUS_LABELS,
     formatEventDate,
     formatPlace,
     formatPrice,
@@ -14,6 +14,8 @@ import {
     JOIN_POLICY_LABELS,
     VISIBILITY_LABELS,
 } from "../../../utils/format";
+import { InvitePanel } from "./InvitePanel";
+import { OrganizerPanel } from "./OrganizerPanel";
 import { ParticipationPanel } from "./ParticipationPanel";
 
 const Row = ({ label, children }: { label: string; children: ReactNode }) => (
@@ -27,10 +29,11 @@ export const EventPage = () => {
     const { id = "" } = useParams();
     const navigate = useNavigate();
     const { userId } = useCurrentUser();
-    const [actionError, setActionError] = useState<string | null>(null);
+    // Предупреждение от формы: событие сохранено, а обложка — нет.
+    const formNotice = (useLocation().state as { notice?: string } | null)?.notice;
 
-    const eventState = useAsync(() => getEvent(id, userId), `${id}:${userId}`);
-    const participantsState = useAsync(() => listParticipants(id), id);
+    const eventState = useAsync((signal) => getEvent(id, userId, signal), `${id}:${userId}`);
+    const participantsState = useAsync((signal) => listParticipants(id, signal), id);
     const event = eventState.data;
 
     const reloadAll = () => {
@@ -52,28 +55,25 @@ export const EventPage = () => {
 
     const isOrganizer = Boolean(userId && event.organizer?.id === userId);
     const isFree = event.price_type === "FREE" || !event.price_min;
-
-    const handleDelete = async () => {
-        if (!userId) return;
-        if (!window.confirm(`Удалить событие «${event.title}»? Оно пропадёт из ленты и календарей.`)) {
-            return;
-        }
-        try {
-            await deleteEvent(event.id, userId);
-            navigate("/", { replace: true });
-        } catch (err) {
-            setActionError(errorText(err));
-        }
-    };
+    const canInvite = isOrganizer && event.status === "PUBLISHED" && event.join_policy !== "EXTERNAL";
 
     return (
         <MainLayout>
             <section className="flex w-full flex-col gap-5 rounded-lg bg-background p-[10px]">
                 <div className="flex w-full flex-col items-start gap-[10px] rounded-lg bg-cards-surface p-4 sm:flex-row sm:p-8">
-                    <EventCoverMain startsAt={event.starts_at} timeZone={event.timezone} />
+                    <EventCoverMain startsAt={event.starts_at} timeZone={event.timezone} src={mediaSrc(event.cover_url, userId)} />
                     <div className="flex min-w-0 flex-1 flex-col items-start gap-6 self-stretch p-0 sm:gap-8 sm:p-[10px]">
                         <div className="flex w-full flex-col items-start gap-[10px]">
-                            <h1 className="text-h1 break-words text-textprimary">{event.title}</h1>
+                            {event.status !== "PUBLISHED" && (
+                                <Tag
+                                    label={EVENT_STATUS_LABELS[event.status]}
+                                    variant={event.status === "CANCELLED" ? "price" : "muted"}
+                                />
+                            )}
+                            <h1 className={`text-h1 break-words text-textprimary ${event.status === "CANCELLED" ? "line-through opacity-70" : ""}`}>
+                                {event.title}
+                            </h1>
+                            <PersonalToggles event={event} onChange={eventState.reload} />
                             {event.organizer && (
                                 <Row label="Организатор">
                                     <button
@@ -143,20 +143,10 @@ export const EventPage = () => {
                             </p>
                         </div>
 
-                        {isOrganizer && (
-                            <div className="flex flex-wrap gap-2">
-                                {(event.status === "DRAFT" || event.status === "PUBLISHED") && (
-                                    <Button state="fixed2" className="!h-[30px] !px-4" onClick={() => navigate(`/events/${event.id}/edit`)}>
-                                        Редактировать
-                                    </Button>
-                                )}
-                                <Button state="hover1" className="!h-[30px] !px-4" onClick={handleDelete}>
-                                    Удалить
-                                </Button>
-                            </div>
-                        )}
+                        {event.status === "CANCELLED" && <Notice tone="error">Событие отменено организатором.</Notice>}
+                        {formNotice && <Notice tone="error">{formNotice}</Notice>}
 
-                        {actionError && <Notice tone="error">{actionError}</Notice>}
+                        {isOrganizer && userId && <OrganizerPanel event={event} userId={userId} onChanged={reloadAll} />}
                     </div>
                 </div>
 
@@ -167,6 +157,8 @@ export const EventPage = () => {
                     isOrganizer={isOrganizer}
                     onChanged={reloadAll}
                 />
+
+                {canInvite && userId && <InvitePanel event={event} userId={userId} participants={participantsState.data} />}
             </section>
         </MainLayout>
     );

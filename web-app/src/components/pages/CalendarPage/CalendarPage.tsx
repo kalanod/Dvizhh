@@ -34,7 +34,7 @@ export const CalendarPage = () => {
 
 const Calendar = ({ userId }: { userId: string }) => {
     const [showPast, setShowPast] = useState(false);
-    const { data, error, loading } = useAsync(() => getCalendar(userId), userId);
+    const { data, error, loading } = useAsync((signal) => getCalendar(userId, signal), userId);
     const [now] = useState(() => Date.now());
 
     const isPast = (event: DvizhEvent) => new Date(event.ends_at ?? event.starts_at).getTime() < now;

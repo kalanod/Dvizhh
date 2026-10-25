@@ -1,19 +1,22 @@
 import { useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { Avatar, Button } from "../../ui";
-import { useCurrentUser } from "../../../hooks";
+import { mediaSrc } from "../../../api";
+import { useCurrentUser, useInboxCount } from "../../../hooks";
 import logo from "../../../assets/images/logo.svg";
 
 const navButtons = [
     { label: "Афиша", path: "/" },
     { label: "Мой календарь", path: "/calendar" },
+    { label: "Мои события", path: "/my" },
     { label: "Профиль", path: "/profile" },
 ];
 
 export const PageHeader = () => {
     const navigate = useNavigate();
     const { pathname } = useLocation();
-    const { user, signOut } = useCurrentUser();
+    const { userId, user, signOut } = useCurrentUser();
+    const inboxCount = useInboxCount(userId);
     // Меню-бургер на экранах уже lg; на широких навигация всегда видна.
     const [menuOpen, setMenuOpen] = useState(false);
 
@@ -72,12 +75,36 @@ export const PageHeader = () => {
                         <>
                             <button
                                 type="button"
+                                aria-label={inboxCount > 0 ? `Уведомления: ${inboxCount} новых` : "Уведомления"}
+                                title="Уведомления, приглашения и заявки в друзья"
+                                onClick={() => go("/notifications")}
+                                className={`relative inline-flex h-[37px] w-[37px] shrink-0 cursor-pointer items-center justify-center rounded-lg border-2 text-textthird transition-all hover:shadow-hover ${
+                                    isActive("/notifications") ? "border-bordermain bg-borderlight shadow-hover" : "border-borderlight bg-bordermain"
+                                }`}
+                            >
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                                    <path
+                                        d="M6 9a6 6 0 1 1 12 0c0 4 1.5 6 2.5 7H3.5C4.5 15 6 13 6 9ZM10 19.5a2 2 0 0 0 4 0"
+                                        stroke="currentColor"
+                                        strokeWidth="2"
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                    />
+                                </svg>
+                                {inboxCount > 0 && (
+                                    <span className="absolute -top-1.5 -right-1.5 inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-error px-1 text-[11px] leading-none font-bold text-white">
+                                        {inboxCount >= 100 ? "99+" : inboxCount}
+                                    </span>
+                                )}
+                            </button>
+                            <button
+                                type="button"
                                 aria-label="Профиль"
                                 title={`${user.display_name} (@${user.username})`}
                                 onClick={() => go("/profile")}
                                 className="cursor-pointer transition-opacity hover:opacity-80"
                             >
-                                <Avatar name={user.display_name} />
+                                <Avatar name={user.display_name} src={mediaSrc(user.avatar_url, user.id)} />
                             </button>
                             <Button
                                 state="hover2"

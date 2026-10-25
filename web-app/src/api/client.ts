@@ -3,7 +3,11 @@ type QueryValue = string | number | boolean | null | undefined;
 interface RequestOptions {
     method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
     body?: unknown;
+    /** Байты файла: уходят как application/octet-stream, а не JSON. */
+    file?: Blob;
     query?: Record<string, QueryValue>;
+    /** Отмена запроса, например когда пользователь ушёл со страницы. */
+    signal?: AbortSignal;
 }
 
 export class ApiError extends Error {
@@ -17,7 +21,7 @@ export class ApiError extends Error {
 }
 
 /** Запрос к backend через прокси web-app: все пути начинаются с /api. */
-export async function request<T>(path: string, { method = "GET", body, query }: RequestOptions = {}): Promise<T> {
+export async function request<T>(path: string, { method = "GET", body, file, query, signal }: RequestOptions = {}): Promise<T> {
     const url = new URL(`/api${path}`, window.location.origin);
     for (const [key, value] of Object.entries(query ?? {})) {
         if (value !== undefined && value !== null && value !== "" && value !== false) {
@@ -27,12 +31,20 @@ export async function request<T>(path: string, { method = "GET", body, query }: 
 
     let response: Response;
     try {
-        response = await fetch(url, {
-            method,
-            headers: body === undefined ? undefined : { "Content-Type": "application/json" },
-            body: body === undefined ? undefined : JSON.stringify(body),
-        });
-    } catch {
+        response = await fetch(
+            url,
+            file
+                ? { method, signal, headers: { "Content-Type": "application/octet-stream" }, body: file }
+                : {
+                      method,
+                      signal,
+                      headers: body === undefined ? undefined : { "Content-Type": "application/json" },
+                      body: body === undefined ? undefined : JSON.stringify(body),
+                  },
+        );
+    } catch (error) {
+        // Отменённый запрос — не сетевая ошибка: пробрасываем AbortError как есть.
+        if (signal?.aborted) throw error;
         throw new ApiError("Сервер недоступен. Проверьте подключение.", 0);
     }
 
@@ -49,6 +61,13 @@ export async function request<T>(path: string, { method = "GET", body, query }: 
 
 function errorMessage(payload: unknown, status: number): string {
     const detail = (payload as { detail?: unknown } | null)?.detail;
+
+    if (status === 413) {
+        return "Файл слишком большой.";
+    }
+    if (status === 415) {
+        return "Формат не поддерживается: подойдут JPEG, PNG или WebP.";
+    }
 
     if (typeof detail === "string") {
         return status === 502 ? "Backend недоступен. Попробуйте позже." : detail;
