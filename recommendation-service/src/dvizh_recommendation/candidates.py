@@ -34,6 +34,9 @@ async def get_candidates(
     pool: asyncpg.Pool,
     limit: int = 20,
 ) -> list[UUID]:
+    if type(limit) is not int:
+        raise TypeError("limit must be an integer")
+
     if limit <= 0:
         raise ValueError("limit must be positive")
 

@@ -1,6 +1,3 @@
-# имитирует PostgreSQL и проверяет, что функция возвращает список ID событий. 
-# Второй проверяет, что нельзя запросить нулевое количество мероприятий.
-
 import asyncio
 from contextlib import asynccontextmanager
 from uuid import uuid4
@@ -32,10 +29,19 @@ def test_get_candidates_returns_ids():
 
     assert result == [event_id_1, event_id_2]
 
-
-def test_get_candidates_rejects_invalid_limit():
+@pytest.mark.parametrize("limit", [0, -1, -10])
+def test_get_candidates_rejects_non_positive_limit(limit):
     async def check():
         with pytest.raises(ValueError):
-            await get_candidates(None, limit=0)
+            await get_candidates(None, limit=limit)
+
+    asyncio.run(check())
+
+
+@pytest.mark.parametrize("limit", [1.5, "10", None, True, False])
+def test_get_candidates_rejects_invalid_type(limit):
+    async def check():
+        with pytest.raises(TypeError):
+            await get_candidates(None, limit=limit)
 
     asyncio.run(check())

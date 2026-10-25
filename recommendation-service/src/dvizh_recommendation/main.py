@@ -3,7 +3,8 @@ import logging
 import signal
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-import asyncpg # пулл соединений 
+
+import asyncpg
 import grpc
 from grpc_health.v1 import health, health_pb2, health_pb2_grpc
 
@@ -17,9 +18,11 @@ from .service import SERVICE_NAME, RecommendationService
 async def running_server(
     settings: Settings,
 ) -> AsyncIterator[tuple[grpc.aio.Server, int]]:
-    async with connect_databases(settings) as databases:
-        async with _grpc_server(settings, databases.source) as server:
-            yield server
+    async with (
+        connect_databases(settings) as databases,
+        _grpc_server(settings, databases.source) as server,
+    ):
+        yield server
 
 
 @asynccontextmanager
