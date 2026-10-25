@@ -12,6 +12,9 @@ interface EventListProps {
     emptyText?: ReactNode;
     footer?: ReactNode;
     onTagClick?: (tag: string) => void;
+    onPersonalChange?: (event: DvizhEvent) => void;
+    /** Лента: события с «Не интересно» сворачиваются в строку. */
+    collapseDismissed?: boolean;
     className?: string;
 }
 
@@ -25,6 +28,8 @@ export const EventList = ({
     emptyText = "Событий пока нет",
     footer,
     onTagClick,
+    onPersonalChange,
+    collapseDismissed,
     className = "",
 }: EventListProps) => (
     <div className={`flex w-full flex-col items-start gap-[10px] rounded-lg bg-background p-[10px] ${className}`}>
@@ -34,7 +39,15 @@ export const EventList = ({
 
         {error && <Notice tone="error">{error}</Notice>}
 
-        {events?.map((event) => <EventCard key={event.id} event={event} onTagClick={onTagClick} />)}
+        {events?.map((event) => (
+            <EventCard
+                key={event.id}
+                event={event}
+                onTagClick={onTagClick}
+                onPersonalChange={onPersonalChange}
+                collapseDismissed={collapseDismissed}
+            />
+        ))}
 
         {loading && <Loader />}
 

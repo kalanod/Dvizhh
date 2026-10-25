@@ -31,6 +31,14 @@ export interface CreateUserInput {
     city: string | null;
 }
 
+/** Тело PATCH /api/users/{id}: пропущенные поля не меняются, null очищает необязательное поле. */
+export interface UpdateProfileInput {
+    username?: string;
+    display_name?: string;
+    bio?: string | null;
+    city?: string | null;
+}
+
 export interface Friendship {
     user_low_id: string;
     user_high_id: string;

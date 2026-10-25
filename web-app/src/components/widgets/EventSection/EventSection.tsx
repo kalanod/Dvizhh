@@ -133,6 +133,7 @@ export const EventSection = ({ title }: EventSectionProps) => {
                     error={error ? errorText(error) : null}
                     emptyText={activeChips.length > 0 ? "Под эти фильтры ничего не нашлось" : "Событий пока нет — создайте первый движ!"}
                     onTagClick={(tag) => applyFilters({ tag })}
+                    collapseDismissed
                     footer={
                         hasMore && !loading ? (
                             <Button
