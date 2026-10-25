@@ -170,3 +170,26 @@ test("oversized upload gets a readable message", async (t) => {
     await assert.rejects(media.uploadMedia("user-1", file), (error) =>
         error instanceof ApiError && error.status === 413 && error.message === "Файл слишком большой.");
 });
+
+test("abort signal reaches fetch and stays out of the query", async (t) => {
+    const calls = recordFetch(t, () => Response.json([]));
+    const controller = new AbortController();
+    await api.listEvents({ limit: 20 }, controller.signal);
+    await personal.listNotifications("user-1", { unreadOnly: true, limit: 10, signal: controller.signal });
+    for (const { url, options } of calls) {
+        assert.equal(options.signal, controller.signal);
+        assert.equal(url.searchParams.has("signal"), false);
+    }
+    assert.equal(calls[1].url.searchParams.get("limit"), "10");
+});
+
+test("aborted request is rethrown as AbortError, not a network error", async (t) => {
+    t.mock.method(globalThis, "fetch", async (_url, { signal }) => {
+        signal.throwIfAborted();
+        return Response.json([]);
+    });
+    const controller = new AbortController();
+    controller.abort();
+    await assert.rejects(api.getEvent("event-1", null, controller.signal), (error) =>
+        !(error instanceof ApiError) && error.name === "AbortError");
+});

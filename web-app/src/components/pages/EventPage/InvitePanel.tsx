@@ -16,7 +16,7 @@ interface InvitePanelProps {
  * и менеджерам; приглашение не резервирует место.
  */
 export const InvitePanel = ({ event, userId, participants }: InvitePanelProps) => {
-    const friendsState = useAsync(() => listFriends(userId), userId);
+    const friendsState = useAsync((signal) => listFriends(userId, signal), userId);
     const [message, setMessage] = useState("");
     const [invited, setInvited] = useState<Set<string>>(() => new Set());
     const [busyId, setBusyId] = useState<string | null>(null);

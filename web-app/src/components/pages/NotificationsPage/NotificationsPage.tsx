@@ -75,7 +75,7 @@ const useAction = (onDone: () => void) => {
 };
 
 const InvitationsBlock = ({ userId }: { userId: string }) => {
-    const state = useAsync(() => listInvitations(userId, { limit: MAX_LIMIT }), userId);
+    const state = useAsync((signal) => listInvitations(userId, { limit: MAX_LIMIT, signal }), userId);
     const { busy, error, run } = useAction(state.reload);
     const invitations = state.data ?? [];
 
@@ -129,8 +129,8 @@ const InvitationRow = ({ card, busy, onRespond }: { card: InvitationCard; busy: 
 
 const FriendRequestsBlock = ({ userId }: { userId: string }) => {
     const navigate = useNavigate();
-    const incoming = useAsync(() => listFriendRequests(userId, "incoming", { limit: MAX_LIMIT }), `${userId}:in`);
-    const outgoing = useAsync(() => listFriendRequests(userId, "outgoing", { limit: MAX_LIMIT }), `${userId}:out`);
+    const incoming = useAsync((signal) => listFriendRequests(userId, "incoming", { limit: MAX_LIMIT, signal }), `${userId}:in`);
+    const outgoing = useAsync((signal) => listFriendRequests(userId, "outgoing", { limit: MAX_LIMIT, signal }), `${userId}:out`);
     const { busy, error, run } = useAction(() => {
         incoming.reload();
         outgoing.reload();
@@ -219,7 +219,7 @@ const EventNotificationsBlock = ({ userId }: { userId: string }) => {
     const navigate = useNavigate();
     const [unreadOnly, setUnreadOnly] = useState(false);
     const [limit, setLimit] = useState(PAGE_SIZE);
-    const state = useAsync(() => listNotifications(userId, { unreadOnly, limit }), `${userId}:${unreadOnly}:${limit}`);
+    const state = useAsync((signal) => listNotifications(userId, { unreadOnly, limit, signal }), `${userId}:${unreadOnly}:${limit}`);
     const { busy, error, run } = useAction(state.reload);
     const notifications = state.data ?? [];
     const unread = notifications.filter((item) => !item.read_at);

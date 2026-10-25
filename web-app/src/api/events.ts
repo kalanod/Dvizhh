@@ -9,8 +9,9 @@ import type {
     Participant,
 } from "../models";
 
-export const listEvents = (filters: EventFilters = {}) =>
+export const listEvents = (filters: EventFilters = {}, signal?: AbortSignal) =>
     request<DvizhEvent[]>("/events", {
+        signal,
         query: {
             q: filters.q,
             tag: filters.tag,
@@ -25,8 +26,8 @@ export const listEvents = (filters: EventFilters = {}) =>
         },
     });
 
-export const getEvent = (eventId: string, viewerId?: string | null) =>
-    request<DvizhEvent>(`/events/${eventId}`, { query: { viewer_id: viewerId } });
+export const getEvent = (eventId: string, viewerId?: string | null, signal?: AbortSignal) =>
+    request<DvizhEvent>(`/events/${eventId}`, { query: { viewer_id: viewerId }, signal });
 
 export const createEvent = (body: CreateEventInput) =>
     request<DvizhEvent>("/events", { method: "POST", body });
@@ -51,8 +52,8 @@ export const updateEvent =(eventId: string, body: EventInput, actorId: string) =
 export const deleteEvent = (eventId: string, actorId: string) =>
     request<void>(`/events/${eventId}`, { method: "DELETE", query: { actor_id: actorId } });
 
-export const listParticipants = (eventId: string) =>
-    request<Participant[]>(`/events/${eventId}/participants`);
+export const listParticipants = (eventId: string, signal?: AbortSignal) =>
+    request<Participant[]>(`/events/${eventId}/participants`, { signal });
 
 export const joinEvent = (eventId: string, userId: string) =>
     request<Participant>(`/events/${eventId}/participants`, { method: "POST", body: { user_id: userId } });

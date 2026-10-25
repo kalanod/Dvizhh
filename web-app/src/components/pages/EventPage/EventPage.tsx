@@ -32,8 +32,8 @@ export const EventPage = () => {
     // Предупреждение от формы: событие сохранено, а обложка — нет.
     const formNotice = (useLocation().state as { notice?: string } | null)?.notice;
 
-    const eventState = useAsync(() => getEvent(id, userId), `${id}:${userId}`);
-    const participantsState = useAsync(() => listParticipants(id), id);
+    const eventState = useAsync((signal) => getEvent(id, userId, signal), `${id}:${userId}`);
+    const participantsState = useAsync((signal) => listParticipants(id, signal), id);
     const event = eventState.data;
 
     const reloadAll = () => {

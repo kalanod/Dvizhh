@@ -6,6 +6,8 @@ interface RequestOptions {
     /** Байты файла: уходят как application/octet-stream, а не JSON. */
     file?: Blob;
     query?: Record<string, QueryValue>;
+    /** Отмена запроса, например когда пользователь ушёл со страницы. */
+    signal?: AbortSignal;
 }
 
 export class ApiError extends Error {
@@ -19,7 +21,7 @@ export class ApiError extends Error {
 }
 
 /** Запрос к backend через прокси web-app: все пути начинаются с /api. */
-export async function request<T>(path: string, { method = "GET", body, file, query }: RequestOptions = {}): Promise<T> {
+export async function request<T>(path: string, { method = "GET", body, file, query, signal }: RequestOptions = {}): Promise<T> {
     const url = new URL(`/api${path}`, window.location.origin);
     for (const [key, value] of Object.entries(query ?? {})) {
         if (value !== undefined && value !== null && value !== "" && value !== false) {
@@ -32,14 +34,17 @@ export async function request<T>(path: string, { method = "GET", body, file, que
         response = await fetch(
             url,
             file
-                ? { method, headers: { "Content-Type": "application/octet-stream" }, body: file }
+                ? { method, signal, headers: { "Content-Type": "application/octet-stream" }, body: file }
                 : {
                       method,
+                      signal,
                       headers: body === undefined ? undefined : { "Content-Type": "application/json" },
                       body: body === undefined ? undefined : JSON.stringify(body),
                   },
         );
-    } catch {
+    } catch (error) {
+        // Отменённый запрос — не сетевая ошибка: пробрасываем AbortError как есть.
+        if (signal?.aborted) throw error;
         throw new ApiError("Сервер недоступен. Проверьте подключение.", 0);
     }
 

@@ -88,7 +88,7 @@ const CreateEvent = ({ userId }: { userId: string }) => {
 };
 
 const EditEvent = ({ eventId, userId }: { eventId: string; userId: string }) => {
-    const { data: event, error, loading } = useAsync(() => getEvent(eventId, userId), `${eventId}:${userId}`);
+    const { data: event, error, loading } = useAsync((signal) => getEvent(eventId, userId, signal), `${eventId}:${userId}`);
 
     if (loading) return <Loader />;
     if (!event) return <Notice tone="error">{errorText(error)}</Notice>;

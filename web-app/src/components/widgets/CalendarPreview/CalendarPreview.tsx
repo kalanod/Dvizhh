@@ -23,7 +23,7 @@ export const CalendarRow = ({ event }: { event: DvizhEvent }) => {
 
 export const CalendarPreview = ({ userId }: { userId: string }) => {
     const navigate = useNavigate();
-    const { data, loading, error } = useAsync(() => getCalendar(userId), userId);
+    const { data, loading, error } = useAsync((signal) => getCalendar(userId, signal), userId);
     const [now] = useState(() => Date.now());
     const upcoming = (data ?? [])
         .filter((event) => new Date(event.ends_at ?? event.starts_at).getTime() >= now)

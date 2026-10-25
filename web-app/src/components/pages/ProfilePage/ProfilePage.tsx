@@ -56,8 +56,8 @@ const Field = ({ label, children }: { label: string; children: ReactNode }) => (
 const ProfileDetailsSection = ({ profileId }: { profileId: string }) => {
     const { userId, user: me } = useCurrentUser();
     const isMe = profileId === userId;
-    const profileState = useAsync(() => (isMe && me ? Promise.resolve(me) : getUser(profileId)), profileId);
-    const friendsState = useAsync(() => listFriends(profileId), profileId);
+    const profileState = useAsync((signal) => (isMe && me ? Promise.resolve(me) : getUser(profileId, signal)), profileId);
+    const friendsState = useAsync((signal) => listFriends(profileId, signal), profileId);
     const [editing, setEditing] = useState(false);
     // Свой профиль берём из контекста: он обновляется сразу после редактирования.
     const profile = isMe && me ? me : profileState.data;
@@ -270,11 +270,11 @@ interface FriendshipActionsProps {
 
 type Relation = "friend" | "incoming" | "outgoing" | "none";
 
-const loadRelation = async (me: string, otherId: string): Promise<Relation> => {
+const loadRelation = async (me: string, otherId: string, signal: AbortSignal): Promise<Relation> => {
     const [friends, incoming, outgoing] = await Promise.all([
-        listFriends(me),
-        listFriendRequests(me, "incoming", { limit: 100 }),
-        listFriendRequests(me, "outgoing", { limit: 100 }),
+        listFriends(me, signal),
+        listFriendRequests(me, "incoming", { limit: 100, signal }),
+        listFriendRequests(me, "outgoing", { limit: 100, signal }),
     ]);
     if (friends.some((friend) => friend.id === otherId)) return "friend";
     if (incoming.some((request) => request.user.id === otherId)) return "incoming";
@@ -283,7 +283,7 @@ const loadRelation = async (me: string, otherId: string): Promise<Relation> => {
 };
 
 const FriendshipActions = ({ me, other, onChanged }: FriendshipActionsProps) => {
-    const relationState = useAsync(() => loadRelation(me, other.id), `${me}:${other.id}`);
+    const relationState = useAsync((signal) => loadRelation(me, other.id, signal), `${me}:${other.id}`);
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [message, setMessage] = useState<string | null>(null);

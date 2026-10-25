@@ -31,7 +31,7 @@ export const EventSection = ({ title }: EventSectionProps) => {
         viewerId: userId,
         limit,
     };
-    const { data: events, error, loading } = useAsync(() => listEvents(query), JSON.stringify(query));
+    const { data: events, error, loading } = useAsync((signal) => listEvents(query, signal), JSON.stringify(query));
 
     const suggestedTags = useMemo(() => {
         const counts = new Map<string, number>();

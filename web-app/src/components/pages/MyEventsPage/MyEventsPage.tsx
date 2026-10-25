@@ -13,7 +13,7 @@ const MAX_LIMIT = 100;
 interface Tab {
     label: string;
     empty: string;
-    load: (userId: string, limit: number) => Promise<DvizhEvent[]>;
+    load: (userId: string, limit: number, signal: AbortSignal) => Promise<DvizhEvent[]>;
     /** Карточка уходит из списка после переключателя — список нужно перечитать. */
     reloadOnPersonalChange?: boolean;
 }
@@ -22,33 +22,33 @@ const TABS = {
     organized: {
         label: "Организую",
         empty: "Вы ещё не создали ни одного события — нажмите «+ Движ».",
-        load: (userId, limit) => listMyEvents(userId, "organized", { limit }),
+        load: (userId, limit, signal) => listMyEvents(userId, "organized", { limit, signal }),
     },
     drafts: {
         label: "Черновики",
         empty: "Черновиков нет. Сохраните событие как черновик, чтобы доработать его позже.",
-        load: (userId, limit) => listDrafts(userId, { limit }),
+        load: (userId, limit, signal) => listDrafts(userId, { limit, signal }),
     },
     participating: {
         label: "Иду",
         empty: "Вы пока никуда не записались.",
-        load: (userId, limit) => listMyEvents(userId, "participating", { limit }),
+        load: (userId, limit, signal) => listMyEvents(userId, "participating", { limit, signal }),
     },
     requested: {
         label: "Заявки",
         empty: "Нет заявок, ожидающих решения организатора.",
-        load: (userId, limit) => listMyEvents(userId, "requested", { limit }),
+        load: (userId, limit, signal) => listMyEvents(userId, "requested", { limit, signal }),
     },
     favorites: {
         label: "Избранное",
         empty: "Нажмите «☆ В избранное» на событии, чтобы сохранить его здесь.",
-        load: (userId, limit) => listFavorites(userId, { limit }),
+        load: (userId, limit, signal) => listFavorites(userId, { limit, signal }),
         reloadOnPersonalChange: true,
     },
     dismissed: {
         label: "Скрытые",
         empty: "Скрытых событий нет. «✕ Не интересно» убирает событие из вашей ленты.",
-        load: (userId, limit) => listDismissed(userId, { limit }),
+        load: (userId, limit, signal) => listDismissed(userId, { limit, signal }),
         reloadOnPersonalChange: true,
     },
 } satisfies Record<string, Tab>;
@@ -95,7 +95,7 @@ const MyEvents = ({ userId }: { userId: string }) => {
 
 const TabEvents = ({ userId, tab }: { userId: string; tab: Tab }) => {
     const [limit, setLimit] = useState(PAGE_SIZE);
-    const { data, error, loading, reload } = useAsync(() => tab.load(userId, limit), `${tab.label}:${userId}:${limit}`);
+    const { data, error, loading, reload } = useAsync((signal) => tab.load(userId, limit, signal), `${tab.label}:${userId}:${limit}`);
     const hasMore = (data?.length ?? 0) >= limit && limit < MAX_LIMIT;
 
     return (

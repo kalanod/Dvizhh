@@ -30,7 +30,7 @@ export const ParticipationPanel = ({
     const [message, setMessage] = useState<string | null>(null);
     // Отдельного GET приглашения на событие нет: ищем его среди действующих входящих.
     const invitationsState = useAsync(
-        () => (userId ? listInvitations(userId, { limit: 100 }) : Promise.resolve([])),
+        (signal) => (userId ? listInvitations(userId, { limit: 100, signal }) : Promise.resolve([])),
         `${userId}:${event.id}`,
     );
     const invitation = invitationsState.data?.find((card) => card.event.id === event.id)?.invitation;
