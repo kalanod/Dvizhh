@@ -1,5 +1,5 @@
 import { request } from "./client";
-import type { DvizhEvent } from "../models";
+import type { DvizhEvent, Profile } from "../models";
 
 export interface MediaConfig {
     max_bytes: number;
@@ -31,3 +31,6 @@ export const setEventCover = (eventId: string, actorId: string, mediaId: string 
         query: { actor_id: actorId },
         body: { media_id: mediaId },
     });
+
+export const setAvatar = (userId: string, mediaId: string | null) =>
+    request<Profile>(`/users/${userId}/avatar`, { method: "PUT", body: { media_id: mediaId } });

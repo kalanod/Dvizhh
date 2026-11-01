@@ -160,6 +160,53 @@ def test_real_upload_avatar_cover_and_draft_media_privacy() -> None:
     asyncio.run(scenario())
 
 
+def test_avatar_replacement_and_removal_propagate_to_profiles_friends_and_participants() -> None:
+    async def scenario() -> None:
+        async with client() as (http, _, _storage):
+            owner, participant = await user(http), await user(http)
+            owner_image = await upload(http, owner)
+            participant_image = await upload(http, participant)
+            for user_id, asset in ((owner, owner_image), (participant, participant_image)):
+                response = await http.put(
+                    f"/api/users/{user_id}/avatar", json={"media_id": asset["id"]}
+                )
+                assert response.status_code == 200, response.text
+            assert (await http.put(f"/api/users/{owner}/friends/{participant}")).status_code == 200
+            assert (
+                await http.patch(
+                    f"/api/users/{participant}/friends/{owner}", json={"accept": True}
+                )
+            ).status_code == 200
+            card = await event(http, owner)
+            assert card["organizer"]["avatar_url"] == owner_image["content_url"]
+            assert (
+                await http.post(
+                    f"/api/events/{card['id']}/participants", json={"user_id": participant}
+                )
+            ).status_code == 200
+            replacement = await upload(http, participant)
+            for asset in (participant_image, replacement, None):
+                response = await http.put(
+                    f"/api/users/{participant}/avatar",
+                    json={"media_id": asset["id"] if asset else None},
+                )
+                assert response.status_code == 200, response.text
+                expected_url = asset["content_url"] if asset else None
+                assert response.json()["avatar_url"] == expected_url
+                profile = (await http.get(f"/api/users/{participant}")).json()
+                assert profile["avatar_url"] == expected_url
+                friends = (await http.get(f"/api/users/{owner}/friends")).json()
+                assert friends[0]["avatar_url"] == expected_url
+                participants = (
+                    await http.get(f"/api/events/{card['id']}/participants")
+                ).json()
+                assert participants[0]["user"]["avatar_url"] == expected_url
+                assert "avatar_media_id" not in participants[0]["user"]
+            assert (await http.get(replacement["content_url"])).status_code == 403
+
+    asyncio.run(scenario())
+
+
 def test_upload_validation_stream_limits_and_storage_compensation() -> None:
     async def scenario() -> None:
         async with client() as (http, database, storage):

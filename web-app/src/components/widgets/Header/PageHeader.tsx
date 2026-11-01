@@ -77,7 +77,7 @@ export const PageHeader = () => {
                                 onClick={() => go("/profile")}
                                 className="cursor-pointer transition-opacity hover:opacity-80"
                             >
-                                <Avatar name={user.display_name} />
+                                <Avatar name={user.display_name} src={user.avatar_url} />
                             </button>
                             <Button
                                 state="hover2"

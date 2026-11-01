@@ -1,9 +1,11 @@
 import type { MediaConfig } from "../api/media";
 
-export type EventCoverChange =
+export type ImageChange =
     | { kind: "keep" }
     | { kind: "remove" }
     | { kind: "file"; file: File };
+
+export type EventCoverChange = ImageChange;
 
 export function mediaContentUrl(url?: string | null, viewerId?: string | null): string | null {
     if (!url) return null;

@@ -7,6 +7,7 @@ export interface CurrentUserValue {
     user: Profile | null;
     loading: boolean;
     signIn: (profile: Profile) => void;
+    updateUser: (profile: Profile) => void;
     signOut: () => void;
 }
 

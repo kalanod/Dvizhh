@@ -12,7 +12,7 @@ const testRoot = fileURLToPath(new URL("../node_modules/.tmp/", import.meta.url)
 mkdirSync(testRoot, { recursive: true });
 const output = mkdtempSync(join(testRoot, "dvizh-api-test-"));
 writeFileSync(join(output, "package.json"), '{"type":"commonjs"}');
-for (const name of ["api/client", "api/events", "api/media", "api/eventCover", "utils/media", "utils/format", "components/widgets/EventCard/EventCoverMicro"]) {
+for (const name of ["api/client", "api/events", "api/media", "api/eventCover", "api/profileImage", "utils/media", "utils/format", "components/widgets/EventCard/EventCoverMicro", "components/ui/Avatar/Avatar"]) {
     const extension = name.startsWith("components/") ? "tsx" : "ts";
     const source = readFileSync(new URL(`../src/${name}.${extension}`, import.meta.url), "utf8");
     const { outputText } = ts.transpileModule(source, {
@@ -26,6 +26,8 @@ const require = createRequire(import.meta.url);
 const api = require(join(output, "api/events.js"));
 const media = require(join(output, "api/media.js"));
 const { createEventSaver } = require(join(output, "api/eventCover.js"));
+const { createAvatarSaver } = require(join(output, "api/profileImage.js"));
+const { Avatar } = require(join(output, "components/ui/Avatar/Avatar.js"));
 const { mediaContentUrl, validateCoverFile } = require(join(output, "utils/media.js"));
 const { EventCoverMicro, EventCoverMain } = require(join(output, "components/widgets/EventCard/EventCoverMicro.js"));
 const { ApiError } = require(join(output, "api/client.js"));
@@ -212,4 +214,67 @@ test("a rejected upload leaves a reusable draft that can be published without an
     assert.equal(calls.filter((path) => path === "/api/events/drafts").length, 1);
     assert.equal(calls.filter((path) => path === "/api/media").length, 1);
     assert.equal(calls.at(-1), "/api/events/event-1/publish");
+});
+
+test("avatar assignment and removal return the updated profile", async (t) => {
+    const ids = [];
+    t.mock.method(globalThis, "fetch", async (url, options) => {
+        assert.equal(url.pathname, "/api/users/owner-1/avatar");
+        assert.equal(options.method, "PUT");
+        const id = JSON.parse(options.body).media_id;
+        ids.push(id);
+        return Response.json({ id: "owner-1", avatar_url: id ? `/api/media/${id}/content` : null });
+    });
+    assert.equal((await media.setAvatar("owner-1", "photo-1")).avatar_url, "/api/media/photo-1/content");
+    assert.equal((await media.setAvatar("owner-1", null)).avatar_url, null);
+    assert.deepEqual(ids, ["photo-1", null]);
+});
+
+test("retrying an avatar assignment reuses its uploaded image", async (t) => {
+    const calls = [];
+    let fail = true;
+    t.mock.method(globalThis, "fetch", async (url, options) => {
+        calls.push(url.pathname);
+        if (url.pathname === "/api/media") return Response.json({ id: "photo-1" });
+        if (fail) {
+            fail = false;
+            return Response.json({ detail: "Temporarily unavailable" }, { status: 503 });
+        }
+        const id = JSON.parse(options.body).media_id;
+        return Response.json({ id: "owner-1", avatar_media_id: id, avatar_url: id ? `/api/media/${id}/content` : null });
+    });
+    const save = createAvatarSaver("owner-1");
+    const selection = { kind: "file", file: new File(["image"], "avatar.png") };
+    await assert.rejects(save(selection), (error) => error.status === 503);
+    const updated = await save(selection);
+    assert.equal(updated.avatar_url, "/api/media/photo-1/content");
+    assert.equal(calls.filter((path) => path === "/api/media").length, 1);
+    assert.equal((await save({ kind: "remove" })).avatar_url, null);
+    assert.equal(calls.filter((path) => path === "/api/media").length, 1);
+});
+
+test("failed avatar uploads do not replace the current profile image", async (t) => {
+    const calls = [];
+    t.mock.method(globalThis, "fetch", async (url) => {
+        calls.push(url.pathname);
+        return Response.json({ detail: "Invalid or corrupt image" }, { status: 415 });
+    });
+    const save = createAvatarSaver("owner-1");
+    await assert.rejects(save({ kind: "file", file: new File(["bad"], "avatar.png") }), (error) => error.status === 415);
+    assert.deepEqual(calls, ["/api/media"]);
+});
+
+test("avatars render profile photos at every size and fall back to initials", () => {
+    for (const size of ["sm", "md", "lg"]) {
+        const image = renderToStaticMarkup(createElement(Avatar, {
+            name: "Анна", size, src: "/api/media/photo-1/content",
+        }));
+        assert.match(image, /<img/);
+        assert.match(image, /\/api\/media\/photo-1\/content/);
+        assert.match(image, /object-cover/);
+        const initial = renderToStaticMarkup(createElement(Avatar, { name: "  Анна", size }));
+        assert.doesNotMatch(initial, /<img/);
+        assert.match(initial, />А<\//);
+    }
+    assert.match(renderToStaticMarkup(createElement(Avatar, { name: "" })), />\?<\//);
 });
