@@ -130,6 +130,48 @@ services:
         condition: service_healthy
     restart: "no"
 
+  mlflow:
+    profiles: [ml]
+    build:
+      context: ./mlflow
+    environment:
+      MLFLOW_DATABASE_PASSWORD: ${MLFLOW_DATABASE_PASSWORD:-change-me}
+      MLFLOW_S3_ENDPOINT_URL: http://minio:9000
+      AWS_ACCESS_KEY_ID: mlflow
+      AWS_SECRET_ACCESS_KEY: ${MLFLOW_STORAGE_SECRET_KEY:-change-me-mlflow}
+      MLFLOW_SERVER_ALLOWED_HOSTS: mlflow:5000,localhost:*,127.0.0.1:*
+    ports:
+      - "127.0.0.1:${MLFLOW_PORT:-5000}:5000"
+    depends_on:
+      mlflow-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/health')"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  mlflow-init:
+    profiles: [ml]
+    build:
+      context: ./mlflow-init
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-dvizh_data}
+      POSTGRES_USER: ${POSTGRES_USER:-dvizh_app}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
+      MLFLOW_DATABASE_PASSWORD: ${MLFLOW_DATABASE_PASSWORD:-change-me}
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-dvizh}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-change-me-please}
+      MLFLOW_STORAGE_SECRET_KEY: ${MLFLOW_STORAGE_SECRET_KEY:-change-me-mlflow}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    restart: "no"
+
   postgres:
     build:
       context: ./postgres
