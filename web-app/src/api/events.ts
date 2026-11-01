@@ -23,6 +23,12 @@ export const getEvent = (eventId: string, viewerId?: string | null) =>
 export const createEvent = (body: CreateEventInput) =>
     request<DvizhEvent>("/events", { method: "POST", body });
 
+export const createDraftEvent = (body: CreateEventInput) =>
+    request<DvizhEvent>("/events/drafts", { method: "POST", body });
+
+export const publishEvent = (eventId: string, actorId: string) =>
+    request<DvizhEvent>(`/events/${eventId}/publish`, { method: "POST", body: { actor_id: actorId } });
+
 export const updateEvent = (eventId: string, body: EventInput, actorId: string) =>
     request<DvizhEvent>(`/events/${eventId}`, { method: "PUT", body, query: { actor_id: actorId } });
 

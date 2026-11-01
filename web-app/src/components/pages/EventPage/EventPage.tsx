@@ -70,7 +70,7 @@ export const EventPage = () => {
         <MainLayout>
             <section className="flex w-full flex-col gap-5 rounded-lg bg-background p-[10px]">
                 <div className="flex w-full flex-col items-start gap-[10px] rounded-lg bg-cards-surface p-4 sm:flex-row sm:p-8">
-                    <EventCoverMain startsAt={event.starts_at} timeZone={event.timezone} />
+                    <EventCoverMain startsAt={event.starts_at} timeZone={event.timezone} coverUrl={event.cover_url} viewerId={userId} />
                     <div className="flex min-w-0 flex-1 flex-col items-start gap-6 self-stretch p-0 sm:gap-8 sm:p-[10px]">
                         <div className="flex w-full flex-col items-start gap-[10px]">
                             <h1 className="text-h1 break-words text-textprimary">{event.title}</h1>
