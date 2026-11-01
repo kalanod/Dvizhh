@@ -5,12 +5,16 @@ import type { EventFormat, EventInput, EventJoinPolicy, EventVisibility } from "
 import { Button, FormField, Input, Notice, Select, Textarea, Toggle } from "../../ui";
 import { FORMAT_LABELS, JOIN_POLICY_LABELS, VISIBILITY_LABELS } from "../../../utils/format";
 import { emptyForm, formToInput, validateForm, type EventFormState } from "./formState";
+import type { EventCoverChange } from "../../../utils/media";
+import { EventCoverField } from "./EventCoverField";
 
 interface EventFormProps {
     title: string;
     submitLabel: string;
     initial?: EventFormState;
-    onSubmit: (input: EventInput) => Promise<void>;
+    userId: string;
+    initialCoverUrl?: string | null;
+    onSubmit: (input: EventInput, cover: EventCoverChange) => Promise<void>;
     onCancel: () => void;
 }
 
@@ -21,10 +25,12 @@ const Section = ({ title, children }: { title: string; children: ReactNode }) =>
     </fieldset>
 );
 
-export const EventForm = ({ title, submitLabel, initial, onSubmit, onCancel }: EventFormProps) => {
+export const EventForm = ({ title, submitLabel, initial, userId, initialCoverUrl, onSubmit, onCancel }: EventFormProps) => {
     const [form, setForm] = useState<EventFormState>(() => initial ?? emptyForm());
     const [error, setError] = useState<string | null>(null);
     const [submitting, setSubmitting] = useState(false);
+    const [cover, setCover] = useState<EventCoverChange>({ kind: "keep" });
+    const [coverError, setCoverError] = useState<string | null>(null);
 
     const set =
         <K extends keyof EventFormState>(key: K) =>
@@ -33,6 +39,7 @@ export const EventForm = ({ title, submitLabel, initial, onSubmit, onCancel }: E
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
+        if (submitting || coverError) return;
         const problem = validateForm(form);
         if (problem) {
             setError(problem);
@@ -41,7 +48,7 @@ export const EventForm = ({ title, submitLabel, initial, onSubmit, onCancel }: E
         setSubmitting(true);
         setError(null);
         try {
-            await onSubmit(formToInput(form));
+            await onSubmit(formToInput(form), cover);
         } catch (err) {
             setError(errorText(err));
             setSubmitting(false);
@@ -55,6 +62,7 @@ export const EventForm = ({ title, submitLabel, initial, onSubmit, onCancel }: E
             noValidate
             className="flex w-full flex-col gap-5 rounded-lg bg-cards-surface p-4 sm:p-8"
         >
+            <fieldset disabled={submitting} className="flex min-w-0 flex-col gap-5">
             <div className="flex flex-col gap-1">
                 <h1 className="text-h1 text-textprimary">{title}</h1>
                 <p className="text-duration text-textsecondary">
@@ -63,6 +71,15 @@ export const EventForm = ({ title, submitLabel, initial, onSubmit, onCancel }: E
             </div>
 
             <Section title="Что за движ">
+                <EventCoverField
+                    value={cover}
+                    initialUrl={initialCoverUrl}
+                    viewerId={userId}
+                    disabled={submitting}
+                    error={coverError}
+                    onChange={setCover}
+                    onError={setCoverError}
+                />
                 <FormField label="Название" htmlFor="title" required>
                     <Input id="title" maxLength={200} placeholder="Поход в Выборг" value={form.title} onChange={set("title")} />
                 </FormField>
@@ -190,10 +207,11 @@ export const EventForm = ({ title, submitLabel, initial, onSubmit, onCancel }: E
                 <Button state="hover1" onClick={onCancel}>
                     Отмена
                 </Button>
-                <Button type="submit" state="fixed1" disabled={submitting}>
-                    {submitting ? "Сохраняем…" : submitLabel}
+                <Button type="submit" state="fixed1" disabled={submitting || Boolean(coverError)}>
+                    {submitting ? "Сохраняем событие и обложку…" : submitLabel}
                 </Button>
             </div>
+            </fieldset>
         </form>
         </section>
     );

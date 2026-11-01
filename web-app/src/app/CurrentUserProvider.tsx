@@ -69,6 +69,10 @@ export const CurrentUserProvider = ({ children }: { children: ReactNode }) => {
         setUser(null);
     }, []);
 
+    const updateUser = useCallback((profile: Profile) => {
+        setUser((current) => current?.id === profile.id ? profile : current);
+    }, []);
+
     const value = useMemo(() => {
         const currentUser = user?.id === userId ? user : null;
         return {
@@ -76,9 +80,10 @@ export const CurrentUserProvider = ({ children }: { children: ReactNode }) => {
             user: currentUser,
             loading: userId !== null && currentUser === null && failedId !== userId,
             signIn,
+            updateUser,
             signOut,
         };
-    }, [userId, user, failedId, signIn, signOut]);
+    }, [userId, user, failedId, signIn, signOut, updateUser]);
 
     return <CurrentUserContext.Provider value={value}>{children}</CurrentUserContext.Provider>;
 };

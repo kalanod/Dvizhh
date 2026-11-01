@@ -3,6 +3,7 @@ type QueryValue = string | number | boolean | null | undefined;
 interface RequestOptions {
     method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
     body?: unknown;
+    rawBody?: Blob;
     query?: Record<string, QueryValue>;
 }
 
@@ -17,7 +18,7 @@ export class ApiError extends Error {
 }
 
 /** Запрос к backend через прокси web-app: все пути начинаются с /api. */
-export async function request<T>(path: string, { method = "GET", body, query }: RequestOptions = {}): Promise<T> {
+export async function request<T>(path: string, { method = "GET", body, rawBody, query }: RequestOptions = {}): Promise<T> {
     const url = new URL(`/api${path}`, window.location.origin);
     for (const [key, value] of Object.entries(query ?? {})) {
         if (value !== undefined && value !== null && value !== "" && value !== false) {
@@ -29,8 +30,10 @@ export async function request<T>(path: string, { method = "GET", body, query }: 
     try {
         response = await fetch(url, {
             method,
-            headers: body === undefined ? undefined : { "Content-Type": "application/json" },
-            body: body === undefined ? undefined : JSON.stringify(body),
+            headers: rawBody !== undefined
+                ? { "Content-Type": "application/octet-stream" }
+                : body === undefined ? undefined : { "Content-Type": "application/json" },
+            body: rawBody ?? (body === undefined ? undefined : JSON.stringify(body)),
         });
     } catch {
         throw new ApiError("Сервер недоступен. Проверьте подключение.", 0);

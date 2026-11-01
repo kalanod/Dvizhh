@@ -12,6 +12,7 @@ import {
     seatsLeft,
 } from "../../../utils/format";
 import { EventCoverMicro } from "./EventCoverMicro";
+import { useCurrentUser } from "../../../hooks";
 
 interface EventCardProps {
     event: DvizhEvent;
@@ -22,6 +23,7 @@ interface EventCardProps {
 /** Карточка события в виде BookCard шаблона. */
 export const EventCard = ({ event, onTagClick, className = "" }: EventCardProps) => {
     const navigate = useNavigate();
+    const { userId } = useCurrentUser();
     const seats = seatsLeft(event);
     const isFree = event.price_type === "FREE" || !event.price_min;
 
@@ -30,12 +32,11 @@ export const EventCard = ({ event, onTagClick, className = "" }: EventCardProps)
             className={`flex w-full cursor-pointer gap-[10px] rounded-lg bg-cards-surface p-3 sm:p-4 transition-all hover:scale-[1.01] hover:shadow-lg ${className}`}
             onClick={() => navigate(`/events/${event.id}`)}
         >
-            <div className="h-[128px] w-[86px] flex-shrink-0 max-sm:hidden">
-                <EventCoverMicro startsAt={event.starts_at} timeZone={event.timezone} />
+            <div className={`h-[96px] w-[64px] flex-shrink-0 sm:h-[128px] sm:w-[86px] ${event.cover_url ? "" : "max-sm:hidden"}`}>
+                <EventCoverMicro startsAt={event.starts_at} timeZone={event.timezone} coverUrl={event.cover_url} viewerId={userId} />
             </div>
 
             <div className="flex min-w-0 flex-1 flex-col justify-between gap-4">
-                {/* На телефоне обложка-дата не помещается сбоку — дата и так есть в тексте карточки. */}
                 <div className="flex w-full flex-wrap gap-4">
                     <div className="flex min-w-[min(200px,100%)] flex-1 flex-col gap-2 py-1">
                         <h3 className="text-h3 break-words text-textprimary transition-colors hover:text-primary">{event.title}</h3>

@@ -8,6 +8,7 @@ import { MainLayout } from "../../layouts";
 import { Avatar, Button, Loader, Notice } from "../../ui";
 import { PeopleList } from "../../widgets";
 import { formatJoinedAt } from "../../../utils/format";
+import { ProfileAvatarEditor } from "./ProfileAvatarEditor";
 
 /** /profile — свой профиль, /users/:id — профиль другого пользователя. */
 export const ProfilePage = () => {
@@ -42,11 +43,11 @@ const Field = ({ label, children }: { label: string; children: ReactNode }) => (
 );
 
 const ProfileDetailsSection = ({ profileId }: { profileId: string }) => {
-    const { userId, user: me } = useCurrentUser();
+    const { userId, user: me, updateUser } = useCurrentUser();
     const isMe = profileId === userId;
     const profileState = useAsync(() => (isMe && me ? Promise.resolve(me) : getUser(profileId)), profileId);
     const friendsState = useAsync(() => listFriends(profileId), profileId);
-    const profile = profileState.data;
+    const profile = isMe && me ? me : profileState.data;
 
     return (
         <div className="flex flex-col gap-5">
@@ -65,7 +66,7 @@ const ProfileDetailsSection = ({ profileId }: { profileId: string }) => {
                         </div>
 
                         <div className="flex w-full flex-wrap gap-6 sm:gap-8">
-                            <Avatar name={profile.display_name} size="lg" />
+                            <Avatar name={profile.display_name} src={profile.avatar_url} size="lg" />
                             <div className="flex min-w-0 flex-1 flex-col gap-6">
                                 <Field label="Имя">{profile.display_name}</Field>
                                 <Field label="Никнейм">@{profile.username}</Field>
@@ -75,6 +76,7 @@ const ProfileDetailsSection = ({ profileId }: { profileId: string }) => {
                                 {isMe && <ProfileIdField profile={profile} />}
                             </div>
                         </div>
+                        {isMe && me && <ProfileAvatarEditor key={profile.id} profile={profile} onSaved={updateUser} />}
                     </div>
                 )}
 
