@@ -1,7 +1,7 @@
 import asyncio
 from datetime import UTC, datetime
 from decimal import Decimal
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 from uuid import UUID
 
 import pytest
@@ -9,6 +9,7 @@ from pydantic import ValidationError
 
 from dvizh_backend.database.models import Friendship, Profile
 from dvizh_backend.database.models.enums import FriendshipStatus, ProfileStatus
+from dvizh_backend.database.services.catalog import ProfileService
 from dvizh_backend.dto.user import CreateProfileDTO, UpdateProfileDTO
 from dvizh_backend.services.errors import (
     AvatarUnavailableError,
@@ -76,6 +77,25 @@ def test_profile_update_changes_only_supplied_fields() -> None:
         assert result.bio is None
         assert result.username == "first"
         service.profiles.update.assert_awaited_once_with(profile, bio=None)
+
+    asyncio.run(scenario())
+
+
+def test_profile_service_excludes_soft_deleted_profiles_from_active_lists() -> None:
+    async def scenario() -> None:
+        session = AsyncMock()
+        result = MagicMock()
+        result.all.return_value = []
+        session.scalars = AsyncMock(return_value=result)
+
+        service = ProfileService(session)
+        await service.list_active(offset=1, limit=2)
+        active_sql = str(session.scalars.await_args.args[0])
+        assert "profiles.deleted_at IS NULL" in active_sql
+
+        await service.list_active_by_ids([FIRST_ID, SECOND_ID])
+        active_by_ids_sql = str(session.scalars.await_args.args[0])
+        assert "profiles.deleted_at IS NULL" in active_by_ids_sql
 
     asyncio.run(scenario())
 

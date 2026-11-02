@@ -9,8 +9,10 @@ interface AsyncState<T> {
 /**
  * Загружает данные при изменении key. Пока результат для текущего key не получен,
  * loading = true; reload() перезапрашивает данные с тем же key.
+ * Устаревший запрос (сменился key, компонент ушёл со страницы) отменяется через signal —
+ * передайте его в функцию API, чтобы backend не обрабатывал ненужные ответы.
  */
-export const useAsync = <T>(load: () => Promise<T>, key: string) => {
+export const useAsync = <T>(load: (signal: AbortSignal) => Promise<T>, key: string) => {
     const [state, setState] = useState<AsyncState<T> | null>(null);
     const [version, setVersion] = useState(0);
     const loadRef = useRef(load);
@@ -21,14 +23,13 @@ export const useAsync = <T>(load: () => Promise<T>, key: string) => {
     });
 
     useEffect(() => {
-        let cancelled = false;
-        loadRef.current().then(
-            (data) => !cancelled && setState({ key: fullKey, data }),
-            (error: unknown) => !cancelled && setState({ key: fullKey, error }),
+        const controller = new AbortController();
+        const { signal } = controller;
+        loadRef.current(signal).then(
+            (data) => !signal.aborted && setState({ key: fullKey, data }),
+            (error: unknown) => !signal.aborted && setState({ key: fullKey, error }),
         );
-        return () => {
-            cancelled = true;
-        };
+        return () => controller.abort();
     }, [fullKey]);
 
     const reload = useCallback(() => setVersion((value) => value + 1), []);

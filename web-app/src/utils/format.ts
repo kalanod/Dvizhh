@@ -1,4 +1,4 @@
-import type { DvizhEvent, EventFormat, EventJoinPolicy, EventVisibility, ParticipationStatus } from "../models";
+import type { DvizhEvent, EventFormat, EventJoinPolicy, EventStatus, EventVisibility, ParticipationStatus } from "../models";
 
 export const FORMAT_LABELS: Record<EventFormat, string> = {
     OFFLINE: "Офлайн",
@@ -27,7 +27,54 @@ export const PARTICIPATION_LABELS: Record<ParticipationStatus, string> = {
     CANCELLED: "Отменено",
 };
 
-const sameDay = (a: Date, b: Date, timeZone: string) =>
+export const EVENT_STATUS_LABELS: Record<EventStatus, string> = {
+    DRAFT: "Черновик",
+    PUBLISHED: "Опубликовано",
+    CANCELLED: "Отменено",
+    COMPLETED: "Завершено",
+    ARCHIVED: "В архиве",
+};
+
+/** Поля EventDTO из payload.changed_fields уведомления об изменении события. */
+const CHANGED_FIELD_LABELS: Record<string, string> = {
+    title: "название",
+    description: "описание",
+    tags: "тематики",
+    starts_at: "время начала",
+    ends_at: "время окончания",
+    timezone: "часовой пояс",
+    is_all_day: "время",
+    format: "формат",
+    location: "место",
+    online_url: "ссылка на трансляцию",
+    registration_url: "ссылка на регистрацию",
+    price_type: "стоимость",
+    price_min: "стоимость",
+    price_max: "стоимость",
+    currency: "стоимость",
+    capacity: "число мест",
+    visibility: "видимость",
+    join_policy: "правила участия",
+    cover_media_id: "обложка",
+    cover_url: "обложка",
+};
+
+/** «время начала, место» — без повторов и служебных полей вроде slug. */
+export const formatChangedFields = (fields: string[] = []) =>
+    [...new Set(fields.map((field) => CHANGED_FIELD_LABELS[field]).filter(Boolean))].join(", ");
+
+/** «5 мин назад», «вчера», «12 окт». */
+export const formatAgo = (iso: string, now = Date.now()) => {
+    const minutes = Math.round((now - new Date(iso).getTime()) / 60_000);
+    if (minutes < 1) return "только что";
+    if (minutes < 60) return `${minutes} мин назад`;
+    const hours = Math.round(minutes / 60);
+    if (hours < 24) return `${hours} ч назад`;
+    if (hours < 48) return "вчера";
+    return new Date(iso).toLocaleDateString("ru-RU", { day: "numeric", month: "short" });
+};
+
+const sameDay =(a: Date, b: Date, timeZone: string) =>
     a.toLocaleDateString("ru-RU", { timeZone }) === b.toLocaleDateString("ru-RU", { timeZone });
 
 /** «сб, 25 окт · 19:00–22:00» в часовом поясе события. */

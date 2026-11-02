@@ -5,6 +5,8 @@ import type { UserSummary } from "../../../models";
 
 export interface PersonRow {
     user: UserSummary;
+    /** avatar_url профиля, если он известен (в UserSummary его нет). */
+    avatarUrl?: string | null;
     note?: ReactNode;
     actions?: ReactNode;
 }

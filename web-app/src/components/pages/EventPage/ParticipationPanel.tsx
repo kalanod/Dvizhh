@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { errorText, joinEvent, leaveEvent, reviewParticipation } from "../../../api";
-import { useCurrentUser } from "../../../hooks";
+import { errorText, joinEvent, leaveEvent, listInvitations, respondToInvitation, reviewParticipation } from "../../../api";
+import { notifyInboxChanged, useAsync, useCurrentUser } from "../../../hooks";
 import type { DvizhEvent, Participant } from "../../../models";
 import { Button, Notice } from "../../ui";
 import { PeopleList } from "../../widgets";
@@ -28,6 +28,12 @@ export const ParticipationPanel = ({
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [message, setMessage] = useState<string | null>(null);
+    // Отдельного GET приглашения на событие нет: ищем его среди действующих входящих.
+    const invitationsState = useAsync(
+        (signal) => (userId ? listInvitations(userId, { limit: 100, signal }) : Promise.resolve([])),
+        `${userId}:${event.id}`,
+    );
+    const invitation = invitationsState.data?.find((card) => card.event.id === event.id)?.invitation;
 
     const seats = seatsLeft(event);
     const myStatus = event.personal_state?.participation_status
@@ -83,6 +89,27 @@ export const ParticipationPanel = ({
         }
         if (myStatus === "REJECTED") {
             return <span className="text-h3 text-textsecondary">Заявка отклонена организатором.</span>;
+        }
+        if (invitation) {
+            const respond = (accept: boolean) =>
+                run(async () => {
+                    await respondToInvitation(invitation.id, userId, accept);
+                    invitationsState.reload();
+                    notifyInboxChanged();
+                }, accept ? "Приглашение принято — вы в списке участников!" : "Приглашение отклонено.");
+            return (
+                <>
+                    <span className="text-h3 text-textprimary">
+                        Вас пригласили{invitation.message ? `: «${invitation.message}»` : "!"}
+                    </span>
+                    <Button state="hover2" disabled={busy || seats === 0} onClick={() => respond(true)}>
+                        {seats === 0 ? "Мест нет" : "Принять — иду"}
+                    </Button>
+                    <Button state="hover1" disabled={busy} onClick={() => respond(false)}>
+                        Отклонить
+                    </Button>
+                </>
+            );
         }
         switch (event.join_policy) {
             case "OPEN":

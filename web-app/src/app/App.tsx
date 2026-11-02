@@ -5,6 +5,8 @@ import {
     EventPage,
     FeedPage,
     LoginPage,
+    MyEventsPage,
+    NotificationsPage,
     ProfilePage,
     RegistrationPage,
 } from "../components/pages";
@@ -20,6 +22,8 @@ function App() {
                     <Route path="/events/:id" element={<EventPage />} />
                     <Route path="/events/:id/edit" element={<EventFormPage />} />
                     <Route path="/calendar" element={<CalendarPage />} />
+                    <Route path="/my" element={<MyEventsPage />} />
+                    <Route path="/notifications" element={<NotificationsPage />} />
                     <Route path="/profile" element={<ProfilePage />} />
                     <Route path="/users/:id" element={<ProfilePage />} />
                     <Route path="/login" element={<LoginPage />} />

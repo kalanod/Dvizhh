@@ -3,5 +3,7 @@ export * from "./EventFormPage";
 export * from "./EventPage";
 export * from "./FeedPage";
 export * from "./LoginPage";
+export * from "./MyEventsPage";
+export * from "./NotificationsPage";
 export * from "./ProfilePage";
 export * from "./RegistrationPage";
