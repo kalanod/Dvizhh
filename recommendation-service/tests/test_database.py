@@ -115,3 +115,48 @@ def test_unresponsive_database_connection_has_bounded_startup(
         asyncio.run(run())
 
     assert source.close_called
+
+@pytest.mark.parametrize("failed_database", ["source", "vector"])
+def test_health_check_failure_closes_pools(
+    monkeypatch: pytest.MonkeyPatch,
+    failed_database: str,
+) -> None:
+    class FailingPool(Pool):
+        async def fetchval(self, *_args: object) -> int:
+            raise OSError("Health check failed")
+
+    source = FailingPool() if failed_database == "source" else Pool()
+    vector = FailingPool() if failed_database == "vector" else Pool()
+
+    created = []
+
+    def create_pool(*_args: object, **_kwargs: object) -> Pool:
+        pool = source if not created else vector
+        created.append(pool)
+        return pool
+
+    monkeypatch.setattr(
+        "dvizh_recommendation.database.asyncpg.create_pool",
+        create_pool,
+    )
+
+    async def run() -> None:
+        async with connect_databases(database_settings()):
+            pytest.fail("Startup succeeded despite failed health check")
+
+    with pytest.raises(
+        RuntimeError,
+        match=f"Cannot connect to {failed_database} database",
+    ) as error:
+        asyncio.run(run())
+
+    assert source.close_called
+
+    if failed_database == "source":
+        assert len(created) == 1
+    else:
+        assert len(created) == 2
+        assert vector.close_called
+
+    assert "source-secret" not in str(error.value)
+    assert "vector-secret" not in str(error.value)

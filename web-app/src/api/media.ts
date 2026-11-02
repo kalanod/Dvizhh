@@ -1,27 +1,36 @@
 import { request } from "./client";
-import type { DvizhEvent, Media, Profile } from "../models";
+import type { DvizhEvent, Profile } from "../models";
 
-/** Загружает JPEG, PNG или WebP; backend пережимает его в WebP. */
-export const uploadMedia = (userId: string, file: File) =>
-    request<Media>("/media", { method: "POST", file, query: { user_id: userId, filename: file.name } });
+export interface MediaConfig {
+    max_bytes: number;
+    max_pixels: number;
+    formats: string[];
+}
 
-/** media_id = null убирает аватар. */
-export const setAvatar = (userId: string, mediaId: string | null) =>
-    request<Profile>(`/users/${userId}/avatar`, { method: "PUT", body: { media_id: mediaId } });
+export interface UploadedMedia {
+    id: string;
+    content_url: string;
+    content_type: string;
+    size_bytes: number;
+    width: number;
+    height: number;
+}
 
-/** media_id = null убирает обложку. */
-export const setCover = (eventId: string, actorId: string, mediaId: string | null) =>
-    request<DvizhEvent>(`/events/${eventId}/cover`, {
-        method: "PUT",
-        body: { media_id: mediaId },
-        query: { actor_id: actorId },
+export const getMediaConfig = () => request<MediaConfig>("/media/config");
+
+export const uploadImage = (userId: string, file: File) =>
+    request<UploadedMedia>("/media", {
+        method: "POST",
+        rawBody: file,
+        query: { user_id: userId, filename: file.name },
     });
 
-/**
- * Адрес картинки для <img>. Публичные аватары и обложки доступны всем,
- * а обложки черновиков и закрытых событий — только с viewer_id.
- */
-export const mediaSrc = (url: string | null | undefined, viewerId?: string | null) => {
-    if (!url) return null;
-    return viewerId ? `${url}?viewer_id=${encodeURIComponent(viewerId)}` : url;
-};
+export const setEventCover = (eventId: string, actorId: string, mediaId: string | null) =>
+    request<DvizhEvent>(`/events/${eventId}/cover`, {
+        method: "PUT",
+        query: { actor_id: actorId },
+        body: { media_id: mediaId },
+    });
+
+export const setAvatar = (userId: string, mediaId: string | null) =>
+    request<Profile>(`/users/${userId}/avatar`, { method: "PUT", body: { media_id: mediaId } });

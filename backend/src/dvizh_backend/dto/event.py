@@ -4,7 +4,15 @@ from typing import Any, Self
 from uuid import UUID
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    AwareDatetime,
+    BaseModel,
+    ConfigDict,
+    Field,
+    computed_field,
+    field_validator,
+    model_validator,
+)
 
 from dvizh_backend.database.models.enums import (
     EventFormat,
@@ -22,6 +30,16 @@ class UserSummaryDTO(BaseModel):
     id: UUID
     username: str
     display_name: str
+    avatar_media_id: UUID | None = Field(default=None, exclude=True)
+
+    @computed_field
+    @property
+    def avatar_url(self) -> str | None:
+        return (
+            f"/api/media/{self.avatar_media_id}/content"
+            if self.avatar_media_id is not None
+            else None
+        )
 
 
 class LocationDTO(BaseModel):

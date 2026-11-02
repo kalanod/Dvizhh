@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { mediaSrc } from "../../../api";
 import { useCurrentUser } from "../../../hooks";
 import { Tag } from "../../ui";
 import type { DvizhEvent } from "../../../models";
@@ -59,12 +58,11 @@ export const EventCard = ({ event: initial, onTagClick, onPersonalChange, collap
             className={`flex w-full cursor-pointer gap-[10px] rounded-lg bg-cards-surface p-3 sm:p-4 transition-all hover:scale-[1.01] hover:shadow-lg ${className}`}
             onClick={() => navigate(`/events/${event.id}`)}
         >
-            <div className="h-[128px] w-[86px] flex-shrink-0 max-sm:hidden">
-                <EventCoverMicro startsAt={event.starts_at} timeZone={event.timezone} src={mediaSrc(event.cover_url, userId)} />
+            <div className={`h-[96px] w-[64px] flex-shrink-0 sm:h-[128px] sm:w-[86px] ${event.cover_url ? "" : "max-sm:hidden"}`}>
+                <EventCoverMicro startsAt={event.starts_at} timeZone={event.timezone} coverUrl={event.cover_url} viewerId={userId} />
             </div>
 
             <div className="flex min-w-0 flex-1 flex-col justify-between gap-4">
-                {/* На телефоне обложка-дата не помещается сбоку — дата и так есть в тексте карточки. */}
                 <div className="flex w-full flex-wrap gap-4">
                     <div className="flex min-w-[min(200px,100%)] flex-1 flex-col gap-2 py-1">
                         <h3 className="text-h3 break-words text-textprimary transition-colors hover:text-primary">{event.title}</h3>

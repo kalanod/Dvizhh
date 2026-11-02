@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { Avatar, Button } from "../../ui";
-import { mediaSrc } from "../../../api";
 import { useCurrentUser, useInboxCount } from "../../../hooks";
 import logo from "../../../assets/images/logo.svg";
 
@@ -104,7 +103,7 @@ export const PageHeader = () => {
                                 onClick={() => go("/profile")}
                                 className="cursor-pointer transition-opacity hover:opacity-80"
                             >
-                                <Avatar name={user.display_name} src={mediaSrc(user.avatar_url, user.id)} />
+                                <Avatar name={user.display_name} src={user.avatar_url} />
                             </button>
                             <Button
                                 state="hover2"

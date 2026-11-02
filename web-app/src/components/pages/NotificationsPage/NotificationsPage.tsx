@@ -1,3 +1,4 @@
+import { mediaContentUrl } from "../../../utils/media";
 import type { ReactNode } from "react";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
@@ -7,7 +8,6 @@ import {
     listInvitations,
     listNotifications,
     markNotificationRead,
-    mediaSrc,
     respondToFriendship,
     respondToInvitation,
 } from "../../../api";
@@ -151,7 +151,7 @@ const FriendRequestsBlock = ({ userId }: { userId: string }) => {
                     key={user.id}
                     name={user.display_name}
                     username={user.username}
-                    avatar={mediaSrc(user.avatar_url, userId)}
+                    avatar={mediaContentUrl(user.avatar_url, userId)}
                     note={formatAgo(friendship.requested_at)}
                     onOpen={() => navigate(`/users/${user.id}`)}
                 >
@@ -182,7 +182,7 @@ const FriendRequestsBlock = ({ userId }: { userId: string }) => {
                             key={user.id}
                             name={user.display_name}
                             username={user.username}
-                            avatar={mediaSrc(user.avatar_url, userId)}
+                            avatar={mediaContentUrl(user.avatar_url, userId)}
                             note={`ждёт ответа · ${formatAgo(friendship.requested_at)}`}
                             onOpen={() => navigate(`/users/${user.id}`)}
                         />

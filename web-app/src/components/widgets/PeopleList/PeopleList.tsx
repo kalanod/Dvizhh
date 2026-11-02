@@ -26,13 +26,13 @@ export const PeopleList = ({ people, emptyText }: PeopleListProps) => {
 
     return (
         <div className="flex w-full flex-col gap-[10px]">
-            {people.map(({ user, avatarUrl, note, actions }) => (
+            {people.map(({ user, note, actions }) => (
                 <div
                     key={user.id}
                     className="flex min-h-[42px] w-full items-center gap-2.5 overflow-hidden rounded-lg bg-primary p-2.5 transition-colors hover:bg-primary/80"
                 >
                     <div className="flex min-w-0 flex-1 cursor-pointer items-center gap-2.5" onClick={() => navigate(`/users/${user.id}`)}>
-                        <Avatar name={user.display_name} src={avatarUrl} size="sm" />
+                        <Avatar name={user.display_name} src={user.avatar_url} size="sm" />
                         <span className="truncate text-body text-black">{user.display_name}</span>
                         <span className="truncate text-duration text-textsecondary">
                             @{user.username}

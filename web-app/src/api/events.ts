@@ -32,8 +32,7 @@ export const getEvent = (eventId: string, viewerId?: string | null, signal?: Abo
 export const createEvent = (body: CreateEventInput) =>
     request<DvizhEvent>("/events", { method: "POST", body });
 
-/** Черновик не попадает в ленту, пока его не опубликуют. */
-export const createDraft = (body: CreateEventInput) =>
+export const createDraftEvent = (body: CreateEventInput) =>
     request<DvizhEvent>("/events/drafts", { method: "POST", body });
 
 export const publishEvent = (eventId: string, actorId: string) =>

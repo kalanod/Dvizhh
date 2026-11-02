@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { cancelEvent, deleteEvent, errorText, publishEvent, setCover, uploadMedia } from "../../../api";
+import { cancelEvent, deleteEvent, errorText, publishEvent, setEventCover, uploadImage } from "../../../api";
 import type { DvizhEvent } from "../../../models";
 import { Button, FileButton, Notice } from "../../ui";
 
@@ -36,8 +36,8 @@ export const OrganizerPanel = ({ event, userId, onChanged }: OrganizerPanelProps
 
     const handleCover = (file: File) =>
         run(async () => {
-            const media = await uploadMedia(userId, file);
-            await setCover(event.id, userId, media.id);
+            const media = await uploadImage(userId, file);
+            await setEventCover(event.id, userId, media.id);
         }, "Обложка обновлена.");
 
     const handleCancel = () => {
@@ -94,7 +94,7 @@ export const OrganizerPanel = ({ event, userId, onChanged }: OrganizerPanelProps
                                 state="hover1"
                                 className="!h-[30px] !px-4"
                                 disabled={busy}
-                                onClick={() => run(() => setCover(event.id, userId, null), "Обложка убрана.")}
+                                onClick={() => run(() => setEventCover(event.id, userId, null), "Обложка убрана.")}
                             >
                                 Убрать обложку
                             </Button>

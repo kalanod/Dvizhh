@@ -2,22 +2,19 @@ import type { ReactNode } from "react";
 import { useState } from "react";
 import { errorText } from "../../../api";
 import type { EventFormat, EventInput, EventJoinPolicy, EventVisibility } from "../../../models";
-import { Button, FileButton, FormField, Input, Notice, Select, Textarea, Toggle } from "../../ui";
+import { Button, FormField, Input, Notice, Select, Textarea, Toggle } from "../../ui";
 import { FORMAT_LABELS, JOIN_POLICY_LABELS, VISIBILITY_LABELS } from "../../../utils/format";
 import { emptyForm, formToInput, validateForm, type EventFormState } from "./formState";
-
-/** Новая обложка: File — загрузить, null — убрать, undefined — не трогать. */
-export type CoverChange = File | null | undefined;
+import type { EventCoverChange } from "../../../utils/media";
+import { EventCoverField } from "./EventCoverField";
 
 interface EventFormProps {
     title: string;
     submitLabel: string;
     initial?: EventFormState;
-    /** Текущая обложка события (адрес для <img>). */
-    initialCoverSrc?: string | null;
-    onSubmit: (input: EventInput, cover: CoverChange) => Promise<void>;
-    /** Вторая кнопка отправки, например «Сохранить черновик». */
-    secondary?: { label: string; onSubmit: (input: EventInput, cover: CoverChange) => Promise<void> };
+    userId: string;
+    initialCoverUrl?: string | null;
+    onSubmit: (input: EventInput, cover: EventCoverChange) => Promise<void>;
     onCancel: () => void;
 }
 
@@ -28,27 +25,21 @@ const Section = ({ title, children }: { title: string; children: ReactNode }) =>
     </fieldset>
 );
 
-export const EventForm = ({ title, submitLabel, initial, initialCoverSrc = null, onSubmit, secondary, onCancel }: EventFormProps) => {
+export const EventForm = ({ title, submitLabel, initial, userId, initialCoverUrl, onSubmit, onCancel }: EventFormProps) => {
     const [form, setForm] = useState<EventFormState>(() => initial ?? emptyForm());
     const [error, setError] = useState<string | null>(null);
     const [submitting, setSubmitting] = useState(false);
-    const [cover, setCover] = useState<CoverChange>(undefined);
-    const [coverPreview, setCoverPreview] = useState<string | null>(null);
+    const [cover, setCover] = useState<EventCoverChange>({ kind: "keep" });
+    const [coverError, setCoverError] = useState<string | null>(null);
 
     const set =
         <K extends keyof EventFormState>(key: K) =>
         (value: EventFormState[K]) =>
             setForm((prev) => ({ ...prev, [key]: value }));
 
-    const changeCover = (file: File | null) => {
-        if (coverPreview) URL.revokeObjectURL(coverPreview);
-        setCover(file);
-        setCoverPreview(file ? URL.createObjectURL(file) : null);
-    };
-
-    const shownCover = cover === undefined ? initialCoverSrc : coverPreview;
-
-    const submitWith = async (handler: EventFormProps["onSubmit"]) => {
+    const handleSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (submitting || coverError) return;
         const problem = validateForm(form);
         if (problem) {
             setError(problem);
@@ -57,16 +48,11 @@ export const EventForm = ({ title, submitLabel, initial, initialCoverSrc = null,
         setSubmitting(true);
         setError(null);
         try {
-            await handler(formToInput(form), cover);
+            await onSubmit(formToInput(form), cover);
         } catch (err) {
             setError(errorText(err));
             setSubmitting(false);
         }
-    };
-
-    const handleSubmit = (e: React.FormEvent) => {
-        e.preventDefault();
-        void submitWith(onSubmit);
     };
 
     return (
@@ -76,6 +62,7 @@ export const EventForm = ({ title, submitLabel, initial, initialCoverSrc = null,
             noValidate
             className="flex w-full flex-col gap-5 rounded-lg bg-cards-surface p-4 sm:p-8"
         >
+            <fieldset disabled={submitting} className="flex min-w-0 flex-col gap-5">
             <div className="flex flex-col gap-1">
                 <h1 className="text-h1 text-textprimary">{title}</h1>
                 <p className="text-duration text-textsecondary">
@@ -84,6 +71,15 @@ export const EventForm = ({ title, submitLabel, initial, initialCoverSrc = null,
             </div>
 
             <Section title="Что за движ">
+                <EventCoverField
+                    value={cover}
+                    initialUrl={initialCoverUrl}
+                    viewerId={userId}
+                    disabled={submitting}
+                    error={coverError}
+                    onChange={setCover}
+                    onError={setCoverError}
+                />
                 <FormField label="Название" htmlFor="title" required>
                     <Input id="title" maxLength={200} placeholder="Поход в Выборг" value={form.title} onChange={set("title")} />
                 </FormField>
@@ -98,19 +94,6 @@ export const EventForm = ({ title, submitLabel, initial, initialCoverSrc = null,
                 </FormField>
                 <FormField label="Тематики" htmlFor="tags" hint="Через запятую: походы, природа, выходные">
                     <Input id="tags" placeholder="походы, природа" value={form.tags} onChange={set("tags")} />
-                </FormField>
-                <FormField label="Обложка" hint="JPEG, PNG или WebP. Без обложки на карточке будет дата.">
-                    <div className="flex flex-wrap items-end gap-3">
-                        {shownCover && <img src={shownCover} alt="Обложка" className="h-[128px] w-[86px] rounded object-cover" />}
-                        <FileButton state="hover1" className="!h-[30px] !px-4" onFile={changeCover}>
-                            {shownCover ? "Выбрать другую" : "Выбрать изображение"}
-                        </FileButton>
-                        {shownCover && (
-                            <Button state="hover1" className="!h-[30px] !px-4" onClick={() => changeCover(null)}>
-                                Убрать
-                            </Button>
-                        )}
-                    </div>
                 </FormField>
             </Section>
 
@@ -224,15 +207,11 @@ export const EventForm = ({ title, submitLabel, initial, initialCoverSrc = null,
                 <Button state="hover1" onClick={onCancel}>
                     Отмена
                 </Button>
-                {secondary && (
-                    <Button state="hover2" disabled={submitting} onClick={() => submitWith(secondary.onSubmit)}>
-                        {secondary.label}
-                    </Button>
-                )}
-                <Button type="submit" state="fixed1" disabled={submitting}>
-                    {submitting ? "Сохраняем…" : submitLabel}
+                <Button type="submit" state="fixed1" disabled={submitting || Boolean(coverError)}>
+                    {submitting ? "Сохраняем событие и обложку…" : submitLabel}
                 </Button>
             </div>
+            </fieldset>
         </form>
         </section>
     );

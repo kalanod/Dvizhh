@@ -1,0 +1,54 @@
+services:
+  mlflow:
+    ports: !reset []
+    environment:
+      MLFLOW_DATABASE_PASSWORD: ${MLFLOW_DATABASE_PASSWORD:?Set MLFLOW_DATABASE_PASSWORD}
+      AWS_SECRET_ACCESS_KEY: ${MLFLOW_STORAGE_SECRET_KEY:?Set MLFLOW_STORAGE_SECRET_KEY}
+      MLFLOW_AUTH_ADMIN_PASSWORD: ${MLFLOW_AUTH_ADMIN_PASSWORD:?Set MLFLOW_AUTH_ADMIN_PASSWORD}
+      MLFLOW_FLASK_SERVER_SECRET_KEY: ${MLFLOW_FLASK_SERVER_SECRET_KEY:?Set MLFLOW_FLASK_SERVER_SECRET_KEY}
+      MLFLOW_SERVER_ALLOWED_HOSTS: ${MLFLOW_DOMAIN:?Set MLFLOW_DOMAIN},${MLFLOW_DOMAIN}:443,mlflow:5000,localhost:5000
+      MLFLOW_SERVER_CORS_ALLOWED_ORIGINS: https://${MLFLOW_DOMAIN}
+      MLFLOW_BASIC_AUTH_FAIL_CLOSED: "true"
+
+  mlflow-init:
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
+      MLFLOW_DATABASE_PASSWORD: ${MLFLOW_DATABASE_PASSWORD:?Set MLFLOW_DATABASE_PASSWORD}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?Set MINIO_ROOT_PASSWORD}
+      MLFLOW_STORAGE_SECRET_KEY: ${MLFLOW_STORAGE_SECRET_KEY:?Set MLFLOW_STORAGE_SECRET_KEY}
+
+  postgres:
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
+      RECSYS_READER_PASSWORD: ${RECSYS_READER_PASSWORD:?Set RECSYS_READER_PASSWORD}
+
+  minio:
+    ports: !reset []
+    environment:
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?Set MINIO_ROOT_PASSWORD}
+
+  mlflow-gateway:
+    profiles: [ml]
+    image: caddy:2.11.7-alpine@sha256:e70b164da81ef698b3ad19af799ea6086ce6d9e48ed4079eb9fe26f6fbf14ee5
+    environment:
+      MLFLOW_DOMAIN: ${MLFLOW_DOMAIN:?Set MLFLOW_DOMAIN}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./mlflow/Caddyfile:/etc/caddy/Caddyfile:ro
+      - mlflow-caddy-data:/data
+      - mlflow-caddy-config:/config
+    depends_on:
+      mlflow:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:2019/config/"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  mlflow-caddy-data:
+  mlflow-caddy-config:
