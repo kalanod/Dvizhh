@@ -83,10 +83,112 @@ def test_suggestions_keep_order_and_uri(client, monkeypatch):
     params = parse_qs(urlparse(requests[0].full_url).query)
     assert params["text"] == ["СПб, Невский"]
     assert params["attrs"] == ["uri"]
-    assert params["types"] == ["geo"]
+    assert params["types"] == ["geo,biz"]
     assert params["apikey"] == ["suggest-secret"]
     assert requests[0].get_header("Referer") == "http://localhost:8080/events/new"
     assert response.headers["cache-control"] == "no-store"
+
+
+def test_nearby_search_bias_does_not_exclude_other_areas(client, monkeypatch):
+    http, _ = client
+    requests = provider(monkeypatch, {"results": []})
+    response = http.get(
+        "/api/maps/suggest",
+        params={
+            "text": "антикафе",
+            "city": "Другой город",
+            "latitude": 59.93,
+            "longitude": 30.31,
+        },
+    )
+    assert response.status_code == 200
+    params = parse_qs(urlparse(requests[0].full_url).query)
+    assert params["text"] == ["антикафе"]
+    assert params["ll"] == ["30.31,59.93"]
+    assert params["spn"] == ["0.1,0.1"]
+    assert params["strict_bounds"] == ["0"]
+
+
+def test_business_suggestion_resolves_exact_organization_not_its_street(client, monkeypatch):
+    http, settings = client
+    settings.yandex_search_api_key = "search-secret"
+    requests = provider(
+        monkeypatch,
+        {
+            "features": [
+                {
+                    "geometry": {"type": "Point", "coordinates": [30.31, 59.93]},
+                    "properties": {
+                        "CompanyMetaData": {
+                            "name": "Антикафе",
+                            "address": "Санкт-Петербург, Невский, 1",
+                        }
+                    },
+                }
+            ]
+        },
+    )
+    response = http.get("/api/maps/geocode", params={"uri": "ymapsbm1://org?oid=123"})
+    assert response.status_code == 200
+    assert response.json()["name"] == "Антикафе"
+    assert response.json()["longitude"] == "30.31"
+    assert response.json()["latitude"] == "59.93"
+    assert urlparse(requests[0].full_url).netloc == "search-maps.yandex.ru"
+    params = parse_qs(urlparse(requests[0].full_url).query)
+    assert params["uri"] == ["ymapsbm1://org?oid=123"]
+    assert params["apikey"] == ["search-secret"]
+    assert "geocode" not in params
+
+
+def test_business_name_and_city_are_available_in_suggestions(client, monkeypatch):
+    http, _ = client
+    provider(
+        monkeypatch,
+        {
+            "results": [
+                {
+                    "title": {"text": "Антикафе"},
+                    "uri": "ymapsbm1://org?oid=123",
+                    "address": {
+                        "formatted_address": "Невский, 1",
+                        "component": [
+                            {"kind": ["LOCALITY"], "name": "Санкт-Петербург"},
+                        ],
+                    },
+                }
+            ]
+        },
+    )
+    result = http.get("/api/maps/suggest", params={"text": "антикафе"}).json()[0]
+    assert result["kind"] == "biz"
+    assert result["city"] == "Санкт-Петербург"
+
+
+def test_business_permission_error_identifies_product_and_key_source(client, monkeypatch, caplog):
+    http, settings = client
+    settings.yandex_search_api_key = "organization-secret"
+
+    def denied(request, *, timeout):
+        assert parse_qs(urlparse(request.full_url).query)["apikey"] == ["organization-secret"]
+        raise HTTPError(request.full_url, 403, "Forbidden", {}, None)
+
+    monkeypatch.setattr(maps, "urlopen", denied)
+    with caplog.at_level("INFO", logger="uvicorn.error"):
+        response = http.get("/api/maps/geocode", params={"uri": "ymapsbm1://org?oid=123"})
+    assert response.status_code == 503
+    assert "API Поиска по организациям" in response.json()["detail"]
+    assert "YANDEX_SEARCH_API_KEY" in caplog.text
+    assert "organization-secret" not in caplog.text
+
+
+def test_business_without_separate_key_uses_geocoder_key(client, monkeypatch, caplog):
+    http, _ = client
+    requests = provider(monkeypatch, {"features": []})
+    with caplog.at_level("INFO", logger="uvicorn.error"):
+        response = http.get("/api/maps/geocode", params={"uri": "ymapsbm1://org?oid=123"})
+    assert response.status_code == 404
+    assert parse_qs(urlparse(requests[0].full_url).query)["apikey"] == ["geocoder-secret"]
+    assert "key_source=YANDEX_GEOCODER_API_KEY" in caplog.text
 
 
 PLACE = {

@@ -23,6 +23,7 @@ class Settings(BaseSettings):
     yandex_maps_api_key: str = ""
     yandex_suggest_api_key: str = ""
     yandex_geocoder_api_key: str = ""
+    yandex_search_api_key: str = ""
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

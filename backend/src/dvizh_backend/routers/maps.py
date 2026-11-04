@@ -42,6 +42,7 @@ async def client_error(body: MapClientError, request: Request, settings: Setting
             settings.yandex_maps_api_key,
             settings.yandex_suggest_api_key,
             settings.yandex_geocoder_api_key,
+            settings.yandex_search_api_key,
         ),
     )
     return Response(status_code=204)
@@ -62,9 +63,15 @@ def _fetch_json(url: str, params: dict[str, str], referer: str) -> Any:
             _redact(detail, params.get("apikey", "")),
         )
         if exc.code in (401, 403):
-            message = (
-                "Яндекс отклонил ключ API. Проверьте подключённые продукты и ограничения ключа."
-            )
+            if urlsplit(url).netloc == "search-maps.yandex.ru":
+                message = (
+                    "Яндекс отклонил доступ к API Поиска по организациям. "
+                    "Подсказки доступны, но получить точку выбранного заведения пока нельзя."
+                )
+            else:
+                message = (
+                    "Яндекс отклонил ключ API. Проверьте подключённые продукты и ограничения ключа."
+                )
         elif exc.code == 429:
             message = "Исчерпан лимит запросов Яндекс Карт. Попробуйте позже."
         else:
@@ -98,14 +105,16 @@ async def maps_config(settings: SettingsDep, response: Response) -> dict[str, st
     }
 
 
-@router.get("/suggest", summary="Подсказки адресов Яндекса.")
+@router.get("/suggest", summary="Подсказки адресов и заведений Яндекса.")
 async def suggest(
     request: Request,
     response: Response,
     settings: SettingsDep,
     text: Annotated[str, Query(min_length=3, max_length=500)],
     city: Annotated[str, Query(max_length=120)] = "",
-) -> list[dict[str, str]]:
+    latitude: Annotated[float | None, Query(ge=-90, le=90)] = None,
+    longitude: Annotated[float | None, Query(ge=-180, le=180)] = None,
+) -> list[dict[str, str | None]]:
     if not settings.yandex_suggest_api_key:
         raise HTTPException(503, "Поиск адресов пока не настроен.")
     response.headers["Cache-Control"] = "no-store"
@@ -114,12 +123,17 @@ async def suggest(
         "https://suggest-maps.yandex.ru/v1/suggest",
         {
             "apikey": settings.yandex_suggest_api_key,
-            "text": f"{city}, {text}" if city.strip() else text,
+            "text": f"{city}, {text}" if city.strip() and latitude is None else text,
             "lang": "ru_RU",
-            "types": "geo",
+            "types": "geo,biz",
             "results": "5",
             "print_address": "1",
             "attrs": "uri",
+            **(
+                {"ll": f"{longitude},{latitude}", "spn": "0.1,0.1", "strict_bounds": "0"}
+                if latitude is not None and longitude is not None
+                else {}
+            ),
         },
         request.headers.get("referer", str(request.base_url)),
     )
@@ -128,6 +142,15 @@ async def suggest(
             "title": item["title"]["text"],
             "subtitle": item.get("subtitle", {}).get("text", ""),
             "uri": item.get("uri", ""),
+            "kind": "biz" if urlsplit(item.get("uri", "")).netloc == "org" else "geo",
+            "city": next(
+                (
+                    part["name"]
+                    for part in item.get("address", {}).get("component", [])
+                    if "LOCALITY" in part.get("kind", [])
+                ),
+                None,
+            ),
             "address": item.get("address", {}).get("formatted_address", item["title"]["text"]),
         }
         for item in data.get("results", [])
@@ -148,6 +171,40 @@ async def geocode(
     if not query.strip() and not uri:
         raise HTTPException(422, "Укажите адрес или точку на карте.")
     response.headers["Cache-Control"] = "no-store"
+    if urlsplit(uri).netloc == "org":
+        key_source = (
+            "YANDEX_SEARCH_API_KEY"
+            if settings.yandex_search_api_key
+            else "YANDEX_GEOCODER_API_KEY"
+            if settings.yandex_geocoder_api_key
+            else "YANDEX_MAPS_API_KEY"
+        )
+        logger.info("Yandex organization lookup: key_source=%s", key_source)
+        data = await asyncio.to_thread(
+            _fetch_json,
+            "https://search-maps.yandex.ru/v1/",
+            {
+                "apikey": settings.yandex_search_api_key or key,
+                "lang": "ru_RU",
+                "uri": uri,
+                "results": "1",
+                "type": "biz",
+            },
+            request.headers.get("referer", str(request.base_url)),
+        )
+        features = data.get("features", [])
+        if not features:
+            raise HTTPException(404, "Заведение не найдено. Выберите другой вариант.")
+        place = features[0]
+        longitude, latitude = place["geometry"]["coordinates"]
+        company = place["properties"].get("CompanyMetaData", {})
+        return {
+            "name": company.get("name", place["properties"].get("name")),
+            "address_line": company.get("address", place["properties"].get("description", "")),
+            "city": None,
+            "latitude": str(latitude),
+            "longitude": str(longitude),
+        }
     data = await asyncio.to_thread(
         _fetch_json,
         "https://geocode-maps.yandex.ru/v1/",

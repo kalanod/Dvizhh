@@ -12,7 +12,7 @@ const testRoot = fileURLToPath(new URL("../node_modules/.tmp/", import.meta.url)
 mkdirSync(testRoot, { recursive: true });
 const output = mkdtempSync(join(testRoot, "dvizh-api-test-"));
 writeFileSync(join(output, "package.json"), '{"type":"commonjs"}');
-for (const name of ["api/client", "api/personal", "api/events", "api/media", "api/eventCover", "api/profileImage", "api/maps", "utils/media", "utils/format", "utils/yandexMaps", "components/pages/EventFormPage/formState", "components/widgets/EventCard/EventCoverMicro", "components/ui/Avatar/Avatar"]) {
+for (const name of ["api/client", "api/personal", "api/events", "api/media", "api/eventCover", "api/profileImage", "api/maps", "utils/media", "utils/format", "utils/yandexMaps", "utils/geolocation", "components/pages/EventFormPage/formState", "components/widgets/EventCard/EventCoverMicro", "components/ui/Avatar/Avatar"]) {
     const extension = name.startsWith("components/") && !name.endsWith("formState") ? "tsx" : "ts";
     const source = readFileSync(new URL(`../src/${name}.${extension}`, import.meta.url), "utf8");
     const { outputText } = ts.transpileModule(source, {
@@ -34,6 +34,7 @@ const { mediaContentUrl, validateCoverFile } = require(join(output, "utils/media
 const { EventCoverMicro, EventCoverMain } = require(join(output, "components/widgets/EventCard/EventCoverMicro.js"));
 const { ApiError } = require(join(output, "api/client.js"));
 const maps = require(join(output, "api/maps.js"));
+const { currentCoordinates } = require(join(output, "utils/geolocation.js"));
 const { locationCoordinates, loadYandexMaps, reportMapError } = require(join(output, "utils/yandexMaps.js"));
 const { emptyForm, formToInput, formFromEvent, validateForm } = require(join(output, "components/pages/EventFormPage/formState.js"));
 const originalWindow = globalThis.window;
@@ -44,6 +45,36 @@ after(() => {
     assert.equal(dirname(output), resolve(testRoot));
     assert.ok(basename(output).startsWith("dvizh-api-test-"));
     rmSync(output, { recursive: true, force: true });
+});
+
+test("device geolocation returns map coordinates in longitude-latitude order", async (t) => {
+    const descriptor = Object.getOwnPropertyDescriptor(navigator, "geolocation");
+    t.after(() => {
+        if (descriptor) Object.defineProperty(navigator, "geolocation", descriptor);
+        else delete navigator.geolocation;
+    });
+    Object.defineProperty(navigator, "geolocation", { configurable: true, value: {
+        getCurrentPosition(success, _failure, options) {
+            assert.equal(options.enableHighAccuracy, true);
+            assert.ok(options.timeout > 0);
+            success({ coords: { longitude: 30.315868, latitude: 59.939095 } });
+        },
+    } });
+    assert.deepEqual(await currentCoordinates(), [30.315868, 59.939095]);
+});
+
+test("geolocation denial, unavailable position and timeout produce readable errors", async (t) => {
+    const descriptor = Object.getOwnPropertyDescriptor(navigator, "geolocation");
+    t.after(() => {
+        if (descriptor) Object.defineProperty(navigator, "geolocation", descriptor);
+        else delete navigator.geolocation;
+    });
+    for (const [code, expected] of [[1, /Доступ.*запрещён/], [2, /Не удалось определить/], [3, /слишком много времени/]]) {
+        Object.defineProperty(navigator, "geolocation", { configurable: true, value: {
+            getCurrentPosition(_success, failure) { failure({ code }); },
+        } });
+        await assert.rejects(currentCoordinates(), expected);
+    }
 });
 
 test("venue selection preserves latitude and longitude across API, form and map", () => {
@@ -81,11 +112,13 @@ test("address lookup sends the selected Yandex uri and abort signal", async (t) 
         assert.equal(options.signal, controller.signal);
         return Response.json(url.pathname.endsWith("suggest") ? [] : { latitude: "59", longitude: "30" });
     });
-    await maps.suggestAddresses("Невский, 1", "Санкт-Петербург", controller.signal);
+    await maps.suggestAddresses("Невский, 1", "Санкт-Петербург", controller.signal, [30.31, 59.93]);
     await maps.geocodeAddress("Россия, Санкт-Петербург", "ymapsbm1://geo?data=a&b=c", controller.signal);
     assert.equal(urls[0].pathname, "/api/maps/suggest");
     assert.equal(urls[0].searchParams.get("text"), "Невский, 1");
     assert.equal(urls[0].searchParams.get("city"), "Санкт-Петербург");
+    assert.equal(urls[0].searchParams.get("longitude"), "30.31");
+    assert.equal(urls[0].searchParams.get("latitude"), "59.93");
     assert.equal(urls[1].pathname, "/api/maps/geocode");
     assert.equal(urls[1].searchParams.get("uri"), "ymapsbm1://geo?data=a&b=c");
 });
