@@ -25,9 +25,6 @@ export interface EventFormState {
     joinPolicy: EventJoinPolicy;
 }
 
-// Центр Санкт-Петербурга: координаты места обязательны в API, пока нет выбора на карте.
-const DEFAULT_COORDS = { latitude: "59.939095", longitude: "30.315868" };
-
 export const emptyForm = (): EventFormState => ({
     title: "",
     description: "",
@@ -40,7 +37,8 @@ export const emptyForm = (): EventFormState => ({
     placeName: "",
     city: "",
     address: "",
-    ...DEFAULT_COORDS,
+    latitude: "",
+    longitude: "",
     onlineUrl: "",
     registrationUrl: "",
     priceMin: "",
@@ -62,8 +60,8 @@ export const formFromEvent = (event: DvizhEvent): EventFormState => ({
     placeName: event.location?.name ?? "",
     city: event.location?.city ?? "",
     address: event.location?.address_line ?? "",
-    latitude: event.location?.latitude ?? DEFAULT_COORDS.latitude,
-    longitude: event.location?.longitude ?? DEFAULT_COORDS.longitude,
+    latitude: event.location?.latitude ?? "",
+    longitude: event.location?.longitude ?? "",
     onlineUrl: event.online_url ?? "",
     registrationUrl: event.registration_url ?? "",
     priceMin: event.price_min ?? "",
@@ -91,7 +89,7 @@ export const validateForm = (form: EventFormState): string | null => {
     if (!form.startsAt) return "Укажите, когда начинается событие.";
     if (form.endsAt && form.endsAt <= form.startsAt) return "Окончание должно быть позже начала.";
     if (form.format !== "ONLINE" && (!form.latitude.trim() || !form.longitude.trim())) {
-        return "Для офлайн-события нужны координаты места.";
+        return "Выберите место события на карте или из подсказок адреса.";
     }
     if (form.format !== "OFFLINE" && !form.onlineUrl.trim()) return "Добавьте ссылку на трансляцию.";
     if (form.priceMax.trim() && !form.priceMin.trim()) return "Укажите цену «от», если задаёте цену «до».";

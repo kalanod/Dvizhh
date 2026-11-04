@@ -12,8 +12,8 @@ const testRoot = fileURLToPath(new URL("../node_modules/.tmp/", import.meta.url)
 mkdirSync(testRoot, { recursive: true });
 const output = mkdtempSync(join(testRoot, "dvizh-api-test-"));
 writeFileSync(join(output, "package.json"), '{"type":"commonjs"}');
-for (const name of ["api/client", "api/personal", "api/events", "api/media", "api/eventCover", "api/profileImage", "utils/media", "utils/format", "components/widgets/EventCard/EventCoverMicro", "components/ui/Avatar/Avatar"]) {
-    const extension = name.startsWith("components/") ? "tsx" : "ts";
+for (const name of ["api/client", "api/personal", "api/events", "api/media", "api/eventCover", "api/profileImage", "api/maps", "utils/media", "utils/format", "utils/yandexMaps", "components/pages/EventFormPage/formState", "components/widgets/EventCard/EventCoverMicro", "components/ui/Avatar/Avatar"]) {
+    const extension = name.startsWith("components/") && !name.endsWith("formState") ? "tsx" : "ts";
     const source = readFileSync(new URL(`../src/${name}.${extension}`, import.meta.url), "utf8");
     const { outputText } = ts.transpileModule(source, {
         fileName: `${name}.${extension}`,
@@ -33,6 +33,9 @@ const { Avatar } = require(join(output, "components/ui/Avatar/Avatar.js"));
 const { mediaContentUrl, validateCoverFile } = require(join(output, "utils/media.js"));
 const { EventCoverMicro, EventCoverMain } = require(join(output, "components/widgets/EventCard/EventCoverMicro.js"));
 const { ApiError } = require(join(output, "api/client.js"));
+const maps = require(join(output, "api/maps.js"));
+const { locationCoordinates, loadYandexMaps, reportMapError } = require(join(output, "utils/yandexMaps.js"));
+const { emptyForm, formToInput, formFromEvent, validateForm } = require(join(output, "components/pages/EventFormPage/formState.js"));
 const originalWindow = globalThis.window;
 globalThis.window = { location: { origin: "http://localhost:8080" } };
 after(() => {
@@ -41,6 +44,95 @@ after(() => {
     assert.equal(dirname(output), resolve(testRoot));
     assert.ok(basename(output).startsWith("dvizh-api-test-"));
     rmSync(output, { recursive: true, force: true });
+});
+
+test("venue selection preserves latitude and longitude across API, form and map", () => {
+    const form = { ...emptyForm(), title: "Встреча", startsAt: "2026-12-01T18:00" };
+    assert.equal(form.latitude, "");
+    assert.equal(form.longitude, "");
+    assert.match(validateForm(form), /Выберите место/);
+    Object.assign(form, {
+        latitude: "59.9390954", longitude: "30.3158682",
+        city: "Санкт-Петербург", address: "Невский проспект, 1", placeName: "Вход со двора",
+    });
+    assert.equal(validateForm(form), null);
+    const body = formToInput(form);
+    assert.deepEqual(body.location, {
+        latitude: "59.939095", longitude: "30.315868", name: "Вход со двора",
+        city: "Санкт-Петербург", address_line: "Невский проспект, 1",
+    });
+    assert.deepEqual(locationCoordinates(body.location.latitude, body.location.longitude), [30.315868, 59.939095]);
+    const restored = formFromEvent(body);
+    assert.equal(restored.address, form.address);
+    assert.equal(restored.latitude, body.location.latitude);
+    form.format = "ONLINE";
+    form.onlineUrl = "https://example.org/meet";
+    assert.equal(formToInput(form).location, null);
+    assert.equal(formFromEvent(formToInput(form)).latitude, "");
+    assert.equal(locationCoordinates("", ""), null);
+    assert.equal(locationCoordinates("0", "0")[0], 0);
+});
+
+test("address lookup sends the selected Yandex uri and abort signal", async (t) => {
+    const urls = [];
+    const controller = new AbortController();
+    t.mock.method(globalThis, "fetch", async (url, options) => {
+        urls.push(url);
+        assert.equal(options.signal, controller.signal);
+        return Response.json(url.pathname.endsWith("suggest") ? [] : { latitude: "59", longitude: "30" });
+    });
+    await maps.suggestAddresses("Невский, 1", "Санкт-Петербург", controller.signal);
+    await maps.geocodeAddress("Россия, Санкт-Петербург", "ymapsbm1://geo?data=a&b=c", controller.signal);
+    assert.equal(urls[0].pathname, "/api/maps/suggest");
+    assert.equal(urls[0].searchParams.get("text"), "Невский, 1");
+    assert.equal(urls[0].searchParams.get("city"), "Санкт-Петербург");
+    assert.equal(urls[1].pathname, "/api/maps/geocode");
+    assert.equal(urls[1].searchParams.get("uri"), "ymapsbm1://geo?data=a&b=c");
+});
+
+test("Yandex SDK loads once and waits for API readiness", async (t) => {
+    const originalDocument = globalThis.document;
+    const scripts = [];
+    let ready;
+    const api = { ready: new Promise((resolve) => { ready = resolve; }) };
+    globalThis.document = {
+        createElement: () => ({}),
+        head: { appendChild: (script) => scripts.push(script) },
+    };
+    t.after(() => {
+        if (originalDocument === undefined) delete globalThis.document;
+        else globalThis.document = originalDocument;
+        delete globalThis.window.ymaps3;
+    });
+    const first = loadYandexMaps("public-key");
+    assert.equal(loadYandexMaps("public-key"), first);
+    assert.equal(scripts.length, 1);
+    assert.equal(new URL(scripts[0].src).searchParams.get("apikey"), "public-key");
+    globalThis.window.ymaps3 = api;
+    scripts[0].onload();
+    let finished = false;
+    first.then(() => { finished = true; });
+    await Promise.resolve();
+    assert.equal(finished, false);
+    ready();
+    assert.equal(await first, api);
+});
+
+test("map errors reach backend and browser console with API keys removed", async (t) => {
+    const sent = [];
+    const logged = [];
+    t.mock.method(console, "error", (...args) => logged.push(args));
+    t.mock.method(globalThis, "fetch", async (url, options) => {
+        assert.equal(url.pathname, "/api/maps/client-error");
+        assert.equal(options.method, "POST");
+        sent.push(JSON.parse(options.body));
+        return new Response(null, { status: 204 });
+    });
+    reportMapError("sdk_ready", new Error("Failed apikey=secret-key&other=1 secret-key"), "secret-key");
+    await Promise.resolve();
+    assert.equal(sent[0].stage, "sdk_ready");
+    assert.equal(JSON.stringify(sent).includes("secret-key"), false);
+    assert.equal(JSON.stringify(logged).includes("secret-key"), false);
 });
 
 test("event edits and deletion send actor_id without adding it to the DTO", async (t) => {

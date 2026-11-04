@@ -53,6 +53,9 @@ services:
       MEDIA_MAX_PIXELS: ${MEDIA_MAX_PIXELS:-25000000}
       RECOMMENDATION_URL: http://recommendation-service:8001
       AUTH_URL: http://auth-api:8003
+      YANDEX_MAPS_API_KEY: ${YANDEX_MAPS_API_KEY:-}
+      YANDEX_SUGGEST_API_KEY: ${YANDEX_SUGGEST_API_KEY:-}
+      YANDEX_GEOCODER_API_KEY: ${YANDEX_GEOCODER_API_KEY:-}
     depends_on:
       database-init:
         condition: service_completed_successfully

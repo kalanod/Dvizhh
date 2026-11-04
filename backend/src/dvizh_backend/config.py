@@ -20,6 +20,9 @@ class Settings(BaseSettings):
     media_max_pixels: int = Field(25_000_000, ge=1, le=100_000_000)
     recommendation_url: str = "http://recommendation-service:8001"
     auth_url: str = "http://auth-api:8003"
+    yandex_maps_api_key: str = ""
+    yandex_suggest_api_key: str = ""
+    yandex_geocoder_api_key: str = ""
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
