@@ -1,5 +1,6 @@
 from functools import lru_cache
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -13,6 +14,10 @@ class Settings(BaseSettings):
     minio_access_key: str = "dvizh"
     minio_secret_key: str = "change-me-please"
     minio_bucket: str = "media"
+    minio_secure: bool = False
+    minio_timeout_seconds: float = Field(10, gt=0, le=120)
+    media_max_mib: int = Field(10, ge=1, le=128)
+    media_max_pixels: int = Field(25_000_000, ge=1, le=100_000_000)
     recommendation_url: str = "http://recommendation-service:8001"
     auth_url: str = "http://auth-api:8003"
 

@@ -43,13 +43,13 @@ class EventService(BaseCRUDService[Event]):
     async def publish(self, event_id: UUID, actor_user_id: UUID) -> Event:
         event = await self._get_locked(event_id)
         await self._require_manager(event, actor_user_id)
+        if event.status == EventStatus.PUBLISHED:
+            return event
         if event.status != EventStatus.DRAFT:
             raise InvalidStateTransitionError("Only a draft event can be published")
 
         has_occurrence = await self.session.scalar(
-            select(
-                EventOccurrence.id
-            ).where(EventOccurrence.event_id == event.id).limit(1)
+            select(EventOccurrence.id).where(EventOccurrence.event_id == event.id).limit(1)
         )
         if has_occurrence is None:
             raise InvalidStateTransitionError("An event needs at least one occurrence")
@@ -57,11 +57,14 @@ class EventService(BaseCRUDService[Event]):
         event.status = EventStatus.PUBLISHED
         event.published_at = datetime.now(UTC)
         await self.session.flush()
+        await self.session.refresh(event)
         return event
 
     async def cancel(self, event_id: UUID, actor_user_id: UUID) -> Event:
         event = await self._get_locked(event_id)
         await self._require_manager(event, actor_user_id)
+        if event.status == EventStatus.CANCELLED:
+            return event
         if event.status not in {EventStatus.DRAFT, EventStatus.PUBLISHED}:
             raise InvalidStateTransitionError("This event cannot be cancelled")
 
@@ -77,6 +80,7 @@ class EventService(BaseCRUDService[Event]):
             .values(status=OccurrenceStatus.CANCELLED, cancelled_at=now)
         )
         await self.session.flush()
+        await self.session.refresh(event)
         return event
 
     async def set_topics(
@@ -178,7 +182,10 @@ class EventService(BaseCRUDService[Event]):
 
     async def _get_locked(self, event_id: UUID) -> Event:
         event = await self.session.scalar(
-            select(Event).where(Event.id == event_id).with_for_update()
+            select(Event)
+            .where(Event.id == event_id, Event.deleted_at.is_(None))
+            .with_for_update()
+            .execution_options(populate_existing=True)
         )
         if event is None:
             raise EntityNotFoundError("Event not found")

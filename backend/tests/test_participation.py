@@ -70,15 +70,18 @@ def make_service(
     occurrence: EventOccurrence | None = None,
     *,
     participation: EventParticipation | None = None,
+    participation_by_id: EventParticipation | None = None,
     scalars: list[object] | None = None,
 ) -> ParticipationService:
     """Service over a mocked session.
 
-    ``scalars`` are the results of ``session.scalar`` in call order; the service uses it
-    to load a participation by ID, to check event managers and to count GOING participants.
+    ``participation_by_id`` is the initial lookup before locking the occurrence.
+    ``scalars`` are the results of ``session.scalar`` in call order: the refreshed
+    participation under lock, event manager checks and GOING participant counts.
     """
     session = AsyncMock()
     session.add = MagicMock()
+    session.get.return_value = participation_by_id
     session.scalar.side_effect = scalars or []
     service = ParticipationService(session)
     service._lock_occurrence_and_event = AsyncMock(
@@ -246,7 +249,7 @@ def test_organizer_approves_request() -> None:
     async def scenario() -> None:
         request = make_participation(ParticipationStatus.REQUESTED)
         event = make_event(join_policy=EventJoinPolicy.REQUEST, capacity=5)
-        service = make_service(event, scalars=[request, 4])
+        service = make_service(event, participation_by_id=request, scalars=[request, 4])
 
         participation = await service.decide_request(PARTICIPATION_ID, ORGANIZER_ID, approve=True)
 
@@ -265,7 +268,7 @@ def test_request_cannot_be_approved_when_event_is_full() -> None:
     async def scenario() -> None:
         request = make_participation(ParticipationStatus.REQUESTED)
         event = make_event(join_policy=EventJoinPolicy.REQUEST, capacity=5)
-        service = make_service(event, scalars=[request, 5])
+        service = make_service(event, participation_by_id=request, scalars=[request, 5])
 
         with pytest.raises(CapacityReachedError):
             await service.decide_request(PARTICIPATION_ID, ORGANIZER_ID, approve=True)
@@ -278,7 +281,7 @@ def test_organizer_rejects_request_with_reason_even_when_event_is_full() -> None
     async def scenario() -> None:
         request = make_participation(ParticipationStatus.REQUESTED)
         event = make_event(join_policy=EventJoinPolicy.REQUEST, capacity=1)
-        service = make_service(event, scalars=[request])
+        service = make_service(event, participation_by_id=request, scalars=[request])
 
         participation = await service.decide_request(
             PARTICIPATION_ID, ORGANIZER_ID, approve=False, reason="Нет мест"
@@ -300,7 +303,7 @@ def test_only_event_manager_can_decide_request(approve: bool) -> None:
         request = make_participation(ParticipationStatus.REQUESTED)
         event = make_event(join_policy=EventJoinPolicy.REQUEST)
         # Второй scalar — проверка, что пользователь не числится менеджером события.
-        service = make_service(event, scalars=[request, False])
+        service = make_service(event, participation_by_id=request, scalars=[request, False])
 
         with pytest.raises(PermissionDeniedError):
             await service.decide_request(PARTICIPATION_ID, STRANGER_ID, approve=approve)
@@ -316,21 +319,60 @@ def test_only_event_manager_can_decide_request(approve: bool) -> None:
 )
 def test_only_pending_request_can_be_decided(status: ParticipationStatus) -> None:
     async def scenario() -> None:
-        service = make_service(make_event(), scalars=[make_participation(status)])
+        request = make_participation(status)
+        service = make_service(make_event(), participation_by_id=request, scalars=[request])
 
         with pytest.raises(InvalidStateTransitionError):
             await service.decide_request(PARTICIPATION_ID, ORGANIZER_ID, approve=True)
-        service._lock_occurrence_and_event.assert_not_awaited()
+        assert request.status == status
+        service.session.add.assert_not_called()
+        service.session.flush.assert_not_awaited()
 
     asyncio.run(scenario())
 
 
 def test_deciding_missing_request_is_reported() -> None:
     async def scenario() -> None:
-        service = make_service(make_event(), scalars=[None])
+        service = make_service(make_event())
 
         with pytest.raises(EntityNotFoundError):
             await service.decide_request(PARTICIPATION_ID, ORGANIZER_ID, approve=True)
+        service._lock_occurrence_and_event.assert_not_awaited()
+        service.session.add.assert_not_called()
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize(
+    "status",
+    [ParticipationStatus.GOING, ParticipationStatus.REJECTED, ParticipationStatus.CANCELLED],
+)
+def test_request_changed_while_waiting_for_lock_cannot_be_decided(
+    status: ParticipationStatus,
+) -> None:
+    async def scenario() -> None:
+        initial = make_participation(ParticipationStatus.REQUESTED)
+        current = make_participation(status)
+        service = make_service(make_event(), participation_by_id=initial, scalars=[current])
+
+        with pytest.raises(InvalidStateTransitionError):
+            await service.decide_request(PARTICIPATION_ID, ORGANIZER_ID, approve=True)
+        service._lock_occurrence_and_event.assert_awaited_once_with(OCCURRENCE_ID)
+        assert current.status == status
+        service.session.add.assert_not_called()
+        service.session.flush.assert_not_awaited()
+
+    asyncio.run(scenario())
+
+
+def test_request_deleted_while_waiting_for_lock_is_reported() -> None:
+    async def scenario() -> None:
+        initial = make_participation(ParticipationStatus.REQUESTED)
+        service = make_service(make_event(), participation_by_id=initial, scalars=[None])
+
+        with pytest.raises(EntityNotFoundError):
+            await service.decide_request(PARTICIPATION_ID, ORGANIZER_ID, approve=True)
+        service.session.add.assert_not_called()
 
     asyncio.run(scenario())
 

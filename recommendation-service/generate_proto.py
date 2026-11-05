@@ -16,7 +16,7 @@ def generate(output: Path) -> None:
             sys.executable,
             "-m",
             "grpc_tools.protoc",
-            f"-I{PACKAGE}={ROOT}",
+            f"-I{PACKAGE.as_posix()}={ROOT}",
             f"-I{Path(grpc_tools.__file__).parent / '_proto'}",
             f"--python_out={output}",
             f"--grpc_python_out={output}",
@@ -38,7 +38,10 @@ def main() -> None:
         generate(output)
         for generated in (output / PACKAGE).glob("*.py"):
             expected = ROOT / "src" / PACKAGE / generated.name
-            if not expected.exists() or expected.read_bytes() != generated.read_bytes():
+            if (
+                not expected.exists()
+                or expected.read_text(encoding="utf-8") != generated.read_text(encoding="utf-8")
+            ):
                 raise SystemExit("Generated code is outdated; run uv run python generate_proto.py")
 
 

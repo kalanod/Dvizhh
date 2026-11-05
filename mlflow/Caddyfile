@@ -1,0 +1,3 @@
+{$MLFLOW_DOMAIN} {
+	reverse_proxy mlflow:5000
+}

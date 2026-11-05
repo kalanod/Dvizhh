@@ -4,24 +4,31 @@ services:
   nginx:
     build:
       context: ./nginx
+    environment:
+      MEDIA_MAX_MIB: ${MEDIA_MAX_MIB:-10}
     ports:
-      - "8080:80"
+      - "${NGINX_PORT:-8080}:80"
     depends_on:
       web-app:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
     restart: unless-stopped
 
   web-app:
     build:
       context: ./web-app
     environment:
-      APP_NAME: Dvizh Web
-      BACKEND_URL: http://backend:8000
+      MEDIA_MAX_MIB: ${MEDIA_MAX_MIB:-10}
     depends_on:
       backend:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8002/health')"]
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8002/health"]
       interval: 10s
       timeout: 3s
       retries: 5
@@ -40,9 +47,15 @@ services:
       MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-dvizh}
       MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-change-me-please}
       MINIO_BUCKET: ${MINIO_BUCKET:-media}
+      MINIO_SECURE: ${MINIO_SECURE:-false}
+      MINIO_TIMEOUT_SECONDS: ${MINIO_TIMEOUT_SECONDS:-10}
+      MEDIA_MAX_MIB: ${MEDIA_MAX_MIB:-10}
+      MEDIA_MAX_PIXELS: ${MEDIA_MAX_PIXELS:-25000000}
       RECOMMENDATION_URL: http://recommendation-service:8001
       AUTH_URL: http://auth-api:8003
     depends_on:
+      database-init:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       pgvector:
@@ -84,6 +97,8 @@ services:
       SOURCE_DATABASE_URL: postgresql://recsys_reader:${RECSYS_READER_PASSWORD:-change-me}@postgres:5432/${POSTGRES_DB:-dvizh_data}
       VECTOR_DATABASE_URL: postgresql://${VECTOR_USER:-dvizh}:${VECTOR_PASSWORD:-change-me}@pgvector:5432/${VECTOR_DB:-dvizh_vectors}
     depends_on:
+      database-init:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       pgvector:
@@ -96,6 +111,67 @@ services:
       start_period: 10s
     restart: unless-stopped
 
+  database-init:
+    build:
+      context: .
+      dockerfile: database-init/Dockerfile
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-dvizh_data}
+      POSTGRES_USER: ${POSTGRES_USER:-dvizh_app}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
+      RECSYS_READER_PASSWORD: ${RECSYS_READER_PASSWORD:-change-me}
+      VECTOR_DB: ${VECTOR_DB:-dvizh_vectors}
+      VECTOR_USER: ${VECTOR_USER:-dvizh}
+      VECTOR_PASSWORD: ${VECTOR_PASSWORD:-change-me}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      pgvector:
+        condition: service_healthy
+    restart: "no"
+
+  mlflow:
+    profiles: [ml]
+    build:
+      context: ./mlflow
+    environment:
+      MLFLOW_DATABASE_PASSWORD: ${MLFLOW_DATABASE_PASSWORD:-change-me}
+      MLFLOW_S3_ENDPOINT_URL: http://minio:9000
+      AWS_ACCESS_KEY_ID: mlflow
+      AWS_SECRET_ACCESS_KEY: ${MLFLOW_STORAGE_SECRET_KEY:-change-me-mlflow}
+      MLFLOW_SERVER_ALLOWED_HOSTS: mlflow:5000,localhost:*,127.0.0.1:*
+    ports:
+      - "127.0.0.1:${MLFLOW_PORT:-5000}:5000"
+    depends_on:
+      mlflow-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/health')"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  mlflow-init:
+    profiles: [ml]
+    build:
+      context: ./mlflow-init
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-dvizh_data}
+      POSTGRES_USER: ${POSTGRES_USER:-dvizh_app}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
+      MLFLOW_DATABASE_PASSWORD: ${MLFLOW_DATABASE_PASSWORD:-change-me}
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-dvizh}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-change-me-please}
+      MLFLOW_STORAGE_SECRET_KEY: ${MLFLOW_STORAGE_SECRET_KEY:-change-me-mlflow}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    restart: "no"
+
   postgres:
     build:
       context: ./postgres
@@ -107,7 +183,7 @@ services:
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -123,7 +199,7 @@ services:
     volumes:
       - pgvector-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s
       timeout: 5s
       retries: 10

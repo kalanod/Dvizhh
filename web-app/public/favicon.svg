@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#d06be6" />
+      <stop offset=".55" stop-color="#ee9fef" />
+      <stop offset="1" stop-color="#8f8ef0" />
+    </linearGradient>
+    <clipPath id="ticket">
+      <path d="M9 16h25a6 6 0 0 0 12 0h3a7 7 0 0 1 7 7v18a7 7 0 0 1-7 7h-3a6 6 0 0 0-12 0H16a7 7 0 0 1-7-7V23a7 7 0 0 1 7-7Z" />
+    </clipPath>
+  </defs>
+  <rect width="64" height="64" rx="15" fill="#2c1d8c" />
+  <path
+    d="M9 16h25a6 6 0 0 0 12 0h3a7 7 0 0 1 7 7v18a7 7 0 0 1-7 7h-3a6 6 0 0 0-12 0H16a7 7 0 0 1-7-7V23a7 7 0 0 1 7-7Z"
+    fill="url(#sky)"
+  />
+  <g clip-path="url(#ticket)">
+    <path d="M9 40l9-6 6 3 9-7 8 5 6-3 9 5v13H9Z" fill="#7a80e8" />
+    <path d="M9 45q14-6 28-2t19 0v5H9Z" fill="#3a2a9e" />
+  </g>
+  <path
+    d="M9 16h25a6 6 0 0 0 12 0h3a7 7 0 0 1 7 7v18a7 7 0 0 1-7 7h-3a6 6 0 0 0-12 0H16a7 7 0 0 1-7-7V23a7 7 0 0 1 7-7Z"
+    fill="none"
+    stroke="#1c1270"
+    stroke-width="2.5"
+    stroke-linejoin="round"
+  />
+  <path d="M40 21v22" stroke="#fbe3fa" stroke-width="2" stroke-linecap="round" stroke-dasharray="1 4" />
+  <text
+    x="24"
+    y="42"
+    fill="#fbe3fa"
+    stroke="#1c1270"
+    stroke-width="1.6"
+    paint-order="stroke"
+    text-anchor="middle"
+    font-family="Arial, Helvetica, sans-serif"
+    font-size="27"
+    font-weight="900"
+  >Д</text>
+  <path d="m49 27 1.6 3.4L54 32l-3.4 1.6L49 37l-1.6-3.4L44 32l3.4-1.6Z" fill="#fbe3fa" />
+</svg>

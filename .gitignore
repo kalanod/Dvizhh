@@ -1,13 +1,17 @@
 .env
+*.local
+.env.production
 .idea/
 __pycache__/
 *.py[cod]
 .pytest_cache/
 .ruff_cache/
 .venv/
+node_modules/
 
 Concept.pdf
 database.md
-
 .DS_Store
 pgvector/.DS_Store
+/pattern_front
+node_modules/

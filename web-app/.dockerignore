@@ -1,8 +1,8 @@
-__pycache__
-*.py[cod]
-.venv
-.pytest_cache
-.ruff_cache
+node_modules
+dist
+*.local
+.env*
 .git
-tests
 .DS_Store
+Dockerfile
+.dockerignore

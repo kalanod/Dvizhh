@@ -37,7 +37,7 @@ EXPECTED_TABLES = {
 
 
 def test_all_domain_tables_are_registered() -> None:
-    assert set(Base.metadata.tables) == EXPECTED_TABLES
+    assert set(Base.metadata.tables) == EXPECTED_TABLES | {"event_notifications"}
 
 
 def test_migration_snapshot_covers_every_model() -> None:

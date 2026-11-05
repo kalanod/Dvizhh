@@ -1,0 +1,8 @@
+**
+!database-init/
+!database-init/Dockerfile
+!database-init/init.sh
+!postgres/
+!postgres/init-recsys-reader.sh
+!pgvector/
+!pgvector/init.sql

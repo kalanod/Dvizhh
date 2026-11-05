@@ -1,3 +1,4 @@
+import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -31,8 +32,14 @@ class DatabaseService:
             try:
                 yield session
                 await session.commit()
-            except Exception:
+                session.info.pop("rollback_callbacks", None)
+            except BaseException:
                 await session.rollback()
+                for cleanup in session.info.pop("rollback_callbacks", []):
+                    try:
+                        await cleanup()
+                    except Exception:
+                        logging.getLogger(__name__).exception("Media rollback cleanup failed")
                 raise
 
     async def ping(self) -> None:

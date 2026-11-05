@@ -20,7 +20,7 @@ class ProfileService(BaseCRUDService[Profile]):
     async def list_active(self, *, offset: int = 0, limit: int = 50) -> list[Profile]:
         result = await self.session.scalars(
             select(Profile)
-            .where(Profile.status == ProfileStatus.ACTIVE)
+            .where(Profile.status == ProfileStatus.ACTIVE, Profile.deleted_at.is_(None))
             .order_by(Profile.created_at.desc(), Profile.id)
             .offset(offset)
             .limit(limit)
@@ -31,7 +31,11 @@ class ProfileService(BaseCRUDService[Profile]):
         if not user_ids:
             return []
         result = await self.session.scalars(
-            select(Profile).where(Profile.id.in_(user_ids), Profile.status == ProfileStatus.ACTIVE)
+            select(Profile).where(
+                Profile.id.in_(user_ids),
+                Profile.status == ProfileStatus.ACTIVE,
+                Profile.deleted_at.is_(None),
+            )
         )
         return list(result.all())
 

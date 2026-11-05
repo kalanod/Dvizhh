@@ -2,7 +2,7 @@ from datetime import datetime
 from decimal import Decimal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validator, model_validator
 
 from dvizh_backend.database.models.enums import FriendshipStatus, ProfileStatus
 
@@ -80,6 +80,15 @@ class ProfileDTO(UserDTO):
     created_at: datetime
     updated_at: datetime
 
+    @computed_field
+    @property
+    def avatar_url(self) -> str | None:
+        return (
+            f"/api/media/{self.avatar_media_id}/content"
+            if self.avatar_media_id is not None
+            else None
+        )
+
 
 class FriendshipDTO(UserDTO):
     user_low_id: UUID
@@ -89,3 +98,8 @@ class FriendshipDTO(UserDTO):
     requested_at: datetime
     responded_at: datetime | None
     removed_at: datetime | None
+
+
+class FriendshipRequestDTO(UserDTO):
+    friendship: FriendshipDTO
+    user: ProfileDTO
