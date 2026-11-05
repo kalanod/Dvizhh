@@ -4,6 +4,7 @@ import signal
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
+import asyncpg
 import grpc
 from grpc_health.v1 import health, health_pb2, health_pb2_grpc
 
@@ -14,16 +15,24 @@ from .service import SERVICE_NAME, RecommendationService
 
 
 @asynccontextmanager
-async def running_server(settings: Settings) -> AsyncIterator[tuple[grpc.aio.Server, int]]:
-    async with connect_databases(settings), _grpc_server(settings) as server:
+async def running_server(
+    settings: Settings,
+) -> AsyncIterator[tuple[grpc.aio.Server, int]]:
+    async with (
+        connect_databases(settings) as databases,
+        _grpc_server(settings, databases.source) as server,
+    ):
         yield server
 
 
 @asynccontextmanager
-async def _grpc_server(settings: Settings) -> AsyncIterator[tuple[grpc.aio.Server, int]]:
+async def _grpc_server(
+    settings: Settings,
+    source_pool: asyncpg.Pool,
+) -> AsyncIterator[tuple[grpc.aio.Server, int]]:
     server = grpc.aio.server()
     recommendation_service_pb2_grpc.add_RecommendationServiceServicer_to_server(
-        RecommendationService(), server
+        RecommendationService(source_pool), server
     )
     health_service = health.aio.HealthServicer()
     health_pb2_grpc.add_HealthServicer_to_server(health_service, server)
