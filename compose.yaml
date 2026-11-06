@@ -68,6 +68,7 @@ services:
       context: ./auth-api
     environment:
       APP_NAME: Dvizh Auth API
+      DATABASE_URL: "postgresql+asyncpg://${POSTGRES_USER:-dvizh_app}:${POSTGRES_PASSWORD:-change-me}@postgres:5432/dvizh_auth"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8003/health')"]
       interval: 10s
