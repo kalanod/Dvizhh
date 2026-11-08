@@ -8,6 +8,7 @@ import { MainLayout } from "../../layouts";
 import { Avatar, Button, Loader, Notice } from "../../ui";
 import { PeopleList } from "../../widgets";
 import { formatJoinedAt } from "../../../utils/format";
+import { ProfileEditor } from "./ProfileEditor";
 import { ProfileAvatarEditor } from "./ProfileAvatarEditor";
 
 /** /profile — свой профиль, /users/:id — профиль другого пользователя. */
@@ -72,10 +73,12 @@ const ProfileDetailsSection = ({ profileId }: { profileId: string }) => {
                                 <Field label="Никнейм">@{profile.username}</Field>
                                 {profile.city && <Field label="Город">{profile.city}</Field>}
                                 {profile.bio && <Field label="О себе">{profile.bio}</Field>}
+                                {isMe && profile.latitude !== null && <Field label="Координаты">{profile.latitude}, {profile.longitude}</Field>}
                                 <Field label="На Движже">с {formatJoinedAt(profile.created_at)}</Field>
                                 {isMe && <ProfileIdField profile={profile} />}
                             </div>
                         </div>
+                        {isMe && me && <ProfileEditor profile={profile} onSaved={updateUser} />}
                         {isMe && me && <ProfileAvatarEditor key={profile.id} profile={profile} onSaved={updateUser} />}
                     </div>
                 )}

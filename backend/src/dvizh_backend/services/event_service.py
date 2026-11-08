@@ -3,9 +3,10 @@ from datetime import UTC, date, datetime
 from typing import Literal
 from uuid import UUID, uuid4
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from dvizh_backend.database.models import Event, EventOccurrence, Profile
+from dvizh_backend.database.models import Event, EventInvitation, EventOccurrence, Profile
 from dvizh_backend.database.models.enums import EventOrigin, EventStatus, ProfileStatus
 from dvizh_backend.database.services.access import can_manage_event
 from dvizh_backend.database.services.catalog import LocationService, ProfileService
@@ -151,6 +152,20 @@ class EventService:
             for item in invitations
             if item.occurrence_id in dtos
         ]
+
+    async def list_event_invitations(
+        self, event_id: UUID, actor_id: UUID, *, offset: int = 0, limit: int = 20
+    ) -> list[InvitationDTO]:
+        await self._require_active_profile(actor_id)
+        row = await self._require_row(event_id)
+        await self.events._require_manager(row.event, actor_id)
+        items = await self.session.scalars(
+            select(EventInvitation)
+            .where(EventInvitation.occurrence_id == row.occurrence.id)
+            .order_by(EventInvitation.created_at.desc(), EventInvitation.id)
+            .offset(offset).limit(limit)
+        )
+        return [InvitationDTO.model_validate(item) for item in items]
 
     async def respond_to_invitation(
         self, invitation_id: UUID, user_id: UUID, *, accept: bool

@@ -125,3 +125,11 @@ async def revoke_invitation(
     invitation_id: UUID, actor_id: UUID, events: EventServiceDep
 ) -> InvitationDTO:
     return await events.revoke_invitation(invitation_id, actor_id)
+
+
+@router.get("/events/{event_id}/invitations", summary="Отправленные приглашения события.")
+async def list_event_invitations(
+    event_id: UUID, actor_id: UUID, events: EventServiceDep,
+    offset: Offset = 0, limit: Limit = 20,
+) -> list[InvitationDTO]:
+    return await events.list_event_invitations(event_id, actor_id, offset=offset, limit=limit)

@@ -4,6 +4,7 @@ import { useState } from "react";
 export type ButtonState = "hover1" | "fixed1" | "disabled" | "hover2" | "fixed2";
 
 interface ButtonProps {
+    action?: string;
     state?: ButtonState;
     children: ReactNode;
     className?: string;
@@ -24,6 +25,7 @@ const stateClassMap: Record<ButtonState, string> = {
 };
 
 export const Button = ({
+    action,
     state = "hover1",
     children,
     className = "",
@@ -53,6 +55,7 @@ export const Button = ({
     return (
         <button
             type={type}
+            data-action={action}
             onClick={isDisabled ? undefined : onClick}
             aria-pressed={ariaPressed}
             aria-label={ariaLabel}

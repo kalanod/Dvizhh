@@ -8,7 +8,6 @@ import { Button, Loader } from "../../ui";
 import { EventList, LoginRequired } from "../../widgets";
 
 const PAGE_SIZE = 20;
-const MAX_LIMIT = 100;
 
 interface Tab {
     label: string;
@@ -96,7 +95,7 @@ const MyEvents = ({ userId }: { userId: string }) => {
 const TabEvents = ({ userId, tab }: { userId: string; tab: Tab }) => {
     const [limit, setLimit] = useState(PAGE_SIZE);
     const { data, error, loading, reload } = useAsync((signal) => tab.load(userId, limit, signal), `${tab.label}:${userId}:${limit}`);
-    const hasMore = (data?.length ?? 0) >= limit && limit < MAX_LIMIT;
+    const hasMore = (data?.length ?? 0) >= limit;
 
     return (
         <EventList
@@ -108,7 +107,7 @@ const TabEvents = ({ userId, tab }: { userId: string; tab: Tab }) => {
             onPersonalChange={tab.reloadOnPersonalChange ? reload : undefined}
             footer={
                 hasMore && !loading ? (
-                    <Button state="hover1" className="self-center" onClick={() => setLimit((value) => Math.min(value + PAGE_SIZE, MAX_LIMIT))}>
+                    <Button state="hover1" className="self-center" onClick={() => setLimit((value) => value + PAGE_SIZE)}>
                         Показать ещё
                     </Button>
                 ) : null

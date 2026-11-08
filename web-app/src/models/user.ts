@@ -34,6 +34,8 @@ export interface CreateUserInput {
 
 /** Тело PATCH /api/users/{id}: пропущенные поля не меняются, null очищает необязательное поле. */
 export interface UpdateProfileInput {
+    latitude?: string | null;
+    longitude?: string | null;
     username?: string;
     display_name?: string;
     bio?: string | null;

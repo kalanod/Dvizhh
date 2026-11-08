@@ -7,7 +7,6 @@ import { EventList } from "../EventList";
 import { RightPanel } from "../Filters";
 
 const PAGE_SIZE = 20;
-const MAX_LIMIT = 100;
 
 interface EventSectionProps {
     title: string;
@@ -75,7 +74,7 @@ export const EventSection = ({ title }: EventSectionProps) => {
         filters.withFriends && userId && "друзья идут",
     ].filter((chip): chip is string => Boolean(chip));
 
-    const hasMore = (events?.length ?? 0) >= limit && limit < MAX_LIMIT;
+    const hasMore = (events?.length ?? 0) >= limit;
 
     const searchButton = (
         <>
@@ -139,7 +138,7 @@ export const EventSection = ({ title }: EventSectionProps) => {
                             <Button
                                 state="hover1"
                                 className="self-center"
-                                onClick={() => setLimit((value) => Math.min(value + PAGE_SIZE, MAX_LIMIT))}
+                                onClick={() => setLimit((value) => value + PAGE_SIZE)}
                             >
                                 Показать ещё
                             </Button>

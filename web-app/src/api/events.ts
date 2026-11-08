@@ -1,3 +1,4 @@
+import { loadPages } from "./paging";
 import { request } from "./client";
 import type {
     CreateEventInput,
@@ -10,7 +11,7 @@ import type {
 } from "../models";
 
 export const listEvents = (filters: EventFilters = {}, signal?: AbortSignal) =>
-    request<DvizhEvent[]>("/events", {
+    loadPages<DvizhEvent>((offset, limit) => request<DvizhEvent[]>("/events", {
         signal,
         query: {
             q: filters.q,
@@ -20,11 +21,11 @@ export const listEvents = (filters: EventFilters = {}, signal?: AbortSignal) =>
             free_only: filters.freeOnly,
             available_only: filters.availableOnly,
             friends_of: filters.friendsOf,
-            offset: filters.offset,
-            limit: filters.limit,
+            offset,
+            limit,
             viewer_id: filters.viewerId,
         },
-    });
+    }), filters.limit, filters.offset);
 
 export const getEvent = (eventId: string, viewerId?: string | null, signal?: AbortSignal) =>
     request<DvizhEvent>(`/events/${eventId}`, { query: { viewer_id: viewerId }, signal });
@@ -57,10 +58,10 @@ export const listParticipants = (eventId: string, signal?: AbortSignal) =>
 export const joinEvent = (eventId: string, userId: string) =>
     request<Participant>(`/events/${eventId}/participants`, { method: "POST", body: { user_id: userId } });
 
-export const reviewParticipation = (eventId: string, userId: string, actorId: string, accept: boolean) =>
+export const reviewParticipation = (eventId: string, userId: string, actorId: string, accept: boolean, reason?: string) =>
     request<Participant>(`/events/${eventId}/participants/${userId}`, {
         method: "PATCH",
-        body: { actor_id: actorId, accept },
+        body: { actor_id: actorId, accept, reason },
     });
 
 export const leaveEvent = (eventId: string, userId: string) =>

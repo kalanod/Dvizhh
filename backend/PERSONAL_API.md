@@ -162,3 +162,13 @@ uv sync --locked
 ```powershell
 docker compose up -d --build --no-deps backend
 ```
+
+
+### Отправленные приглашения
+
+`GET /api/events/{event_id}/invitations?actor_id={user_id}&offset=0&limit=20`
+возвращает массив `InvitationDTO`, включая принятые, отклонённые и отозванные
+приглашения. Доступ разрешён только активному организатору или менеджеру события.
+Сортировка: сначала новые, затем по ID; `limit` от 1 до 100.
+Фронтенд использует этот список для просмотра и отзыва приглашений после
+перезагрузки страницы через `DELETE /api/invitations/{id}?actor_id={user_id}`.
