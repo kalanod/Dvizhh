@@ -3,10 +3,17 @@ syntax = "proto3";
 package dvizh.recommendation.v1;
 
 import "google/protobuf/struct.proto";
+import "google/protobuf/empty.proto";
 
 service RecommendationService {
   rpc GetRecommendations(GetRecommendationsRequest)
       returns (GetRecommendationsResponse);
+  rpc RefreshSession(RefreshSessionRequest) returns (google.protobuf.Empty);
+}
+
+message RefreshSessionRequest {
+  optional string user_id = 1;
+  optional string session_id = 2;
 }
 
 message GetRecommendationsRequest {
