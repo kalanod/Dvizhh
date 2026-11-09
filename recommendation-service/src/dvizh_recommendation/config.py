@@ -9,6 +9,9 @@ class Settings(BaseSettings):
     app_name: str = "Dvizh Recommendation Service"
     source_database_url: SecretStr = Field(min_length=1)
     vector_database_url: SecretStr = Field(min_length=1)
+    redis_url: SecretStr = Field(min_length=1)
+    redis_timeout_seconds: float = Field(default=5, gt=0, allow_inf_nan=False)
+    recommendation_timeout_seconds: float = Field(default=5, gt=0, allow_inf_nan=False)
     database_pool_min_size: int = Field(default=1, ge=1)
     database_pool_max_size: int = Field(default=10, ge=1)
     database_timeout_seconds: float = Field(default=5, gt=0, allow_inf_nan=False)

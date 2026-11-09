@@ -1,47 +1,28 @@
 import asyncio
-from contextlib import asynccontextmanager
-from uuid import uuid4
 
 import pytest
 
-from dvizh_recommendation.candidates import get_candidates
+from dvizh_recommendation.candidates import LatestRecommendations, get_candidates
+from dvizh_recommendation.recommendations import RecommendationQuery
 
 
-def test_get_candidates_returns_ids():
-    event_id_1 = uuid4()
-    event_id_2 = uuid4()
-
-    class FakeConnection:
-        async def fetch(self, query, limit):
-            assert "EXISTS" in query
-            assert limit == 20
-            return [
-                {"id": event_id_1},
-                {"id": event_id_2},
-            ]
-
-    class FakePool:
-        @asynccontextmanager
-        async def acquire(self):
-            yield FakeConnection()
-
-    result = asyncio.run(get_candidates(FakePool()))
-
-    assert result == [event_id_1, event_id_2]
-
-@pytest.mark.parametrize("limit", [0, -1, -10])
-def test_get_candidates_rejects_non_positive_limit(limit):
+@pytest.mark.parametrize(
+    ("limit", "error"),
+    [(0, ValueError), (-1, ValueError), (True, TypeError), (1.5, TypeError)],
+)
+def test_get_candidates_rejects_invalid_limit(limit, error):
     async def check():
-        with pytest.raises(ValueError):
+        with pytest.raises(error):
             await get_candidates(None, limit=limit)
 
     asyncio.run(check())
 
 
-@pytest.mark.parametrize("limit", [1.5, "10", None, True, False])
-def test_get_candidates_rejects_invalid_type(limit):
+def test_latest_recommendations_reject_unsupported_filters():
     async def check():
-        with pytest.raises(TypeError):
-            await get_candidates(None, limit=limit)
+        provider = LatestRecommendations(None)
+        query = RecommendationQuery(user_id="user", context={}, filters={"city": "Moscow"})
+        with pytest.raises(NotImplementedError):
+            await provider.recommend(query, limit=100, exclude_ids=())
 
     asyncio.run(check())

@@ -1,229 +1,175 @@
-
 import asyncio
-from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
-from uuid import uuid4
+from unittest.mock import AsyncMock
 
 import asyncpg
 import grpc
 import pytest
+from redis.exceptions import ConnectionError as RedisConnectionError
 
 from dvizh_recommendation.config import Settings
+from dvizh_recommendation.database import Databases
 from dvizh_recommendation.generated import recommendation_service_pb2 as pb
 from dvizh_recommendation.generated import recommendation_service_pb2_grpc
-from dvizh_recommendation.main import running_server
+from dvizh_recommendation.main import _grpc_server
+from dvizh_recommendation.pagination import (
+    InvalidPageToken,
+    Pagination,
+    RecommendationPage,
+    SessionNotFound,
+    SessionOwnerMismatch,
+)
+from dvizh_recommendation.recommendations import RecommendationQuery
 
 
-class FakeConnection:
-    def __init__(self) -> None:
-        self.event_ids = [uuid4(), uuid4()]
-        self.error = None
-
-    async def fetch(self, query: str, limit: int):
-        assert "FROM events AS e" in query
-        assert "EXISTS" in query
-
-        if self.error is not None:
-            raise self.error
-
-        return [
-            {"id": event_id}
-            for event_id in self.event_ids[:limit]
-        ]
-
-
-class FakePool:
-
-    def __init__(self, connection: FakeConnection) -> None:
-        self.connection = connection
-
-    @asynccontextmanager
-    async def acquire(self):
-        yield self.connection
-
-
-@pytest.fixture(autouse=True)
-def stub_database_connections(
-    monkeypatch: pytest.MonkeyPatch,
-) -> FakeConnection:
-    connection = FakeConnection()
-
-    @asynccontextmanager
-    async def connect_databases(
-        _settings: Settings,
-    ) -> AsyncIterator[SimpleNamespace]:
-        yield SimpleNamespace(
-            source=FakePool(connection),
-            vector=None,
-        )
-
-    monkeypatch.setattr(
-        "dvizh_recommendation.main.connect_databases",
-        connect_databases,
-    )
-
-    return connection
-
-
-def valid_request() -> pb.GetRecommendationsRequest:
+def valid_request(**kwargs) -> pb.GetRecommendationsRequest:
     return pb.GetRecommendationsRequest(
-        user_id="user-1",
-        session_id="session-1",
-        request_id="request-1",
+        user_id="user-1", session_id="session-1", request_id="request-1", **kwargs
     )
 
 
-async def call_recommendations(
-    request: pb.GetRecommendationsRequest,
-) -> pb.GetRecommendationsResponse:
+@asynccontextmanager
+async def grpc_client(pagination):
     settings = Settings(
         grpc_bind_address="127.0.0.1:0",
-        source_database_url=(
-            "postgresql://reader:unused@source.invalid/source"
-        ),
-        vector_database_url=(
-            "postgresql://writer:unused@vector.invalid/vectors"
-        ),
+        source_database_url="postgresql://reader:unused@source.invalid/source",
+        vector_database_url="postgresql://writer:unused@vector.invalid/vectors",
+        redis_url="redis://redis.invalid:6379/0",
         _env_file=None,
     )
-
+    redis = SimpleNamespace(ping=AsyncMock(return_value=True))
+    databases = Databases(
+        source=SimpleNamespace(fetchval=AsyncMock(return_value=1)),
+        vector=SimpleNamespace(fetchval=AsyncMock(return_value=1)),
+    )
     async with (
-        running_server(settings) as (_, port),
-        grpc.aio.insecure_channel(
-            f"127.0.0.1:{port}"
-        ) as channel,
+        _grpc_server(settings, pagination, redis, databases) as (_, port),
+        grpc.aio.insecure_channel(f"127.0.0.1:{port}") as channel,
     ):
-        stub = (
-            recommendation_service_pb2_grpc
-            .RecommendationServiceStub(channel)
+        yield recommendation_service_pb2_grpc.RecommendationServiceStub(channel)
+
+
+def test_grpc_preserves_query_page_and_renewal_contract() -> None:
+    async def run():
+        pagination = SimpleNamespace(
+            get_page=AsyncMock(return_value=RecommendationPage(("item-1", "item-2"), "next")),
+            refresh=AsyncMock(),
         )
+        request = valid_request(page_token="previous", page_size=30)
+        request.context["city"].string_value = "Москва"
+        request.filters["free"].bool_value = True
+        async with grpc_client(pagination) as client:
+            response = await client.GetRecommendations(request, timeout=5)
+            assert [item.item_id for item in response.items] == ["item-1", "item-2"]
+            assert response.next_page_token == "next"
+            pagination.get_page.assert_awaited_once_with(
+                RecommendationQuery("user-1", {"city": "Москва"}, {"free": True}),
+                "session-1",
+                page_size=30,
+                page_token="previous",
+            )
+            pagination.get_page.return_value = RecommendationPage((), None)
+            final = await client.GetRecommendations(valid_request(), timeout=5)
+            assert not final.items
+            assert not final.HasField("next_page_token")
+            assert pagination.get_page.call_args.kwargs == {"page_size": 20, "page_token": None}
+            await client.RefreshSession(
+                pb.RefreshSessionRequest(user_id="user-1", session_id="session-1"), timeout=5
+            )
+            pagination.refresh.assert_awaited_once_with("user-1", "session-1")
 
-        return await stub.GetRecommendations(
-            request,
-            timeout=5,
-        )
-
-
-# Вместо старого теста пустой заглушки
-def test_get_recommendations_returns_candidates(
-    stub_database_connections: FakeConnection,
-) -> None:
-    response = asyncio.run(
-        call_recommendations(valid_request())
-    )
-
-    expected_ids = [
-        str(event_id)
-        for event_id in stub_database_connections.event_ids
-    ]
-
-    actual_ids = [
-        item.item_id
-        for item in response.items
-    ]
-
-    assert actual_ids == expected_ids
-    assert not response.HasField("next_page_token")
+    asyncio.run(run())
 
 
-def test_empty_catalog_returns_empty_response(
-    stub_database_connections: FakeConnection,
-) -> None:
-    stub_database_connections.event_ids = []
+@pytest.mark.parametrize("field", ["user_id", "session_id", "request_id"])
+def test_grpc_rejects_missing_ids_before_calculation(field: str) -> None:
+    async def run():
+        pagination = SimpleNamespace(get_page=AsyncMock(), refresh=AsyncMock())
+        request = valid_request()
+        setattr(request, field, " ")
+        async with grpc_client(pagination) as client:
+            with pytest.raises(grpc.aio.AioRpcError) as error:
+                await client.GetRecommendations(request, timeout=5)
+            assert error.value.code() == grpc.StatusCode.INVALID_ARGUMENT
+            if field != "request_id":
+                renewal = pb.RefreshSessionRequest(user_id="user-1", session_id="session-1")
+                renewal.ClearField(field)
+                with pytest.raises(grpc.aio.AioRpcError) as error:
+                    await client.RefreshSession(renewal, timeout=5)
+                assert error.value.code() == grpc.StatusCode.INVALID_ARGUMENT
+            pagination.get_page.assert_not_awaited()
+            pagination.refresh.assert_not_awaited()
 
-    response = asyncio.run(
-        call_recommendations(valid_request())
-    )
-
-    assert len(response.items) == 0
-
-
-def test_page_size_limits_results() -> None:
-    request = valid_request()
-    request.page_size = 1
-
-    response = asyncio.run(
-        call_recommendations(request)
-    )
-
-    assert len(response.items) == 1
-
-
-def test_database_failure_returns_unavailable(
-    stub_database_connections: FakeConnection,
-) -> None:
-    stub_database_connections.error = (
-        asyncpg.PostgresConnectionError("Connection lost")
-    )
-
-    with pytest.raises(grpc.aio.AioRpcError) as error:
-        asyncio.run(
-            call_recommendations(valid_request())
-        )
-
-    assert error.value.code() == grpc.StatusCode.UNAVAILABLE
+    asyncio.run(run())
 
 
 @pytest.mark.parametrize(
-    ("field", "value"),
+    ("failure", "status"),
     [
-        ("user_id", None),
-        ("session_id", None),
-        ("request_id", None),
-        ("user_id", " "),
+        (InvalidPageToken(), grpc.StatusCode.INVALID_ARGUMENT),
+        (SessionNotFound(), grpc.StatusCode.FAILED_PRECONDITION),
+        (SessionOwnerMismatch(), grpc.StatusCode.PERMISSION_DENIED),
+        (RedisConnectionError("redis://:secret@redis.invalid"), grpc.StatusCode.UNAVAILABLE),
+        (ValueError("internal secret"), grpc.StatusCode.INTERNAL),
     ],
 )
-def test_required_ids_are_rejected_over_grpc(
-    field: str,
-    value: str | None,
-) -> None:
-    request = valid_request()
-
-    if value is None:
-        request.ClearField(field)
-    else:
-        setattr(request, field, value)
-
-    with pytest.raises(grpc.aio.AioRpcError) as error:
-        asyncio.run(
-            call_recommendations(request)
+def test_grpc_reports_session_and_dependency_failures(failure, status, caplog) -> None:
+    async def run():
+        pagination = SimpleNamespace(
+            get_page=AsyncMock(side_effect=failure), refresh=AsyncMock(side_effect=failure)
         )
+        async with grpc_client(pagination) as client:
+            with pytest.raises(grpc.aio.AioRpcError) as error:
+                await client.GetRecommendations(valid_request(), timeout=5)
+            assert error.value.code() == status
+            assert "secret" not in error.value.details()
 
-    assert error.value.code() == grpc.StatusCode.INVALID_ARGUMENT
-
-
-def test_page_token_reports_unimplemented_pagination() -> None:
-    request = valid_request()
-    request.page_token = "opaque-token"
-
-    with pytest.raises(grpc.aio.AioRpcError) as error:
-        asyncio.run(
-            call_recommendations(request)
-        )
-
-    assert error.value.code() == grpc.StatusCode.UNIMPLEMENTED
+    asyncio.run(run())
+    assert "secret" not in caplog.text
 
 
-def test_invalid_page_size_is_rejected() -> None:
-    request = valid_request()
-    request.page_size = 0
+@pytest.mark.parametrize("parameters", [{"page_size": 0}, {"page_size": 101}, {"page_token": ""}])
+def test_grpc_rejects_invalid_pagination_before_accessing_storage(parameters) -> None:
+    async def run():
+        store = SimpleNamespace(read_page=AsyncMock())
+        provider = SimpleNamespace(recommend=AsyncMock())
+        check_availability = AsyncMock()
+        async with grpc_client(Pagination(store, provider, check_availability)) as client:
+            with pytest.raises(grpc.aio.AioRpcError) as error:
+                await client.GetRecommendations(valid_request(**parameters), timeout=5)
+            assert error.value.code() == grpc.StatusCode.INVALID_ARGUMENT
+            store.read_page.assert_not_awaited()
+            provider.recommend.assert_not_awaited()
+            check_availability.assert_not_awaited()
 
-    with pytest.raises(grpc.aio.AioRpcError) as error:
-        asyncio.run(
-            call_recommendations(request)
-        )
-
-    assert error.value.code() == grpc.StatusCode.INVALID_ARGUMENT
+    asyncio.run(run())
 
 
-def test_unsupported_filters_are_rejected() -> None:
-    request = valid_request()
-    request.filters["unknown"].string_value = "value"
+@pytest.mark.parametrize("failure", ["connection", "timeout"])
+def test_grpc_does_not_return_unchecked_items_when_availability_check_fails(failure) -> None:
+    async def run():
+        page = RecommendationPage(("item-1", "item-2"), "next")
+        store = SimpleNamespace(read_page=AsyncMock(return_value=page))
+        provider = SimpleNamespace(recommend=AsyncMock())
 
-    with pytest.raises(grpc.aio.AioRpcError) as error:
-        asyncio.run(
-            call_recommendations(request)
-        )
+        async def unavailable(item_ids):
+            if failure == "connection":
+                raise asyncpg.PostgresConnectionError("database unavailable")
+            await asyncio.Event().wait()
 
-    assert error.value.code() == grpc.StatusCode.UNIMPLEMENTED
+        check_availability = AsyncMock(side_effect=unavailable)
+        pagination = Pagination(store, provider, check_availability, timeout_seconds=0.05)
+        async with grpc_client(pagination) as client:
+            with pytest.raises(grpc.aio.AioRpcError) as error:
+                await client.GetRecommendations(valid_request(), timeout=2)
+            assert error.value.code() == grpc.StatusCode.UNAVAILABLE
+            check_availability.side_effect = None
+            check_availability.return_value = ("item-2",)
+            response = await client.GetRecommendations(valid_request(), timeout=2)
+            assert [item.item_id for item in response.items] == ["item-2"]
+            assert response.next_page_token == page.next_page_token
+            assert all(call.args == (page.item_ids,) for call in check_availability.await_args_list)
+            provider.recommend.assert_not_awaited()
+
+    asyncio.run(run())

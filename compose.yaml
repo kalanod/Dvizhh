@@ -97,12 +97,17 @@ services:
       APP_NAME: Dvizh Recommendation Service
       SOURCE_DATABASE_URL: postgresql://recsys_reader:${RECSYS_READER_PASSWORD:-change-me}@postgres:5432/${POSTGRES_DB:-dvizh_data}
       VECTOR_DATABASE_URL: postgresql://${VECTOR_USER:-dvizh}:${VECTOR_PASSWORD:-change-me}@pgvector:5432/${VECTOR_DB:-dvizh_vectors}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      REDIS_TIMEOUT_SECONDS: ${REDIS_TIMEOUT_SECONDS:-5}
+      RECOMMENDATION_TIMEOUT_SECONDS: ${RECOMMENDATION_TIMEOUT_SECONDS:-5}
     depends_on:
       database-init:
         condition: service_completed_successfully
       postgres:
         condition: service_healthy
       pgvector:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "python", "-m", "dvizh_recommendation.healthcheck"]
@@ -206,6 +211,18 @@ services:
       retries: 10
     restart: unless-stopped
 
+  redis:
+    image: redis:8.2.11-alpine
+    command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
   minio:
     build:
       context: ./minio
@@ -245,4 +262,5 @@ services:
 volumes:
   postgres-data:
   pgvector-data:
+  redis-data:
   minio-data:
