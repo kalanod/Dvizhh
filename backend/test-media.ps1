@@ -25,7 +25,7 @@ try {
     }
     $testStorageId = docker run --detach --rm --name "dvizh-media-test-store-$suffix" `
         --env MINIO_ROOT_USER=media_test --env MINIO_ROOT_PASSWORD=media-test-password `
-        --publish '127.0.0.1::9000' $MinioImage server /data --console-address ':9001'
+        --publish '127.0.0.1::9000' $MinioImage server /data --console-address ':9873'
     if ($LASTEXITCODE -ne 0 -or $testStorageId -notmatch '^[a-f0-9]{64}$') {
         $testStorageId = $null
         throw 'Could not start test MinIO.'

@@ -7,6 +7,7 @@ import { FORMAT_LABELS, JOIN_POLICY_LABELS, VISIBILITY_LABELS } from "../../../u
 import { emptyForm, formToInput, validateForm, type EventFormState } from "./formState";
 import type { EventCoverChange } from "../../../utils/media";
 import { EventCoverField } from "./EventCoverField";
+import { EventLocationField } from "./EventLocationField";
 
 interface EventFormProps {
     title: string;
@@ -131,17 +132,11 @@ export const EventForm = ({ title, submitLabel, initial, userId, initialCoverUrl
                                 <Input id="city" maxLength={120} placeholder="Санкт-Петербург" value={form.city} onChange={set("city")} />
                             </FormField>
                         </div>
-                        <FormField label="Адрес" htmlFor="address">
-                            <Input id="address" placeholder="Невский пр., 1" value={form.address} onChange={set("address")} />
-                        </FormField>
-                        <div className="grid gap-4 sm:grid-cols-2">
-                            <FormField label="Широта" htmlFor="latitude" required>
-                                <Input id="latitude" inputMode="decimal" value={form.latitude} onChange={set("latitude")} />
-                            </FormField>
-                            <FormField label="Долгота" htmlFor="longitude" required>
-                                <Input id="longitude" inputMode="decimal" value={form.longitude} onChange={set("longitude")} />
-                            </FormField>
-                        </div>
+                        <EventLocationField
+                            value={form}
+                            disabled={submitting}
+                            onChange={(location) => setForm((previous) => ({ ...previous, ...location }))}
+                        />
                     </>
                 )}
 

@@ -1,4 +1,3 @@
-
 import asyncio
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
@@ -7,20 +6,20 @@ from uuid import uuid4
 import asyncpg
 import pytest
 
-from dvizh_recommendation.candidates import get_candidates
+from dvizh_recommendation.candidates import LatestRecommendations, get_candidates
+from dvizh_recommendation.catalog import filter_available_items
+from dvizh_recommendation.recommendations import RecommendationQuery
 
 pytestmark = pytest.mark.integration
 
 
-def test_candidates_sql_filtering(integration_databases):
+def test_latest_recommendations_filter_and_paginate(integration_databases):
     async def check():
-        connection = await asyncpg.connect(
-            integration_databases.source_admin_url
-        )
+        connection = await asyncpg.connect(integration_databases.source_admin_url)
 
         class TestPool:
             @asynccontextmanager
-            async def acquire(self):
+            async def acquire(self, *, timeout):
                 yield connection
 
         now = datetime.now(UTC)
@@ -88,7 +87,7 @@ def test_candidates_sql_filtering(integration_databases):
                     now,
                     now if deleted else None,
                 )
-                
+
                 await connection.execute(
                     """
                     INSERT INTO event_occurrences (
@@ -134,11 +133,70 @@ def test_candidates_sql_filtering(integration_databases):
                 "past",
                 "cancelled",
             ):
-                assert ids[name] not in result_ids, (
-                    f"Event {name} should not be returned"
-                )
+                assert ids[name] not in result_ids, f"Event {name} should not be returned"
 
             assert result.count(ids["valid"]) == 1
+
+            without_valid = await get_candidates(
+                TestPool(), limit=10000, exclude_ids=[ids["valid"]]
+            )
+            assert ids["valid"] not in without_valid
+
+            existing_ids = [
+                str(row["id"]) for row in await connection.fetch("SELECT id FROM events")
+            ]
+            item_ids = [uuid4() for _ in range(101)]
+            await connection.executemany(
+                """
+                INSERT INTO events (
+                    id, slug, title, description, origin, status, visibility,
+                    format, online_url, organizer_user_id, published_at
+                )
+                VALUES (
+                    $1, $2, 'Test event', 'Test description', 'USER', 'PUBLISHED',
+                    'PUBLIC', 'ONLINE', 'https://example.invalid/test', $3, $4
+                )
+                """,
+                [
+                    (item_id, f"test-{item_id.hex}", profile_id, now - timedelta(seconds=i))
+                    for i, item_id in enumerate(item_ids)
+                ],
+            )
+            await connection.executemany(
+                """
+                INSERT INTO event_occurrences (id, event_id, starts_at, ends_at, timezone, status)
+                VALUES ($1, $2, $3, $4, 'UTC', 'SCHEDULED')
+                """,
+                [(uuid4(), item_id, future, future + timedelta(hours=2)) for item_id in item_ids],
+            )
+            provider = LatestRecommendations(TestPool())
+            query = RecommendationQuery(user_id=str(profile_id), context={}, filters={})
+            expected = tuple(str(item_id) for item_id in item_ids)
+
+            page_ids = [
+                expected[42],
+                *(str(item_id) for item_id in ids.values()),
+                str(uuid4()),
+                expected[5],
+            ]
+            available = await filter_available_items(TestPool(), page_ids)
+            assert available == (expected[42], str(ids["valid"]), expected[5])
+
+            first = await provider.recommend(query, limit=100, exclude_ids=existing_ids)
+            assert first.item_ids == expected[:100]
+            assert not first.exhausted
+
+            last = await provider.recommend(
+                query, limit=100, exclude_ids=[*existing_ids, *first.item_ids]
+            )
+            assert last.item_ids == expected[100:]
+            assert last.exhausted
+
+            exact = await provider.recommend(
+                query, limit=100, exclude_ids=[*existing_ids, expected[0]]
+            )
+            assert exact.item_ids == expected[1:]
+            assert exact.exhausted
 
         finally:
             try:

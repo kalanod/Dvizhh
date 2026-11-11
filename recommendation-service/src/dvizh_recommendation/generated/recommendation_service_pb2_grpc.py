@@ -4,6 +4,7 @@ import grpc
 import warnings
 
 from dvizh_recommendation.generated import recommendation_service_pb2 as dvizh__recommendation_dot_generated_dot_recommendation__service__pb2
+from google.protobuf import empty_pb2 as google_dot_protobuf_dot_empty__pb2
 
 GRPC_GENERATED_VERSION = '1.84.0'
 GRPC_VERSION = grpc.__version__
@@ -39,12 +40,23 @@ class RecommendationServiceStub:
                 request_serializer=dvizh__recommendation_dot_generated_dot_recommendation__service__pb2.GetRecommendationsRequest.SerializeToString,
                 response_deserializer=dvizh__recommendation_dot_generated_dot_recommendation__service__pb2.GetRecommendationsResponse.FromString,
                 _registered_method=True)
+        self.RefreshSession = channel.unary_unary(
+                '/dvizh.recommendation.v1.RecommendationService/RefreshSession',
+                request_serializer=dvizh__recommendation_dot_generated_dot_recommendation__service__pb2.RefreshSessionRequest.SerializeToString,
+                response_deserializer=google_dot_protobuf_dot_empty__pb2.Empty.FromString,
+                _registered_method=True)
 
 
 class RecommendationServiceServicer:
     """Missing associated documentation comment in .proto file."""
 
     def GetRecommendations(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def RefreshSession(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -57,6 +69,11 @@ def add_RecommendationServiceServicer_to_server(servicer, server):
                     servicer.GetRecommendations,
                     request_deserializer=dvizh__recommendation_dot_generated_dot_recommendation__service__pb2.GetRecommendationsRequest.FromString,
                     response_serializer=dvizh__recommendation_dot_generated_dot_recommendation__service__pb2.GetRecommendationsResponse.SerializeToString,
+            ),
+            'RefreshSession': grpc.unary_unary_rpc_method_handler(
+                    servicer.RefreshSession,
+                    request_deserializer=dvizh__recommendation_dot_generated_dot_recommendation__service__pb2.RefreshSessionRequest.FromString,
+                    response_serializer=google_dot_protobuf_dot_empty__pb2.Empty.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -86,6 +103,33 @@ class RecommendationService:
             '/dvizh.recommendation.v1.RecommendationService/GetRecommendations',
             dvizh__recommendation_dot_generated_dot_recommendation__service__pb2.GetRecommendationsRequest.SerializeToString,
             dvizh__recommendation_dot_generated_dot_recommendation__service__pb2.GetRecommendationsResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def RefreshSession(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/dvizh.recommendation.v1.RecommendationService/RefreshSession',
+            dvizh__recommendation_dot_generated_dot_recommendation__service__pb2.RefreshSessionRequest.SerializeToString,
+            google_dot_protobuf_dot_empty__pb2.Empty.FromString,
             options,
             channel_credentials,
             insecure,

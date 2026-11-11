@@ -13,7 +13,7 @@ class IntegrationDatabases:
 
 def pytest_configure(config: pytest.Config) -> None:
     config.addinivalue_line(
-        "markers", "integration: requires explicit disposable PostgreSQL test databases"
+        "markers", "integration: requires explicit disposable databases or Redis"
     )
 
 
@@ -34,3 +34,11 @@ def integration_databases() -> IntegrationDatabases:
     if missing:
         pytest.fail("Incomplete database integration configuration: " + ", ".join(missing))
     return IntegrationDatabases(*(str(value) for value in values))
+
+
+@pytest.fixture(scope="session")
+def integration_redis_url() -> str:
+    url = os.environ.get("TEST_REDIS_URL")
+    if not url:
+        pytest.skip("Set TEST_REDIS_URL to run Redis integration tests")
+    return url

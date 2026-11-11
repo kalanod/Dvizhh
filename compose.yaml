@@ -8,6 +8,9 @@ services:
       MEDIA_MAX_MIB: ${MEDIA_MAX_MIB:-10}
     ports:
       - "${NGINX_PORT:-8080}:80"
+      - "${NGINX_HTTPS_PORT:-8021}:443"
+    volumes:
+      - ./certs:/etc/nginx/certs:ro
     depends_on:
       web-app:
         condition: service_healthy
@@ -53,6 +56,10 @@ services:
       MEDIA_MAX_PIXELS: ${MEDIA_MAX_PIXELS:-25000000}
       RECOMMENDATION_URL: http://recommendation-service:8001
       AUTH_URL: http://auth-api:8003
+      YANDEX_MAPS_API_KEY: ${YANDEX_MAPS_API_KEY:-}
+      YANDEX_SUGGEST_API_KEY: ${YANDEX_SUGGEST_API_KEY:-}
+      YANDEX_GEOCODER_API_KEY: ${YANDEX_GEOCODER_API_KEY:-}
+      YANDEX_SEARCH_API_KEY: ${YANDEX_SEARCH_API_KEY:-}
     depends_on:
       database-init:
         condition: service_completed_successfully
@@ -97,12 +104,17 @@ services:
       APP_NAME: Dvizh Recommendation Service
       SOURCE_DATABASE_URL: postgresql://recsys_reader:${RECSYS_READER_PASSWORD:-change-me}@postgres:5432/${POSTGRES_DB:-dvizh_data}
       VECTOR_DATABASE_URL: postgresql://${VECTOR_USER:-dvizh}:${VECTOR_PASSWORD:-change-me}@pgvector:5432/${VECTOR_DB:-dvizh_vectors}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      REDIS_TIMEOUT_SECONDS: ${REDIS_TIMEOUT_SECONDS:-5}
+      RECOMMENDATION_TIMEOUT_SECONDS: ${RECOMMENDATION_TIMEOUT_SECONDS:-5}
     depends_on:
       database-init:
         condition: service_completed_successfully
       postgres:
         condition: service_healthy
       pgvector:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "python", "-m", "dvizh_recommendation.healthcheck"]
@@ -206,17 +218,29 @@ services:
       retries: 10
     restart: unless-stopped
 
+  redis:
+    image: redis:8.2.11-alpine
+    command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
   minio:
     build:
       context: ./minio
-    command: server /data --console-address ":9001"
+    command: server /data --console-address ":9873"
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-dvizh}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-change-me-please}
     volumes:
       - minio-data:/data
     ports:
-      - "9001:9001"
+      - "9873:9873"
     healthcheck:
       test: ["CMD", "mc", "ready", "local"]
       interval: 5s
@@ -245,4 +269,5 @@ services:
 volumes:
   postgres-data:
   pgvector-data:
+  redis-data:
   minio-data:

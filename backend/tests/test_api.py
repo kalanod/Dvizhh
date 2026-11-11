@@ -20,7 +20,12 @@ from dvizh_backend.database.models.enums import (
 )
 from dvizh_backend.database.services.event_queries import EventQueryService, EventRow
 from dvizh_backend.database.services.exceptions import EntityNotFoundError
-from dvizh_backend.dto.event import CreateEventDTO, EventPersonalStateDTO, UpdateEventDTO
+from dvizh_backend.dto.event import (
+    CreateEventDTO,
+    EventPersonalStateDTO,
+    LocationDTO,
+    UpdateEventDTO,
+)
 from dvizh_backend.main import app
 from dvizh_backend.routers.errors import STATUS_BY_ERROR
 from dvizh_backend.routers.users import UserCreate
@@ -41,6 +46,30 @@ def test_openapi_lists_endpoints() -> None:
     assert "/api/events/{event_id}/participants" in paths
     assert "/api/users/{user_id}/friends/{friend_id}" in paths
     assert "/api/users/{user_id}/calendar" in paths
+
+
+@pytest.mark.parametrize("event_format", ["OFFLINE", "HYBRID"])
+def test_event_accepts_address_without_coordinates(event_format: str) -> None:
+    event = CreateEventDTO(
+        organizer_id=USER_ID,
+        title="Meeting",
+        starts_at=STARTS_AT,
+        format=event_format,
+        online_url="https://example.org/live" if event_format == "HYBRID" else None,
+        location={"address_line": "Main street, 10"},
+    )
+    assert event.location.address_line == "Main street, 10"
+    assert event.location.latitude is None
+    assert event.location.longitude is None
+
+
+@pytest.mark.parametrize(
+    "location",
+    [{}, {"address_line": "   "}, {"address_line": "Street", "latitude": "55"}],
+)
+def test_empty_locations_and_unpaired_coordinates_are_rejected(location: dict) -> None:
+    with pytest.raises(ValidationError):
+        LocationDTO(**location)
 
 
 def test_every_domain_error_has_http_status() -> None:

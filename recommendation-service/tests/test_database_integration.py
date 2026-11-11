@@ -24,6 +24,7 @@ def test_source_reader_and_vector_writer_work_with_real_schemas(
         settings = Settings(
             source_database_url=integration_databases.source_url,
             vector_database_url=integration_databases.vector_url,
+            redis_url="redis://redis.invalid/0",
             database_timeout_seconds=2,
             _env_file=None,
         )

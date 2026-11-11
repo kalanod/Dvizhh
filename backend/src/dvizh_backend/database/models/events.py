@@ -75,8 +75,8 @@ class Location(Base, TimestampMixin):
     city: Mapped[str | None] = mapped_column(String(120))
     address_line: Mapped[str | None] = mapped_column(Text)
     postal_code: Mapped[str | None] = mapped_column(String(20))
-    latitude: Mapped[Decimal] = mapped_column(Numeric(9, 6), nullable=False)
-    longitude: Mapped[Decimal] = mapped_column(Numeric(9, 6), nullable=False)
+    latitude: Mapped[Decimal | None] = mapped_column(Numeric(9, 6))
+    longitude: Mapped[Decimal | None] = mapped_column(Numeric(9, 6))
     external_place_id: Mapped[str | None] = mapped_column(String(255), index=True)
 
 
