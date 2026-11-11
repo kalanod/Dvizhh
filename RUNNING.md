@@ -39,7 +39,7 @@ docker compose up -d --build
 | Сайт | http://localhost:8080 |
 | Проверка API и БД | http://localhost:8080/api/health |
 | Swagger | http://localhost:8080/api/docs |
-| Консоль MinIO | http://localhost:9001 |
+| Консоль MinIO | http://localhost:9873 |
 
 Порт сайта настраивается через `NGINX_PORT` в `.env`, по умолчанию `8080`.
 Открывайте сайт по этому адресу; порт `5173` относится только к необязательному
@@ -240,3 +240,6 @@ uv run uvicorn dvizh_backend.main:app --reload --port 8000
 ```
 
 Добавление зависимости: `uv add package-name`.
+
+
+HTTP works without certificates. HTTPS is enabled automatically when certificates are present; see [HTTPS setup](nginx/HTTPS.md).

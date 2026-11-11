@@ -74,6 +74,41 @@ async def event(http: httpx.AsyncClient, owner: str, **fields: object) -> dict:
     return response.json()
 
 
+@pytest.mark.parametrize("event_format", ["OFFLINE", "HYBRID"])
+def test_address_only_location_round_trip(event_format: str) -> None:
+    async def scenario() -> None:
+        async with client() as (http, _database):
+            owner = await user(http)
+            online_url = "https://example.org/live" if event_format == "HYBRID" else None
+            card = await event(
+                http, owner, format=event_format, online_url=online_url,
+                location={"address_line": "Main street, 10"},
+            )
+            assert card["location"]["latitude"] is None
+            assert card["location"]["longitude"] is None
+            response = await http.get(f"/api/events/{card['id']}?viewer_id={owner}")
+            assert response.status_code == 200, response.text
+            assert response.json()["location"]["address_line"] == "Main street, 10"
+            for location in (
+                {"address_line": "Map point", "latitude": "55.75", "longitude": "37.61"},
+                {"address_line": "Another street, 20"},
+            ):
+                response = await http.put(
+                    f"/api/events/{card['id']}?actor_id={owner}",
+                    json={
+                        "title": card["title"], "starts_at": card["starts_at"],
+                        "format": event_format, "online_url": online_url, "location": location,
+                    },
+                )
+                assert response.status_code == 200, response.text
+            saved = response.json()["location"]
+            assert saved["address_line"] == "Another street, 20"
+            assert saved["latitude"] is None
+            assert saved["longitude"] is None
+
+    asyncio.run(scenario())
+
+
 async def invite(http: httpx.AsyncClient, event_id: str, owner: str, recipient: str) -> str:
     response = await http.post(
         f"/api/events/{event_id}/invitations",

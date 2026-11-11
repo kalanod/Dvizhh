@@ -18,8 +18,8 @@ export interface EventLocation {
     name: string | null;
     city: string | null;
     address_line: string | null;
-    latitude: string;
-    longitude: string;
+    latitude: string | null;
+    longitude: string | null;
 }
 
 /** Событие в формате EventDTO backend-а. */
@@ -59,8 +59,8 @@ export interface EventLocationInput {
     name: string | null;
     city: string | null;
     address_line: string | null;
-    latitude: string;
-    longitude: string;
+    latitude: string | null;
+    longitude: string | null;
 }
 
 /** Тело PUT /api/events/{id} (UpdateEventDTO). */

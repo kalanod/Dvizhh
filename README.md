@@ -6,9 +6,10 @@
 docker compose up --build
 ```
 
-Сайт: **http://localhost:8080**. Сборка React, подготовка БД, миграции и создание
-bucket выполняются внутри Compose. Node.js, npm и Python на хосте не нужны.
-`.env` необязателен для локального запуска; настройки по умолчанию заданы в Compose.
+Сайт: **http://localhost:8080**. 
+
+Для карты места события и подсказок адреса заполните ключи Яндекса в `.env`:
+[подключение Яндекс Карт](docs/yandex-maps.md). Дальше используется та же команда запуска.
 
 API изображений, черновиков и уведомлений: [MEDIA_LIFECYCLE_API.md](backend/MEDIA_LIFECYCLE_API.md).
 
@@ -102,3 +103,6 @@ backend и хранилища доступны только внутри сет�
 
 Как запустить проект в Docker, открыть Swagger и работать с сервисами локально,
 описано в [RUNNING.md](RUNNING.md).
+
+
+HTTP works without certificates. HTTPS is enabled automatically when certificates are present; see [HTTPS setup](nginx/HTTPS.md).

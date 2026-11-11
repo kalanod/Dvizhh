@@ -56,6 +56,7 @@ def database_settings() -> Settings:
     return Settings(
         source_database_url=SOURCE_URL,
         vector_database_url=VECTOR_URL,
+        redis_url="redis://redis.invalid/0",
         database_timeout_seconds=0.02,
         _env_file=None,
     )
@@ -115,6 +116,7 @@ def test_unresponsive_database_connection_has_bounded_startup(
         asyncio.run(run())
 
     assert source.close_called
+
 
 @pytest.mark.parametrize("failed_database", ["source", "vector"])
 def test_health_check_failure_closes_pools(
