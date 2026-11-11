@@ -37,6 +37,7 @@ export interface InvitationCard {
 
 /** Тело POST /api/events/{id}/invitations. */
 export interface CreateInvitationInput {
+    expires_at?: string | null;
     actor_id: string;
     invitee_id: string;
     message: string | null;

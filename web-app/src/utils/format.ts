@@ -154,14 +154,34 @@ export const formatGoing = (count: number) => (count === 0 ? "Пока никт�
 export const formatSeats = (count: number) => `${count} ${plural(count, "место", "места", "мест")}`;
 
 /** ISO-время → значение для <input type="datetime-local"> в часовом поясе браузера. */
-export const toDateTimeLocal = (iso: string | null) => {
+export const toDateTimeLocal = (iso: string | null, timeZone?: string) => {
     if (!iso) return "";
     const date = new Date(iso);
-    const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
-    return local.toISOString().slice(0, 16);
+    if (!timeZone) {
+        const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
+        return local.toISOString().slice(0, 16);
+    }
+    const parts = new Intl.DateTimeFormat("en-GB", {
+        timeZone, year: "numeric", month: "2-digit", day: "2-digit",
+        hour: "2-digit", minute: "2-digit", hourCycle: "h23",
+    }).formatToParts(date);
+    const value = (type: string) => parts.find((part) => part.type === type)!.value;
+    return `${value("year")}-${value("month")}-${value("day")}T${value("hour")}:${value("minute")}`;
 };
 
-/** Значение <input type="datetime-local"> → ISO с часовым поясом. */
-export const fromDateTimeLocal = (value: string) => (value ? new Date(value).toISOString() : null);
+/** Interpret wall-clock input in the selected IANA zone; reject DST gaps. */
+export const fromDateTimeLocal = (value: string, timeZone?: string): string | null => {
+    if (!value) return null;
+    if (!timeZone) return new Date(value).toISOString();
+    const wall = Date.parse(`${value}:00Z`);
+    let instant = wall;
+    for (let i = 0; i < 4; i++) {
+        const displayed = toDateTimeLocal(new Date(instant).toISOString(), timeZone);
+        const delta = wall - Date.parse(`${displayed}:00Z`);
+        if (delta === 0) return new Date(instant).toISOString();
+        instant += delta;
+    }
+    throw new Error("В выбранном часовом поясе это время не существует.");
+};
 
 export const browserTimeZone = () => Intl.DateTimeFormat().resolvedOptions().timeZone || "Europe/Moscow";

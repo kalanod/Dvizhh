@@ -13,9 +13,10 @@ interface EventFormProps {
     title: string;
     submitLabel: string;
     initial?: EventFormState;
+    allowDraft?: boolean;
     userId: string;
     initialCoverUrl?: string | null;
-    onSubmit: (input: EventInput, cover: EventCoverChange) => Promise<void>;
+    onSubmit: (input: EventInput, cover: EventCoverChange, publish: boolean) => Promise<void>;
     onCancel: () => void;
 }
 
@@ -26,7 +27,7 @@ const Section = ({ title, children }: { title: string; children: ReactNode }) =>
     </fieldset>
 );
 
-export const EventForm = ({ title, submitLabel, initial, userId, initialCoverUrl, onSubmit, onCancel }: EventFormProps) => {
+export const EventForm = ({ title, submitLabel, initial, allowDraft, userId, initialCoverUrl, onSubmit, onCancel }: EventFormProps) => {
     const [form, setForm] = useState<EventFormState>(() => initial ?? emptyForm());
     const [error, setError] = useState<string | null>(null);
     const [submitting, setSubmitting] = useState(false);
@@ -49,7 +50,8 @@ export const EventForm = ({ title, submitLabel, initial, userId, initialCoverUrl
         setSubmitting(true);
         setError(null);
         try {
-            await onSubmit(formToInput(form), cover);
+            const publish = (e.nativeEvent as SubmitEvent).submitter?.getAttribute("data-action") !== "draft";
+            await onSubmit(formToInput(form), cover, publish);
         } catch (err) {
             setError(errorText(err));
             setSubmitting(false);
@@ -114,7 +116,9 @@ export const EventForm = ({ title, submitLabel, initial, userId, initialCoverUrl
                     </FormField>
                 </div>
                 <Toggle label="Весь день" checked={form.isAllDay} onChange={set("isAllDay")} />
-                <span className="text-small font-medium text-textsecondary">Часовой пояс: {form.timezone}</span>
+                <FormField label="Часовой пояс IANA" htmlFor="timezone" hint="Например, Europe/Moscow или Asia/Tokyo">
+                    <Input id="timezone" value={form.timezone} onChange={set("timezone")} />
+                </FormField>
             </Section>
 
             <Section title="Где">
@@ -148,11 +152,14 @@ export const EventForm = ({ title, submitLabel, initial, userId, initialCoverUrl
             </Section>
 
             <Section title="Участие">
+                <FormField label="Валюта" htmlFor="currency" hint="Трёхбуквенный код: RUB, USD, EUR">
+                    <Input id="currency" maxLength={3} value={form.currency} onChange={(value) => set("currency")(value.toUpperCase())} />
+                </FormField>
                 <div className="grid gap-4 sm:grid-cols-3">
-                    <FormField label="Цена от, ₽" htmlFor="price-min" hint="Пусто или 0 — бесплатно">
+                    <FormField label="Цена от" htmlFor="price-min" hint="Пусто или 0 — бесплатно">
                         <Input id="price-min" type="number" min={0} inputMode="decimal" value={form.priceMin} onChange={set("priceMin")} />
                     </FormField>
-                    <FormField label="Цена до, ₽" htmlFor="price-max">
+                    <FormField label="Цена до" htmlFor="price-max">
                         <Input
                             id="price-max"
                             type="number"
@@ -202,6 +209,7 @@ export const EventForm = ({ title, submitLabel, initial, userId, initialCoverUrl
                 <Button state="hover1" onClick={onCancel}>
                     Отмена
                 </Button>
+                {allowDraft && <Button type="submit" action="draft" state="hover2" disabled={submitting || Boolean(coverError)}>Сохранить черновик</Button>}
                 <Button type="submit" state="fixed1" disabled={submitting || Boolean(coverError)}>
                     {submitting ? "Сохраняем событие и обложку…" : submitLabel}
                 </Button>

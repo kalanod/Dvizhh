@@ -317,3 +317,17 @@ def test_user_create_body_follows_profile_rules() -> None:
 
 def test_validation_errors_inside_the_server_are_not_reported_as_client_errors() -> None:
     assert ValidationError not in app.exception_handlers
+
+
+def test_sent_invitations_are_not_disclosed_to_non_managers() -> None:
+    from dvizh_backend.database.services.exceptions import PermissionDeniedError
+
+    async def scenario() -> None:
+        service = make_event_service()
+        service.events._require_manager = AsyncMock(side_effect=PermissionDeniedError("Denied"))
+        service.session.scalars = AsyncMock()
+        with pytest.raises(PermissionDeniedError):
+            await service.list_event_invitations(EVENT_ID, USER_ID)
+        service.session.scalars.assert_not_awaited()
+
+    asyncio.run(scenario())

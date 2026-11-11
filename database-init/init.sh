@@ -11,6 +11,14 @@ export PGPASSWORD="$POSTGRES_PASSWORD"
 echo "Preparing recommendation reader permissions..."
 sh /opt/dvizh/init-recsys-reader.sh
 
+echo "Preparing authentication database..."
+psql -X --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" \
+    --set ON_ERROR_STOP=1 <<'SQL'
+SELECT 'CREATE DATABASE dvizh_auth'
+WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'dvizh_auth')
+\gexec
+SQL
+
 echo "Preparing vector database schema..."
 PGHOST=pgvector PGPASSWORD="$VECTOR_PASSWORD" psql -X \
     --username "$VECTOR_USER" --dbname "$VECTOR_DB" \

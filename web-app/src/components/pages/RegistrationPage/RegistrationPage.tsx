@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { createUser, errorText } from "../../../api";
+import { ApiError, createUser, errorText, registerAccount, loginAccount, getAccount, getUser } from "../../../api";
 import { useCurrentUser } from "../../../hooks";
 import { AuthLayout } from "../../layouts";
 import { Button, FormField, Input, Notice, Textarea } from "../../ui";
@@ -12,6 +12,9 @@ export const RegistrationPage = () => {
     const [searchParams] = useSearchParams();
     const { signIn } = useCurrentUser();
     const [formData, setFormData] = useState({ username: "", displayName: "", city: "", bio: "" });
+    const [email, setEmail] = useState("");
+    const [password, setPassword] = useState("");
+    const [confirmation, setConfirmation] = useState("");
     const [error, setError] = useState<string | null>(null);
     const [submitting, setSubmitting] = useState(false);
 
@@ -27,15 +30,36 @@ export const RegistrationPage = () => {
             setError("Заполните никнейм и имя.");
             return;
         }
+        if (password !== confirmation) {
+            setError("Пароли не совпадают.");
+            return;
+        }
         setSubmitting(true);
         setError(null);
         try {
-            const profile = await createUser({
-                username: formData.username,
-                display_name: formData.displayName.trim(),
-                city: formData.city.trim() || null,
-                bio: formData.bio.trim() || null,
-            });
+            const credentials = { email: email.trim(), password };
+            let account;
+            try {
+                account = await registerAccount(credentials);
+            } catch (error) {
+                if (!(error instanceof ApiError) || error.status !== 409) throw error;
+                // Retry profile creation after a previous partial registration.
+            }
+            await loginAccount(credentials);
+            account = account ?? await getAccount();
+            let profile;
+            try {
+                profile = await getUser(account.id);
+            } catch (error) {
+                if (!(error instanceof ApiError) || error.status !== 404) throw error;
+                profile = await createUser({
+                    id: account.id,
+                    username: formData.username,
+                    display_name: formData.displayName.trim(),
+                    city: formData.city.trim() || null,
+                    bio: formData.bio.trim() || null,
+                });
+            }
             signIn(profile);
             navigate(next && next !== "/" ? next : "/profile", { replace: true });
         } catch (err) {
@@ -47,10 +71,24 @@ export const RegistrationPage = () => {
 
     return (
         <AuthLayout title="Регистрация">
-            <form className="flex w-full flex-col items-start gap-2.5" onSubmit={handleSubmit} noValidate>
-                <FormField label="Никнейм" htmlFor="username" hint="Строчные латинские буквы, цифры и «_», от 3 символов">
+            <form className="flex w-full flex-col items-start gap-2.5" onSubmit={handleSubmit}>
+                <FormField label="Email" htmlFor="email" required>
+                    <Input id="email" name="email" type="email" autoComplete="username" required
+                        maxLength={254} placeholder="you@example.com" value={email} onChange={setEmail} />
+                </FormField>
+                <FormField label="Пароль" htmlFor="password" hint="От 8 до 128 символов" required>
+                    <Input id="password" name="password" type="password" autoComplete="new-password"
+                        required minLength={8} maxLength={128} value={password} onChange={setPassword} />
+                </FormField>
+                <FormField label="Повторите пароль" htmlFor="password-confirmation" required>
+                    <Input id="password-confirmation" name="password-confirmation" type="password"
+                        autoComplete="new-password" required minLength={8} maxLength={128}
+                        value={confirmation} onChange={setConfirmation} />
+                </FormField>
+                <FormField label="Никнейм" htmlFor="username" hint="Строчные латинские буквы, цифры и «_», от 3 символов" required>
                     <Input
                         id="username"
+                        required
                         placeholder="example"
                         autoComplete="username"
                         value={formData.username}
@@ -58,9 +96,10 @@ export const RegistrationPage = () => {
                         onChange={(value) => handleChange("username")(value.toLowerCase())}
                     />
                 </FormField>
-                <FormField label="Имя" htmlFor="display-name">
+                <FormField label="Имя" htmlFor="display-name" required>
                     <Input
                         id="display-name"
+                        required
                         placeholder="Как вас называть"
                         autoComplete="name"
                         maxLength={120}

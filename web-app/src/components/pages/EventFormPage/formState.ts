@@ -18,6 +18,7 @@ export interface EventFormState {
     longitude: string;
     onlineUrl: string;
     registrationUrl: string;
+    currency: string;
     priceMin: string;
     priceMax: string;
     capacity: string;
@@ -41,6 +42,7 @@ export const emptyForm = (): EventFormState => ({
     longitude: "",
     onlineUrl: "",
     registrationUrl: "",
+    currency: "RUB",
     priceMin: "",
     priceMax: "",
     capacity: "",
@@ -52,8 +54,8 @@ export const formFromEvent = (event: DvizhEvent): EventFormState => ({
     title: event.title,
     description: event.description,
     tags: event.tags.join(", "),
-    startsAt: toDateTimeLocal(event.starts_at),
-    endsAt: toDateTimeLocal(event.ends_at),
+    startsAt: toDateTimeLocal(event.starts_at, event.timezone),
+    endsAt: toDateTimeLocal(event.ends_at, event.timezone),
     isAllDay: event.is_all_day,
     timezone: event.timezone,
     format: event.format,
@@ -64,6 +66,7 @@ export const formFromEvent = (event: DvizhEvent): EventFormState => ({
     longitude: event.location?.longitude ?? "",
     onlineUrl: event.online_url ?? "",
     registrationUrl: event.registration_url ?? "",
+    currency: event.currency ?? "RUB",
     priceMin: event.price_min ?? "",
     priceMax: event.price_max ?? "",
     capacity: event.capacity?.toString() ?? "",
@@ -86,6 +89,12 @@ const money = (value: string) => {
 
 /** Проверки, которые удобнее показать до отправки; остальное валидирует backend. */
 export const validateForm = (form: EventFormState): string | null => {
+    if (!/^[A-Z]{3}$/.test(form.currency)) return "Укажите трёхбуквенный код валюты.";
+    try {
+        new Intl.DateTimeFormat("en", { timeZone: form.timezone }).format();
+        fromDateTimeLocal(form.startsAt, form.timezone);
+        fromDateTimeLocal(form.endsAt, form.timezone);
+    } catch { return "Проверьте часовой пояс и время: выбранное время может не существовать при переходе на летнее время."; }
     if (!form.title.trim()) return "Укажите название.";
     if (!form.startsAt) return "Укажите, когда начинается событие.";
     if (form.endsAt && form.endsAt <= form.startsAt) return "Окончание должно быть позже начала.";
@@ -108,8 +117,8 @@ export const formToInput = (form: EventFormState): EventInput => {
             .split(",")
             .map((tag) => tag.trim().replace(/^#/, ""))
             .filter(Boolean),
-        starts_at: fromDateTimeLocal(form.startsAt) ?? "",
-        ends_at: fromDateTimeLocal(form.endsAt),
+        starts_at: fromDateTimeLocal(form.startsAt, form.timezone) ?? "",
+        ends_at: fromDateTimeLocal(form.endsAt, form.timezone),
         timezone: form.timezone,
         is_all_day: form.isAllDay,
         format: form.format,
@@ -127,7 +136,7 @@ export const formToInput = (form: EventFormState): EventInput => {
         registration_url: orNull(form.registrationUrl),
         price_min: priceMin,
         price_max: priceMin ? money(form.priceMax) : null,
-        currency: "RUB",
+        currency: form.currency,
         capacity: capacity !== null && Number.isFinite(capacity) ? capacity : null,
         visibility: form.visibility,
         join_policy: form.joinPolicy,

@@ -46,10 +46,11 @@ const CreateEvent = ({ userId }: { userId: string }) => {
         <EventForm
             title="Новый движ"
             submitLabel="Опубликовать"
+            allowDraft
             userId={userId}
             onCancel={() => navigate(-1)}
-            onSubmit={async (input, cover) => {
-                const event = await save(input, cover);
+            onSubmit={async (input, cover, publish) => {
+                const event = await save(input, cover, publish);
                 navigate(`/events/${event.id}`, { replace: true });
             }}
         />

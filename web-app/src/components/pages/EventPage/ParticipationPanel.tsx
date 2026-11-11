@@ -1,9 +1,9 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { errorText, joinEvent, leaveEvent, listInvitations, respondToInvitation, reviewParticipation } from "../../../api";
+import { errorText, joinEvent, leaveEvent, findEventInvitation, respondToInvitation, reviewParticipation } from "../../../api";
 import { notifyInboxChanged, useAsync, useCurrentUser } from "../../../hooks";
 import type { DvizhEvent, Participant } from "../../../models";
-import { Button, Notice } from "../../ui";
+import { Button, Input, Notice } from "../../ui";
 import { PeopleList } from "../../widgets";
 import { formatGoing, formatSeats, PARTICIPATION_LABELS, seatsLeft } from "../../../utils/format";
 
@@ -25,12 +25,13 @@ export const ParticipationPanel = ({
 }: ParticipationPanelProps) => {
     const navigate = useNavigate();
     const { userId } = useCurrentUser();
+    const [reasons, setReasons] = useState<Record<string, string>>({});
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [message, setMessage] = useState<string | null>(null);
     // Отдельного GET приглашения на событие нет: ищем его среди действующих входящих.
     const invitationsState = useAsync(
-        (signal) => (userId ? listInvitations(userId, { limit: 100, signal }) : Promise.resolve([])),
+        (signal) => (userId ? findEventInvitation(userId, event.id, signal) : Promise.resolve([])),
         `${userId}:${event.id}`,
     );
     const invitation = invitationsState.data?.find((card) => card.event.id === event.id)?.invitation;
@@ -175,6 +176,7 @@ export const ParticipationPanel = ({
                             user,
                             actions: (
                                 <>
+                                    <Input aria-label={`Причина отказа для ${user.display_name}`} placeholder="Причина отказа (необязательно)" maxLength={500} value={reasons[user.id] ?? ""} onChange={(value) => setReasons((previous) => ({ ...previous, [user.id]: value }))} />
                                     <Button
                                         state="hover2"
                                         className="!h-[30px] !px-4"
@@ -190,7 +192,7 @@ export const ParticipationPanel = ({
                                         className="!h-[30px] !px-4"
                                         disabled={busy}
                                         onClick={() =>
-                                            userId && run(() => reviewParticipation(event.id, user.id, userId, false), "Заявка отклонена.")
+                                            userId && run(() => reviewParticipation(event.id, user.id, userId, false, reasons[user.id]?.trim() || undefined), "Заявка отклонена.")
                                         }
                                     >
                                         Отклонить

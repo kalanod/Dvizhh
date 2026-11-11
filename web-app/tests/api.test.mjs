@@ -12,7 +12,24 @@ const testRoot = fileURLToPath(new URL("../node_modules/.tmp/", import.meta.url)
 mkdirSync(testRoot, { recursive: true });
 const output = mkdtempSync(join(testRoot, "dvizh-api-test-"));
 writeFileSync(join(output, "package.json"), '{"type":"commonjs"}');
-for (const name of ["api/client", "api/personal", "api/events", "api/media", "api/eventCover", "api/profileImage", "api/maps", "utils/media", "utils/format", "utils/yandexMaps", "utils/geolocation", "components/pages/EventFormPage/formState", "components/widgets/EventCard/EventCoverMicro", "components/ui/Avatar/Avatar"]) {
+for (const name of [
+    "components/ui/Button/Button",
+    "components/pages/EventFormPage/formState",
+    "api/paging",
+    "api/client",
+    "api/personal",
+    "api/events",
+    "api/media",
+    "api/eventCover",
+    "api/profileImage",
+    "utils/media",
+    "utils/format",
+    "components/widgets/EventCard/EventCoverMicro",
+    "components/ui/Avatar/Avatar",
+    "api/maps",
+    "utils/yandexMaps",
+    "utils/geolocation",
+]) {
     const extension = name.startsWith("components/") && !name.endsWith("formState") ? "tsx" : "ts";
     const source = readFileSync(new URL(`../src/${name}.${extension}`, import.meta.url), "utf8");
     const { outputText } = ts.transpileModule(source, {
@@ -224,7 +241,8 @@ test("event details and feed carry viewer_id; anonymous requests omit it", async
     const state = { is_favorite: true, is_dismissed: false, participation_status: "GOING" };
     t.mock.method(globalThis, "fetch", async (url) => {
         urls.push(url);
-        return Response.json({ cover_url: "/api/media/cover-1/content", personal_state: state });
+        const event = { cover_url: "/api/media/cover-1/content", personal_state: state };
+        return Response.json(url.pathname === "/api/events" ? [event] : event);
     });
     const event = await api.getEvent("draft-1", "viewer-1");
     await api.listEvents({ viewerId: "viewer-1", friendsOf: "friend-1", limit: 20 });
@@ -551,4 +569,72 @@ test("aborted request is rethrown as AbortError, not a network error", async (t)
     controller.abort();
     await assert.rejects(api.getEvent("event-1", null, controller.signal), (error) =>
         !(error instanceof ApiError) && error.name === "AbortError");
+});
+
+
+test("draft save does not publish, retry can publish the same draft", async (t) => {
+    const calls = recordFetch(t, (url) => Response.json({ id: "draft-1", status: url.pathname.endsWith("/publish") ? "PUBLISHED" : "DRAFT" }));
+    const save = createEventSaver("owner-1");
+    const draft = await save({ title: "Draft" }, { kind: "keep" }, false);
+    assert.equal(draft.status, "DRAFT");
+    assert.deepEqual(calls.map(({ url }) => url.pathname), ["/api/events/drafts"]);
+    await save({ title: "Final" }, { kind: "keep" }, true);
+    assert.deepEqual(calls.map(({ url }) => url.pathname), ["/api/events/drafts", "/api/events/draft-1", "/api/events/draft-1/publish"]);
+});
+
+test("lists cross the 100 record boundary with bounded pages", async (t) => {
+    const calls = recordFetch(t, (url) => {
+        const offset = Number(url.searchParams.get("offset"));
+        const limit = Number(url.searchParams.get("limit"));
+        return Response.json(Array.from({ length: Math.min(limit, Math.max(0, 125 - offset)) }, (_, i) => ({ id: offset + i })));
+    });
+    for (const load of [() => api.listEvents({ limit: 140 }), () => personal.listFavorites("user-1", { limit: 140 })]) {
+        const items = await load();
+        assert.equal(items.length, 125);
+        assert.equal(items.at(-1).id, 124);
+    }
+    assert.deepEqual(calls.map(({ url }) => [url.searchParams.get("offset"), url.searchParams.get("limit")]), [["0", "100"], ["100", "40"], ["0", "100"], ["100", "40"]]);
+});
+
+test("invitation expiry, revocation, sent list and rejection reason follow the API contract", async (t) => {
+    const calls = recordFetch(t, () => Response.json([]));
+    await api.inviteToEvent("event-1", { actor_id: "owner-1", invitee_id: "stranger-1", message: "Hello", expires_at: "2030-01-01T00:00:00Z" });
+    await personal.listEventInvitations("event-1", "owner-1", { offset: 100, limit: 20 });
+    await personal.revokeInvitation("inv-1", "owner-1");
+    await api.reviewParticipation("event-1", "user-1", "owner-1", false, "No places");
+    assert.equal(JSON.parse(calls[0].body).expires_at, "2030-01-01T00:00:00Z");
+    assert.equal(calls[1].url.searchParams.get("actor_id"), "owner-1");
+    assert.equal(calls[1].url.searchParams.get("offset"), "100");
+    assert.equal(calls[2].options.method, "DELETE");
+    assert.equal(calls[2].url.searchParams.get("actor_id"), "owner-1");
+    assert.equal(JSON.parse(calls[3].body).reason, "No places");
+});
+
+test("event wall times use the selected zone and reject DST gaps", () => {
+    const { fromDateTimeLocal, toDateTimeLocal } = require(join(output, "utils/format.js"));
+    assert.equal(fromDateTimeLocal("2030-01-01T12:00", "Asia/Tokyo"), "2030-01-01T03:00:00.000Z");
+    assert.equal(toDateTimeLocal("2030-01-01T03:00:00Z", "Asia/Tokyo"), "2030-01-01T12:00");
+    assert.equal(fromDateTimeLocal("2026-07-01T12:00", "America/New_York"), "2026-07-01T16:00:00.000Z");
+    assert.throws(() => fromDateTimeLocal("2026-03-08T02:30", "America/New_York"));
+});
+
+
+test("event edits preserve currency and local time in a different zone", () => {
+    const { emptyForm, formToInput, formFromEvent, validateForm } = require(join(output, "components/pages/EventFormPage/formState.js"));
+    const original = { ...formToInput({ ...emptyForm(), title: "Tokyo", address: "Tokyo, Shibuya", startsAt: "2030-01-01T12:00", timezone: "Asia/Tokyo", currency: "JPY", priceMin: "500" }), price_type: "PAID" };
+    const form = formFromEvent(original);
+    assert.equal(form.startsAt, "2030-01-01T12:00");
+    assert.equal(form.currency, "JPY");
+    assert.equal(validateForm(form), null);
+    assert.equal(formToInput(form).currency, "JPY");
+    assert.equal(formToInput(form).starts_at, original.starts_at);
+    assert.notEqual(validateForm({ ...form, timezone: "Invalid/Zone" }), null);
+    assert.notEqual(validateForm({ ...form, currency: "XX" }), null);
+});
+
+test("draft submit button passes its action to the native button", () => {
+    const { Button } = require(join(output, "components/ui/Button/Button.js"));
+    const html = renderToStaticMarkup(createElement(Button, { type: "submit", action: "draft" }, "Save draft"));
+    assert.match(html, /data-action="draft"/);
+    assert.match(html, /type="submit"/);
 });

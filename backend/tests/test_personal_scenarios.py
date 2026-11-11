@@ -413,3 +413,27 @@ def test_expired_declined_revoked_and_manager_invitations() -> None:
             ).status_code == 409
 
     asyncio.run(scenario())
+
+
+def test_organizer_can_list_and_revoke_sent_invitations_after_reload() -> None:
+    async def scenario() -> None:
+        async with client() as (http, _):
+            owner, recipient = await user(http), await user(http)
+            card = await event(http, owner)
+            invitation_id = await invite(http, card["id"], owner, recipient)
+            path = f"/api/events/{card['id']}/invitations"
+            denied = await http.get(path, params={"actor_id": recipient})
+            assert denied.status_code == 403
+            listed = await http.get(path, params={"actor_id": owner, "limit": 1})
+            assert listed.status_code == 200, listed.text
+            assert listed.json()[0]["id"] == invitation_id
+            assert (await http.get(path, params={"actor_id": owner, "offset": 1})).json() == []
+            revoked = await http.delete(
+                f"/api/invitations/{invitation_id}", params={"actor_id": owner}
+            )
+            assert revoked.status_code == 200, revoked.text
+            refreshed = await http.get(path, params={"actor_id": owner})
+            assert refreshed.json()[0]["status"] == "REVOKED"
+            assert (await http.get(f"/api/users/{recipient}/invitations")).json() == []
+
+    asyncio.run(scenario())

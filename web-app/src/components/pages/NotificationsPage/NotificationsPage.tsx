@@ -19,7 +19,6 @@ import { EventCard, LoginRequired } from "../../widgets";
 import { formatAgo, formatChangedFields, formatEventDate } from "../../../utils/format";
 
 const PAGE_SIZE = 20;
-const MAX_LIMIT = 100;
 
 export const NotificationsPage = () => {
     const { userId, loading } = useCurrentUser();
@@ -75,7 +74,8 @@ const useAction = (onDone: () => void) => {
 };
 
 const InvitationsBlock = ({ userId }: { userId: string }) => {
-    const state = useAsync((signal) => listInvitations(userId, { limit: MAX_LIMIT, signal }), userId);
+    const [limit, setLimit] = useState(PAGE_SIZE);
+    const state = useAsync((signal) => listInvitations(userId, { limit, signal }), `${userId}:${limit}`);
     const { busy, error, run } = useAction(state.reload);
     const invitations = state.data ?? [];
 
@@ -87,6 +87,7 @@ const InvitationsBlock = ({ userId }: { userId: string }) => {
             {!state.loading && !state.error && invitations.length === 0 && (
                 <p className="text-body text-textsecondary">Новых приглашений нет.</p>
             )}
+            {invitations.length >= limit && <Button disabled={state.loading} onClick={() => setLimit((value) => value + PAGE_SIZE)}>Показать ещё приглашения</Button>}
             {invitations.map((card) => (
                 <InvitationRow
                     key={card.invitation.id}
@@ -129,8 +130,10 @@ const InvitationRow = ({ card, busy, onRespond }: { card: InvitationCard; busy: 
 
 const FriendRequestsBlock = ({ userId }: { userId: string }) => {
     const navigate = useNavigate();
-    const incoming = useAsync((signal) => listFriendRequests(userId, "incoming", { limit: MAX_LIMIT, signal }), `${userId}:in`);
-    const outgoing = useAsync((signal) => listFriendRequests(userId, "outgoing", { limit: MAX_LIMIT, signal }), `${userId}:out`);
+    const [incomingLimit, setIncomingLimit] = useState(PAGE_SIZE);
+    const [outgoingLimit, setOutgoingLimit] = useState(PAGE_SIZE);
+    const incoming = useAsync((signal) => listFriendRequests(userId, "incoming", { limit: incomingLimit, signal }), `${userId}:in:${incomingLimit}`);
+    const outgoing = useAsync((signal) => listFriendRequests(userId, "outgoing", { limit: outgoingLimit, signal }), `${userId}:out:${outgoingLimit}`);
     const { busy, error, run } = useAction(() => {
         incoming.reload();
         outgoing.reload();
@@ -146,6 +149,9 @@ const FriendRequestsBlock = ({ userId }: { userId: string }) => {
             {!incoming.loading && !incoming.error && requests.length === 0 && (
                 <p className="text-body text-textsecondary">Новых заявок нет.</p>
             )}
+            {requests.length >= incomingLimit && <Button disabled={incoming.loading} onClick={() => setIncomingLimit((value) => value + PAGE_SIZE)}>Показать ещё входящие заявки</Button>}
+            {sent.length >= outgoingLimit && <Button disabled={outgoing.loading} onClick={() => setOutgoingLimit((value) => value + PAGE_SIZE)}>Показать ещё исходящие заявки</Button>}
+            {outgoing.error !== undefined && <Notice tone="error">{errorText(outgoing.error)}</Notice>}
             {requests.map(({ user, friendship }) => (
                 <PersonRow
                     key={user.id}
@@ -223,7 +229,7 @@ const EventNotificationsBlock = ({ userId }: { userId: string }) => {
     const { busy, error, run } = useAction(state.reload);
     const notifications = state.data ?? [];
     const unread = notifications.filter((item) => !item.read_at);
-    const hasMore = notifications.length >= limit && limit < MAX_LIMIT;
+    const hasMore = notifications.length >= limit;
 
     const open = async (item: DvizhNotification) => {
         if (!item.read_at) {
@@ -254,7 +260,7 @@ const EventNotificationsBlock = ({ userId }: { userId: string }) => {
                     </Button>
                     {unread.length > 0 && (
                         <Button state="hover2" className="!h-[30px] !px-4" disabled={busy} onClick={markAll}>
-                            Прочитать все
+                            Прочитать загруженные
                         </Button>
                     )}
                 </div>
@@ -273,7 +279,7 @@ const EventNotificationsBlock = ({ userId }: { userId: string }) => {
             ))}
             {state.loading && <span className="text-body text-textsecondary">Загрузка...</span>}
             {hasMore && !state.loading && (
-                <Button state="hover1" className="self-center" onClick={() => setLimit((value) => Math.min(value + PAGE_SIZE, MAX_LIMIT))}>
+                <Button state="hover1" className="self-center" onClick={() => setLimit((value) => value + PAGE_SIZE)}>
                     Показать ещё
                 </Button>
             )}

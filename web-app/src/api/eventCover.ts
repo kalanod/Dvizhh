@@ -9,7 +9,7 @@ export function createEventSaver(actorId: string, existingEventId?: string) {
     let eventId = existingEventId;
     let uploaded: { file: File; id: string } | undefined;
 
-    return async (input: EventInput, cover: EventCoverChange) => {
+    return async (input: EventInput, cover: EventCoverChange, publish = true) => {
         let event = eventId
             ? await updateEvent(eventId, input, actorId)
             : await createDraftEvent({ ...input, organizer_id: actorId });
@@ -30,6 +30,6 @@ export function createEventSaver(actorId: string, existingEventId?: string) {
                 : "Событие пока не опубликовано: не удалось сохранить обложку.";
             throw new Error(`${state} ${errorText(error)} Повторите сохранение.`);
         }
-        return existingEventId ? event : publishEvent(eventId, actorId);
+        return existingEventId || !publish ? event : publishEvent(eventId, actorId);
     };
 }

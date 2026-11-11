@@ -8,6 +8,7 @@ import { MainLayout } from "../../layouts";
 import { Avatar, Button, Loader, Notice } from "../../ui";
 import { PeopleList } from "../../widgets";
 import { formatJoinedAt } from "../../../utils/format";
+import { ProfileEditor } from "./ProfileEditor";
 import { ProfileAvatarEditor } from "./ProfileAvatarEditor";
 
 /** /profile — свой профиль, /users/:id — профиль другого пользователя. */
@@ -72,10 +73,11 @@ const ProfileDetailsSection = ({ profileId }: { profileId: string }) => {
                                 <Field label="Никнейм">@{profile.username}</Field>
                                 {profile.city && <Field label="Город">{profile.city}</Field>}
                                 {profile.bio && <Field label="О себе">{profile.bio}</Field>}
+                                {isMe && profile.latitude !== null && <Field label="Координаты">{profile.latitude}, {profile.longitude}</Field>}
                                 <Field label="На Движже">с {formatJoinedAt(profile.created_at)}</Field>
-                                {isMe && <ProfileIdField profile={profile} />}
                             </div>
                         </div>
+                        {isMe && me && <ProfileEditor profile={profile} onSaved={updateUser} />}
                         {isMe && me && <ProfileAvatarEditor key={profile.id} profile={profile} onSaved={updateUser} />}
                     </div>
                 )}
@@ -96,33 +98,6 @@ const ProfileDetailsSection = ({ profileId }: { profileId: string }) => {
                     )}
                 </div>
             </section>
-        </div>
-    );
-};
-
-const ProfileIdField = ({ profile }: { profile: Profile }) => {
-    const [copied, setCopied] = useState(false);
-
-    const copy = async () => {
-        try {
-            await navigator.clipboard.writeText(profile.id);
-            setCopied(true);
-        } catch {
-            setCopied(false);
-        }
-    };
-
-    return (
-        <div className="flex flex-col gap-2">
-            <label className="text-buttons text-textsecondary">ID профиля (нужен для входа)</label>
-            <div className="flex flex-wrap items-center gap-2">
-                <code className="min-w-0 rounded-lg border-2 border-secondary bg-primary px-4 py-2 font-mono text-[13px] break-all text-textprimary">
-                    {profile.id}
-                </code>
-                <Button state="fixed2" className="!h-[30px] !px-4" onClick={copy}>
-                    {copied ? "Скопировано" : "Копировать"}
-                </Button>
-            </div>
         </div>
     );
 };

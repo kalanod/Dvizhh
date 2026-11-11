@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     jwt_issuer: str = "dvizh-auth"
     jwt_audience: str = "dvizh-api"
     access_token_ttl_seconds: int = Field(15 * 60, ge=60, le=24 * 3600)
+    access_cookie_secure: bool = False
     refresh_token_ttl_seconds: int = Field(30 * 24 * 3600, ge=3600)
 
     # Refresh-токен живёт в httpOnly-cookie, видимой только ручкам /api/auth.
@@ -27,7 +28,6 @@ class Settings(BaseSettings):
     password_hash_concurrency: int = Field(4, ge=1, le=64)
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
-
 
 
 @lru_cache

@@ -32,6 +32,7 @@ export async function request<T>(path: string, { method = "GET", body, rawBody, 
     try {
         response = await fetch(url, {
             method,
+            credentials: "same-origin",
             signal,
             headers: rawBody !== undefined
                 ? { "Content-Type": "application/octet-stream" }
@@ -63,6 +64,10 @@ function errorMessage(payload: unknown, status: number): string {
     if (status === 415) {
         return "Формат не поддерживается: подойдут JPEG, PNG или WebP.";
     }
+
+    if (detail === "Invalid email or password") return "Неверный email или пароль.";
+    if (detail === "Email is already registered") return "Этот email уже зарегистрирован. Войдите в аккаунт.";
+    if (detail === "Authentication required") return "Войдите в аккаунт, чтобы продолжить.";
 
     if (typeof detail === "string") {
         return status === 502 ? "Backend недоступен. Попробуйте позже." : detail;
