@@ -56,6 +56,7 @@ services:
       MEDIA_MAX_PIXELS: ${MEDIA_MAX_PIXELS:-25000000}
       RECOMMENDATION_URL: http://recommendation-service:8001
       AUTH_URL: http://auth-api:8003
+      JWT_SECRET: "${JWT_SECRET:?Set JWT_SECRET in .env}"
       YANDEX_MAPS_API_KEY: ${YANDEX_MAPS_API_KEY:-}
       YANDEX_SUGGEST_API_KEY: ${YANDEX_SUGGEST_API_KEY:-}
       YANDEX_GEOCODER_API_KEY: ${YANDEX_GEOCODER_API_KEY:-}
@@ -88,6 +89,7 @@ services:
       context: ./auth-api
     environment:
       APP_NAME: Dvizh Auth API
+      JWT_SECRET: "${JWT_SECRET:?Set JWT_SECRET in .env}"
       DATABASE_URL: "postgresql+asyncpg://${POSTGRES_USER:-dvizh_app}:${POSTGRES_PASSWORD:-change-me}@postgres:5432/dvizh_auth"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8003/health')"]
