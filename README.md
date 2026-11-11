@@ -6,9 +6,7 @@
 docker compose up --build
 ```
 
-Сайт: **http://localhost:8080**. Сборка React, подготовка БД, миграции и создание
-bucket выполняются внутри Compose. Node.js, npm и Python на хосте не нужны.
-`.env` необязателен для локального запуска; настройки по умолчанию заданы в Compose.
+Сайт: **http://localhost:8080**. 
 
 API изображений, черновиков и уведомлений: [MEDIA_LIFECYCLE_API.md](backend/MEDIA_LIFECYCLE_API.md).
 
