@@ -132,6 +132,7 @@ export const EventLocationField = ({ value, disabled, onChange }: Props) => {
                     <div className="flex items-start gap-2">
                         <Input
                             id="event-address"
+                            disabled={disabled}
                             role="combobox"
                             aria-autocomplete="list"
                             aria-expanded={items.length > 0}
@@ -190,6 +191,9 @@ export const EventLocationField = ({ value, disabled, onChange }: Props) => {
             <Button disabled={disabled || locating || resolving || !config.data?.api_key} onClick={() => void locate()}>
                 {locating ? "Определяем местоположение…" : "Моё местоположение"}
             </Button>
+            <p className="text-small text-textsecondary">
+                Можно просто указать адрес строкой и сохранить событие. Карта и подсказки необязательны.
+            </p>
             <p className="text-small text-textsecondary">
                 {userPoint ? "Приоритет — места рядом с вами." : selectedPoint ? "Приоритет — места рядом с выбранной точкой." : "Для поиска поблизости нажмите «Моё местоположение». Пока поиск учитывает указанный город."}
             </p>

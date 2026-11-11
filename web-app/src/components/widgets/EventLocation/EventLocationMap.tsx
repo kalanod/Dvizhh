@@ -6,6 +6,7 @@ import { YandexMap } from "./YandexMap";
 
 export const EventLocationMap = ({ location }: { location: EventLocation }) => {
     const config = useAsync(getMapsConfig, "yandex-maps-config");
+    if (location.latitude === null || location.longitude === null) return null;
     if (config.loading) return <p className="text-small text-textsecondary">Загружаем карту…</p>;
     if (config.error || !config.data?.api_key) {
         return <p className="text-small text-textsecondary">{config.error ? errorText(config.error) : "Карта пока недоступна."}</p>;

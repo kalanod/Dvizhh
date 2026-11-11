@@ -74,6 +74,7 @@ export const formFromEvent = (event: DvizhEvent): EventFormState => ({
 const orNull = (value: string) => value.trim() || null;
 
 const coordinate = (value: string) => {
+    if (!value.trim()) return null;
     const number = Number(value.replace(",", "."));
     return Number.isFinite(number) ? number.toFixed(6) : value;
 };
@@ -88,8 +89,8 @@ export const validateForm = (form: EventFormState): string | null => {
     if (!form.title.trim()) return "Укажите название.";
     if (!form.startsAt) return "Укажите, когда начинается событие.";
     if (form.endsAt && form.endsAt <= form.startsAt) return "Окончание должно быть позже начала.";
-    if (form.format !== "ONLINE" && (!form.latitude.trim() || !form.longitude.trim())) {
-        return "Выберите место события на карте или из подсказок адреса.";
+    if (form.format !== "ONLINE" && !form.address.trim() && (!form.latitude.trim() || !form.longitude.trim())) {
+        return "Укажите адрес или выберите место события на карте.";
     }
     if (form.format !== "OFFLINE" && !form.onlineUrl.trim()) return "Добавьте ссылку на трансляцию.";
     if (form.priceMax.trim() && !form.priceMin.trim()) return "Укажите цену «от», если задаёте цену «до».";

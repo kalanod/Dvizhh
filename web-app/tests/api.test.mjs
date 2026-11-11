@@ -81,7 +81,7 @@ test("venue selection preserves latitude and longitude across API, form and map"
     const form = { ...emptyForm(), title: "Встреча", startsAt: "2026-12-01T18:00" };
     assert.equal(form.latitude, "");
     assert.equal(form.longitude, "");
-    assert.match(validateForm(form), /Выберите место/);
+    assert.match(validateForm(form), /Укажите адрес/);
     Object.assign(form, {
         latitude: "59.9390954", longitude: "30.3158682",
         city: "Санкт-Петербург", address: "Невский проспект, 1", placeName: "Вход со двора",
@@ -102,6 +102,36 @@ test("venue selection preserves latitude and longitude across API, form and map"
     assert.equal(formFromEvent(formToInput(form)).latitude, "");
     assert.equal(locationCoordinates("", ""), null);
     assert.equal(locationCoordinates("0", "0")[0], 0);
+});
+
+test("manual addresses remain valid without keys or when Yandex requests fail", async (t) => {
+    const form = {
+        ...emptyForm(), title: "Meeting", startsAt: "2026-12-01T18:00",
+        address: "  Main street, 10  ", city: "Test city",
+    };
+    const assertAddressOnly = () => {
+        assert.equal(validateForm(form), null);
+        const body = formToInput(form);
+        assert.equal(body.location.address_line, "Main street, 10");
+        assert.equal(body.location.latitude, null);
+        assert.equal(body.location.longitude, null);
+        const restored = formFromEvent(body);
+        assert.equal(restored.address, "Main street, 10");
+        assert.equal(restored.latitude, "");
+        assert.equal(restored.longitude, "");
+    };
+    t.mock.method(globalThis, "fetch", async () => Response.json({ api_key: "", search_enabled: false }));
+    assert.equal((await maps.getMapsConfig()).api_key, "");
+    assertAddressOnly();
+    t.mock.method(globalThis, "fetch", async () => Response.json({ detail: "Provider unavailable" }, { status: 503 }));
+    await assert.rejects(maps.suggestAddresses(form.address, form.city));
+    await assert.rejects(maps.geocodeAddress(form.address));
+    assertAddressOnly();
+    form.format = "HYBRID";
+    form.onlineUrl = "https://example.org/live";
+    assertAddressOnly();
+    form.address = "   ";
+    assert.notEqual(validateForm(form), null);
 });
 
 test("address lookup sends the selected Yandex uri and abort signal", async (t) => {
