@@ -235,3 +235,6 @@ uv run uvicorn dvizh_backend.main:app --reload --port 8000
 ```
 
 Добавление зависимости: `uv add package-name`.
+
+
+HTTP works without certificates. HTTPS is enabled automatically when certificates are present; see [HTTPS setup](nginx/HTTPS.md).

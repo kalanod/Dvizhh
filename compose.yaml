@@ -7,7 +7,7 @@ services:
     environment:
       MEDIA_MAX_MIB: ${MEDIA_MAX_MIB:-10}
     ports:
-      - "${NGINX_PORT:-8020}:80"
+      - "${NGINX_PORT:-8080}:80"
       - "${NGINX_HTTPS_PORT:-8021}:443"
     volumes:
       - ./certs:/etc/nginx/certs:ro
