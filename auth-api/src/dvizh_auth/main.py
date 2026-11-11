@@ -1,14 +1,14 @@
 from contextlib import asynccontextmanager
-
-from .config import get_settings
-
+from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
-from fastapi import FastAPI, HTTPException, status
+import jwt
+from fastapi import FastAPI, HTTPException, Response, status
 from pydantic import BaseModel, EmailStr, Field, SecretStr
 
+from .config import get_settings
 from .database import Database, SessionDep
-from .service import register_account
+from .service import authenticate_account, register_account
 
 settings = get_settings()
 
@@ -64,3 +64,48 @@ async def register(
         )
 
     return RegisterResponse(id=account.id, email=account.email)
+
+
+class LoginRequest(BaseModel):
+    email: EmailStr
+    password: SecretStr = Field(max_length=128)
+
+
+@app.post("/api/auth/login", status_code=status.HTTP_204_NO_CONTENT)
+async def login(data: LoginRequest, session: SessionDep) -> Response:
+    account = await authenticate_account(
+        session,
+        email=str(data.email),
+        password=data.password.get_secret_value(),
+    )
+    if account is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid email or password",
+        )
+
+    ttl = settings.access_token_ttl_seconds
+    now = datetime.now(timezone.utc)
+    access_token = jwt.encode(
+        {
+            "sub": str(account.id),
+            "iss": settings.jwt_issuer,
+            "aud": settings.jwt_audience,
+            "iat": now,
+            "exp": now + timedelta(seconds=ttl),
+        },
+        settings.jwt_secret,
+        algorithm=settings.jwt_algorithm,
+    )
+
+    response = Response(status_code=status.HTTP_204_NO_CONTENT)
+    response.set_cookie(
+        key="dvizh_access",
+        value=access_token,
+        max_age=ttl,
+        path="/",
+        httponly=True,
+        secure=settings.access_cookie_secure,
+        samesite="lax",
+    )
+    return response
