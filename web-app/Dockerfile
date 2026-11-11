@@ -12,7 +12,7 @@ COPY . .
 RUN npm run build
 
 # Непривилегированный nginx: отдаёт сборку и проксирует /api в backend.
-FROM nginxinc/nginx-unprivileged:1.27.5-alpine-otel AS runtime
+FROM nginxinc/nginx-unprivileged:1.30.6-alpine-otel AS runtime
 
 USER root
 RUN sed -i '1i load_module modules/ngx_otel_module.so;' /etc/nginx/nginx.conf

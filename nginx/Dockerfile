@@ -1,4 +1,4 @@
-FROM nginx:1.27.5-alpine-otel
+FROM nginx:1.30.6-alpine-otel
 
 RUN sed -i '1i load_module modules/ngx_otel_module.so;' /etc/nginx/nginx.conf
 

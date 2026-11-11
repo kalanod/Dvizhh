@@ -56,7 +56,9 @@ def _request_data(url: str, token: str, request_id: str, hours: int) -> dict:
     failures = [
         record
         for record in logs
-        if record.get("error_type") or record.get("level") in {"ERROR", "CRITICAL"}
+        if record.get("error_type")
+        or record.get("error_reason")
+        or record.get("level") in {"ERROR", "CRITICAL"}
     ]
     trace_ids = list(
         dict.fromkeys(

@@ -61,31 +61,31 @@ def record_dependency(
     request_id = context.get("request_id")
     if not isinstance(request_id, str) or not request_id:
         return
-    if error is None and not context.get("log_dependency_success", True):
+    if error is None and context.get("health_probe"):
         return
 
-    fields.update(dependency=dependency, operation=operation)
     duration = None if started is None else perf_counter() - started
     end_time = time_ns()
-    if duration is not None:
-        fields["duration_ms"] = round(duration * 1000, 3)
 
-    if error is None:
-        level, status, message = logging.INFO, "OK", "Dependency call completed"
-    elif isinstance(error, asyncio.CancelledError):
-        level, status, message = logging.WARNING, "CANCELLED", "Dependency call interrupted"
-    else:
-        level, status, message = logging.ERROR, "ERROR", "Dependency call failed"
-
-    with dependency_span(dependency, operation, duration, request_id, end_time=end_time) as span:
-        if error is not None and status == "ERROR":
-            details = error_fields(error)
-            record_span_error(span, error, fields=details, timestamp=end_time)
-            fields.update(details)
+    with dependency_span(dependency, operation, duration, end_time=end_time) as span:
         for key in ("upstream", "upstream_status"):
             value = fields.get(key)
             if isinstance(value, (str, int)):
                 span.set_attribute(key, value)
+
+        if error is None:
+            return
+
+        fields.update(dependency=dependency, operation=operation)
+        if duration is not None:
+            fields["duration_ms"] = round(duration * 1000, 3)
+        if isinstance(error, asyncio.CancelledError):
+            level, status, message = logging.WARNING, "CANCELLED", "Dependency call interrupted"
+        else:
+            level, status, message = logging.ERROR, "ERROR", "Dependency call failed"
+            details = error_fields(error)
+            record_span_error(span, error, fields=details, timestamp=end_time)
+            fields.update(details)
         finish_span(span, status, failed=status == "ERROR")
         _logger.log(level, message, extra={**fields, "status": status})
 
@@ -111,17 +111,22 @@ class JsonFormatter(logging.Formatter):
         fields = {**(_context.get() or {}), **record.__dict__}
         if record.exc_info and record.exc_info[1] is not None:
             fields.update(error_fields(record.exc_info[1]))
+        status = fields.get("status")
+        successful = record.levelno == logging.INFO and (
+            status == "OK" or isinstance(status, int) and 200 <= status < 400
+        )
         entry = {
             "timestamp": datetime.fromtimestamp(record.created, UTC).isoformat(
                 timespec="milliseconds"
             ),
             "level": record.levelname,
             "service": self.service,
-            "message": record.getMessage(),
-            **trace_fields(),
+            **trace_fields(include_span_id=not successful),
             **{key: fields[key] for key in _fields if fields.get(key) is not None},
         }
-        return json.dumps(entry, ensure_ascii=False)
+        if not successful:
+            entry["message"] = record.getMessage()
+        return json.dumps(entry, ensure_ascii=False, separators=(",", ":"))
 
 
 def configure_logging(service: str) -> None:

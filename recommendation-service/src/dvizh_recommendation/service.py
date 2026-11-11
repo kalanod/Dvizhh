@@ -9,7 +9,7 @@ from uuid import uuid4
 import asyncpg
 import grpc
 from dvizh_logging import error_fields, request_context
-from dvizh_logging.tracing import finish_span, record_span_error, server_span
+from dvizh_logging.tracing import finish_span, keep_request_log, record_span_error, server_span
 from google.protobuf.empty_pb2 import Empty
 from google.protobuf.json_format import MessageToDict
 from redis.exceptions import RedisError
@@ -94,11 +94,12 @@ async def _rpc_request(
             yield
         except asyncio.CancelledError:
             remaining = context.time_remaining()
-            status = (
-                grpc.StatusCode.DEADLINE_EXCEEDED
-                if remaining is not None and remaining <= 0
-                else grpc.StatusCode.CANCELLED
-            )
+            if remaining is not None and remaining <= 0:
+                status = grpc.StatusCode.DEADLINE_EXCEEDED
+                level = logging.WARNING
+                details = {"error_reason": "Recommendation request deadline exceeded"}
+            else:
+                status = grpc.StatusCode.CANCELLED
             raise
         except Exception as exc:
             status, message = _rpc_error(exc)
@@ -115,16 +116,18 @@ async def _rpc_request(
                 status.name,
                 failed=status not in (grpc.StatusCode.OK, grpc.StatusCode.CANCELLED),
             )
-            logger.log(
-                level,
-                "gRPC request completed",
-                extra={
-                    "operation": operation,
-                    "status": status.name,
-                    "duration_ms": round((monotonic() - started) * 1000, 3),
-                    **details,
-                },
-            )
+            duration_ms = (monotonic() - started) * 1000
+            if keep_request_log(span, duration_ms, failed=status is not grpc.StatusCode.OK):
+                logger.log(
+                    level,
+                    "gRPC request completed",
+                    extra={
+                        "operation": operation,
+                        "status": status.name,
+                        "duration_ms": round(duration_ms, 3),
+                        **details,
+                    },
+                )
 
 
 class RecommendationService(recommendation_service_pb2_grpc.RecommendationServiceServicer):

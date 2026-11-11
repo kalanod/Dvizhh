@@ -135,7 +135,7 @@ def test_concurrent_grpc_requests_keep_ids_and_log_safe_failures(
     records = [json.loads(line) for line in output.getvalue().splitlines()]
     completed = {record["operation"]: record for record in records if "operation" in record}
     assert len(records) == 3
-    page_read = next(record for record in records if record["message"] == "Page read")
+    page_read = next(record for record in records if record.get("message") == "Page read")
     assert page_read["request_id"] == completed["GetRecommendations"]["request_id"] == "request-1"
     assert page_read["session_id"] == completed["GetRecommendations"]["session_id"] == "session-1"
     assert completed["GetRecommendations"]["status"] == "OK"

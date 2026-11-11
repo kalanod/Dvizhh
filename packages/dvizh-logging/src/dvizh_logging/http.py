@@ -6,7 +6,7 @@ from typing import Any
 from uuid import uuid4
 
 from . import configure_logging, error_fields, request_context
-from .tracing import finish_span, record_span_error, server_span
+from .tracing import finish_span, keep_request_log, record_span_error, server_span
 
 type Scope = dict[str, Any]
 type Message = dict[str, Any]
@@ -69,7 +69,7 @@ class RequestLoggingMiddleware:
             await send(message)
 
         with (
-            request_context(request_id=request_id, log_dependency_success=not is_health),
+            request_context(request_id=request_id, health_probe=is_health),
             server_span(
                 scope["method"], request_id, carrier=carrier, health_probe=is_health and not carrier
             ) as span,
@@ -89,13 +89,12 @@ class RequestLoggingMiddleware:
                     span.set_attribute("http.response.status_code", response_status)
                     if route:
                         span.set_attribute("http.route", route)
-                    finish_span(
-                        span, response_status, failed=failure is not None or response_status >= 500
-                    )
+                    finish_span(span, failed=failure is not None or response_status >= 500)
+                    duration_ms = (perf_counter() - started) * 1000
                     fields = {
                         "operation": operation,
                         "status": response_status,
-                        "duration_ms": round((perf_counter() - started) * 1000, 2),
+                        "duration_ms": round(duration_ms, 2),
                     }
                     if failure is not None:
                         details = error_fields(failure)
@@ -105,8 +104,10 @@ class RequestLoggingMiddleware:
                             extra={**fields, **details},
                         )
                         failure._dvizh_request_logged = True
-                    elif status >= 400 or not is_health:
-                        level = logging.ERROR if status >= 500 else logging.INFO
+                    elif status >= 400 or (
+                        not is_health and keep_request_log(span, duration_ms, failed=False)
+                    ):
+                        level = logging.ERROR if response_status >= 500 else logging.INFO
                         _logger.log(level, "HTTP request completed", extra=fields)
 
     async def _log_lifespan(self, scope: Scope, receive: Receive, send: Send) -> None:

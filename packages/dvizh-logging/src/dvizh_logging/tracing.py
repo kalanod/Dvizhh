@@ -3,7 +3,14 @@ from contextlib import contextmanager
 from os import environ
 
 from opentelemetry.context import Context
-from opentelemetry.trace import INVALID_SPAN, Span, SpanKind, StatusCode, Tracer, get_current_span
+from opentelemetry.trace import (
+    INVALID_SPAN,
+    Span,
+    SpanKind,
+    StatusCode,
+    Tracer,
+    get_current_span,
+)
 from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
 
 from .errors import error_fields
@@ -11,6 +18,8 @@ from .errors import error_fields
 _tracer: Tracer | None = None
 _propagator = TraceContextTextMapPropagator()
 _HEALTH_PROBE = "dvizh.health_probe"
+_SLOW_REQUEST_MS = 1000
+_TRACE_SAMPLE_CUTOFF = 0x0CCC
 
 
 def configure_tracing(service: str) -> None:
@@ -70,7 +79,7 @@ def server_span(
 
 @contextmanager
 def dependency_span(
-    dependency: str, operation: str, duration: float | None, request_id: str, *, end_time: int
+    dependency: str, operation: str, duration: float | None, *, end_time: int
 ) -> Iterator[Span]:
     if _tracer is None or not get_current_span().is_recording():
         yield INVALID_SPAN
@@ -80,7 +89,7 @@ def dependency_span(
     with _tracer.start_as_current_span(
         f"{dependency} {operation}",
         kind=SpanKind.CLIENT,
-        attributes={"request_id": request_id, "dependency": dependency, "operation": operation},
+        attributes={"dependency": dependency},
         start_time=start,
         end_on_exit=False,
         record_exception=False,
@@ -92,15 +101,29 @@ def dependency_span(
             span.end(end_time=end_time)
 
 
-def trace_fields() -> dict[str, str]:
+def trace_fields(*, include_span_id: bool) -> dict[str, str]:
     context = get_current_span().get_span_context()
     if not context.is_valid or not context.trace_flags.sampled:
         return {}
-    return {"trace_id": f"{context.trace_id:032x}", "span_id": f"{context.span_id:016x}"}
+    fields = {"trace_id": f"{context.trace_id:032x}"}
+    if include_span_id:
+        fields["span_id"] = f"{context.span_id:016x}"
+    return fields
 
 
-def finish_span(span: Span, status: str | int, *, failed: bool = False) -> None:
-    span.set_attribute("status", status)
+def keep_request_log(span: Span, duration_ms: float, *, failed: bool) -> bool:
+    context = span.get_span_context()
+    return (
+        failed
+        or duration_ms >= _SLOW_REQUEST_MS
+        or not context.is_valid
+        or context.trace_id >> 112 < _TRACE_SAMPLE_CUTOFF
+    )
+
+
+def finish_span(span: Span, status: str | None = None, *, failed: bool = False) -> None:
+    if status is not None:
+        span.set_attribute("status", status)
     if failed:
         span.set_status(StatusCode.ERROR)
 
