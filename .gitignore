@@ -1,4 +1,5 @@
 .env
+/certs/
 *.local
 .env.production
 .idea/
