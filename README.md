@@ -100,3 +100,6 @@ backend и хранилища доступны только внутри сет�
 
 Как запустить проект в Docker, открыть Swagger и работать с сервисами локально,
 описано в [RUNNING.md](RUNNING.md).
+
+
+HTTP works without certificates. HTTPS is enabled automatically when certificates are present; see [HTTPS setup](nginx/HTTPS.md).

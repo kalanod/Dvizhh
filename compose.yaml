@@ -8,6 +8,9 @@ services:
       MEDIA_MAX_MIB: ${MEDIA_MAX_MIB:-10}
     ports:
       - "${NGINX_PORT:-8080}:80"
+      - "${NGINX_HTTPS_PORT:-8021}:443"
+    volumes:
+      - ./certs:/etc/nginx/certs:ro
     depends_on:
       web-app:
         condition: service_healthy
@@ -226,14 +229,14 @@ services:
   minio:
     build:
       context: ./minio
-    command: server /data --console-address ":9001"
+    command: server /data --console-address ":9873"
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-dvizh}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-change-me-please}
     volumes:
       - minio-data:/data
     ports:
-      - "9001:9001"
+      - "9873:9873"
     healthcheck:
       test: ["CMD", "mc", "ready", "local"]
       interval: 5s
