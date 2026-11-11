@@ -1,17 +1,16 @@
 import { useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { errorText, getUser } from "../../../api";
+import { errorText, getUser, loginAccount, getAccount } from "../../../api";
 import { useCurrentUser } from "../../../hooks";
 import { AuthLayout } from "../../layouts";
 import { Button, FormField, Input, Notice } from "../../ui";
-
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export const LoginPage = () => {
     const navigate = useNavigate();
     const [searchParams] = useSearchParams();
     const { signIn } = useCurrentUser();
-    const [userId, setUserId] = useState("");
+    const [email, setEmail] = useState("");
+    const [password, setPassword] = useState("");
     const [error, setError] = useState<string | null>(null);
     const [submitting, setSubmitting] = useState(false);
 
@@ -19,15 +18,12 @@ export const LoginPage = () => {
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        const id = userId.trim();
-        if (!UUID_RE.test(id)) {
-            setError("ID профиля — это UUID; его можно скопировать на странице профиля.");
-            return;
-        }
         setSubmitting(true);
         setError(null);
         try {
-            signIn(await getUser(id));
+            await loginAccount({ email: email.trim(), password });
+            const account = await getAccount();
+            signIn(await getUser(account.id));
             navigate(next, { replace: true });
         } catch (err) {
             setError(errorText(err));
@@ -38,22 +34,15 @@ export const LoginPage = () => {
 
     return (
         <AuthLayout title="Вход">
-            <form className="flex w-full flex-col items-start gap-2.5" onSubmit={handleSubmit} noValidate>
-                <FormField label="ID профиля" htmlFor="user-id">
-                    <Input
-                        id="user-id"
-                        name="user-id"
-                        placeholder="00000000-0000-0000-0000-000000000000"
-                        autoComplete="username"
-                        value={userId}
-                        state={error ? "error" : "default"}
-                        onChange={setUserId}
-                    />
+            <form className="flex w-full flex-col items-start gap-2.5" onSubmit={handleSubmit}>
+                <FormField label="Email" htmlFor="email">
+                    <Input id="email" name="email" type="email" autoComplete="username"
+                        placeholder="you@example.com" required maxLength={254} value={email} onChange={setEmail} />
                 </FormField>
-
-                <span className="text-duration text-textsecondary">
-                    Авторизация в разработке: пока вход выполняется по ID, который показан в профиле.
-                </span>
+                <FormField label="Пароль" htmlFor="password">
+                    <Input id="password" name="password" type="password" autoComplete="current-password"
+                        required maxLength={128} value={password} onChange={setPassword} />
+                </FormField>
 
                 {error && <Notice tone="error">{error}</Notice>}
 

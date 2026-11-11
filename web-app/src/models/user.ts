@@ -26,6 +26,7 @@ export interface Profile {
 
 /** Тело POST /api/users. */
 export interface CreateUserInput {
+    id?: string;
     username: string;
     display_name: string;
     bio: string | null;

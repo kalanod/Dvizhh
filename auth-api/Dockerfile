@@ -30,9 +30,11 @@ RUN groupadd --system app && \
 
 WORKDIR /app
 COPY --from=builder --chown=app:app /app/.venv /app/.venv
+COPY --chown=app:app alembic.ini ./alembic.ini
+COPY --chown=app:app alembic ./alembic
 
 USER app
 EXPOSE 8003
 
-CMD ["uvicorn", "dvizh_auth.main:app", "--host", "0.0.0.0", "--port", "8003"]
+CMD ["sh", "-c", "alembic upgrade head && exec uvicorn dvizh_auth.main:app --host 0.0.0.0 --port 8003"]
 

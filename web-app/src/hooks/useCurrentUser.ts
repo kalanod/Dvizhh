@@ -2,7 +2,7 @@ import { createContext, useContext } from "react";
 import type { Profile } from "../models";
 
 export interface CurrentUserValue {
-    /** ID профиля, под которым выполнен вход (пока нет авторизации, хранится в браузере). */
+    /** ID профиля текущего аккаунта, полученного через cookie-сессию. */
     userId: string | null;
     user: Profile | null;
     loading: boolean;
