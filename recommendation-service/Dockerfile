@@ -10,6 +10,8 @@ ENV UV_COMPILE_BYTECODE=1 \
 
 COPY --from=uv /uv /uvx /bin/
 WORKDIR /app
+COPY --from=dvizh_logging pyproject.toml /packages/dvizh-logging/
+COPY --from=dvizh_logging src /packages/dvizh-logging/src
 
 COPY pyproject.toml uv.lock ./
 RUN --mount=type=cache,target=/root/.cache/uv \

@@ -1,0 +1,81 @@
+services:
+  nginx:
+    environment:
+      NGINX_OTEL_TRACE: "on"
+
+  web-app:
+    environment:
+      NGINX_OTEL_TRACE: "on"
+
+  backend:
+    environment:
+      OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: http://tempo:4318/v1/traces
+
+  auth-api:
+    environment:
+      OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: http://tempo:4318/v1/traces
+
+  recommendation-service:
+    environment:
+      OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: http://tempo:4318/v1/traces
+
+  alloy:
+    image: grafana/alloy:v1.21.3
+    command: ["run", "--storage.path=/var/lib/alloy/data", "/etc/alloy/config.alloy"]
+    environment:
+      COMPOSE_PROJECT_NAME: ${COMPOSE_PROJECT_NAME}
+    volumes:
+      - ./observability/alloy/config.alloy:/etc/alloy/config.alloy:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - alloy-data:/var/lib/alloy/data
+    networks: [default, logs]
+    restart: unless-stopped
+
+  loki:
+    image: grafana/loki:3.7.9
+    command: ["-config.file=/etc/loki/config.yaml"]
+    volumes:
+      - ./observability/loki/config.yaml:/etc/loki/config.yaml:ro
+      - loki-data:/loki
+    networks: [logs]
+    restart: unless-stopped
+
+  tempo:
+    image: grafana/tempo:3.1.1
+    command: ["-config.file=/etc/tempo.yaml"]
+    volumes:
+      - ./observability/tempo/config.yaml:/etc/tempo.yaml:ro
+      - tempo-data:/var/tempo
+    networks: [default, logs]
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:13.3.1
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD__FILE: /run/secrets/grafana_admin_password
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_USERS_HOME_PAGE: /d/dvizh-logs/logs
+      GF_PLUGINS_PREINSTALL_DISABLED: "true"
+    secrets: [grafana_admin_password]
+    ports:
+      - "127.0.0.1:3000:3000"
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/dashboards:/etc/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    networks: [logs]
+    restart: unless-stopped
+
+networks:
+  logs:
+
+volumes:
+  alloy-data:
+  loki-data:
+  tempo-data:
+  grafana-data:
+
+secrets:
+  grafana_admin_password:
+    environment: GRAFANA_ADMIN_PASSWORD

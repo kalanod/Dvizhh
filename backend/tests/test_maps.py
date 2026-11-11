@@ -4,6 +4,8 @@ from urllib.error import HTTPError
 from urllib.parse import parse_qs, urlparse
 
 import pytest
+from dvizh_logging import JsonFormatter
+from dvizh_logging.http import RequestLoggingMiddleware
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -27,7 +29,7 @@ def client(monkeypatch):
         raise AssertionError("Tests must not call Yandex")
 
     monkeypatch.setattr(maps, "urlopen", no_network)
-    with TestClient(app) as client:
+    with TestClient(RequestLoggingMiddleware(app)) as client:
         yield client, settings
 
 
@@ -173,22 +175,26 @@ def test_business_permission_error_identifies_product_and_key_source(client, mon
         raise HTTPError(request.full_url, 403, "Forbidden", {}, None)
 
     monkeypatch.setattr(maps, "urlopen", denied)
-    with caplog.at_level("INFO", logger="uvicorn.error"):
+    with caplog.at_level("INFO", logger=maps.__name__):
         response = http.get("/api/maps/geocode", params={"uri": "ymapsbm1://org?oid=123"})
     assert response.status_code == 503
     assert "API Поиска по организациям" in response.json()["detail"]
-    assert "YANDEX_SEARCH_API_KEY" in caplog.text
+    assert any(
+        getattr(record, "key_source", "") == "YANDEX_SEARCH_API_KEY" for record in caplog.records
+    )
     assert "organization-secret" not in caplog.text
 
 
 def test_business_without_separate_key_uses_geocoder_key(client, monkeypatch, caplog):
     http, _ = client
     requests = provider(monkeypatch, {"features": []})
-    with caplog.at_level("INFO", logger="uvicorn.error"):
+    with caplog.at_level("INFO", logger=maps.__name__):
         response = http.get("/api/maps/geocode", params={"uri": "ymapsbm1://org?oid=123"})
     assert response.status_code == 404
     assert parse_qs(urlparse(requests[0].full_url).query)["apikey"] == ["geocoder-secret"]
-    assert "key_source=YANDEX_GEOCODER_API_KEY" in caplog.text
+    assert any(
+        getattr(record, "key_source", "") == "YANDEX_GEOCODER_API_KEY" for record in caplog.records
+    )
 
 
 PLACE = {
@@ -258,17 +264,27 @@ def test_geocode_not_found(client, monkeypatch):
 
 
 @pytest.mark.parametrize("status", [403, 429])
-def test_provider_error_does_not_leak_secret_url(client, monkeypatch, status):
+def test_provider_error_correlates_without_leaking_url(client, monkeypatch, caplog, status):
     http, _ = client
 
     def error(request, *, timeout):
         raise HTTPError(request.full_url, status, "provider error", {}, None)
 
     monkeypatch.setattr(maps, "urlopen", error)
+    monkeypatch.setattr(caplog.handler, "formatter", JsonFormatter("backend"))
     response = http.get("/api/maps/geocode", params={"query": "Москва"})
     assert response.status_code == 503
     assert "secret" not in response.text
     assert "apikey" not in response.text
+    records = [json.loads(line) for line in caplog.text.splitlines()]
+    provider_log = next(record for record in records if record.get("dependency") == "yandex_maps")
+    assert provider_log["request_id"] == response.headers["X-Request-ID"]
+    assert provider_log["operation"] == "geocode"
+    assert provider_log["status"] == "ERROR"
+    assert provider_log["upstream_status"] == status
+    assert provider_log["error_type"] == "HTTPError"
+    assert "geocoder-secret" not in caplog.text
+    assert "apikey" not in caplog.text
 
 
 def test_browser_error_reaches_server_log_without_keys(client, caplog):
@@ -283,8 +299,8 @@ def test_browser_error_reaches_server_log_without_keys(client, caplog):
         headers={"Origin": "http://localhost:8080"},
     )
     assert response.status_code == 204
-    assert "stage=sdk_ready" in caplog.text
-    assert "localhost:8080" in caplog.text
-    for secret in ("browser-key", "suggest-secret", "geocoder-secret"):
-        assert secret not in caplog.text
-    assert "[REDACTED]" in caplog.text
+    record = next(record for record in caplog.records if record.name == maps.__name__)
+    assert record.stage == "sdk_ready"
+    assert record.online is True
+    for secret in ("browser-key", "suggest-secret", "geocoder-secret", "localhost:8080"):
+        assert secret not in str(vars(record))

@@ -1,9 +1,15 @@
 name: dvizh
 
+x-service-logging: &service-logging
+  driver: local
+  options:
+    mode: non-blocking
+
 services:
   nginx:
     build:
       context: ./nginx
+    logging: *service-logging
     environment:
       MEDIA_MAX_MIB: ${MEDIA_MAX_MIB:-10}
     ports:
@@ -25,6 +31,7 @@ services:
   web-app:
     build:
       context: ./web-app
+    logging: *service-logging
     environment:
       MEDIA_MAX_MIB: ${MEDIA_MAX_MIB:-10}
     depends_on:
@@ -41,6 +48,9 @@ services:
   backend:
     build:
       context: ./backend
+      additional_contexts:
+        dvizh_logging: ./packages/dvizh-logging
+    logging: *service-logging
     environment:
       APP_NAME: Dvizh API
       REQUIRE_DATABASE: "true"
@@ -86,6 +96,9 @@ services:
   auth-api:
     build:
       context: ./auth-api
+      additional_contexts:
+        dvizh_logging: ./packages/dvizh-logging
+    logging: *service-logging
     environment:
       APP_NAME: Dvizh Auth API
       REQUIRE_DATABASE: "true"
@@ -104,6 +117,9 @@ services:
   recommendation-service:
     build:
       context: ./recommendation-service
+      additional_contexts:
+        dvizh_logging: ./packages/dvizh-logging
+    logging: *service-logging
     environment:
       APP_NAME: Dvizh Recommendation Service
       SOURCE_DATABASE_URL: postgresql://recsys_reader:${RECSYS_READER_PASSWORD:-change-me}@postgres:5432/${POSTGRES_DB:-dvizh_data}

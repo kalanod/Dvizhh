@@ -1,0 +1,61 @@
+{
+  "uid": "dvizh-logs",
+  "title": "Логи Dvizhh",
+  "schemaVersion": 41,
+  "time": {"from": "now-1h", "to": "now"},
+  "templating": {
+    "list": [
+      {
+        "name": "service",
+        "label": "Сервис",
+        "type": "custom",
+        "query": "nginx,web-app,backend,auth-api,recommendation-service",
+        "includeAll": true,
+        "allValue": ".+",
+        "current": {"text": "All", "value": "$__all"}
+      },
+      {
+        "name": "level",
+        "label": "Уровень",
+        "type": "custom",
+        "query": "debug,info,warning,error,critical",
+        "includeAll": true,
+        "allValue": ".+",
+        "current": {"text": "All", "value": "$__all"}
+      },
+      {
+        "name": "search",
+        "label": "Поиск по тексту или ID",
+        "type": "textbox",
+        "query": "",
+        "current": {"text": "", "value": ""}
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "logs",
+      "gridPos": {"h": 20, "w": 24, "x": 0, "y": 0},
+      "datasource": {"type": "loki", "uid": "dvizh-loki"},
+      "options": {
+        "showTime": true,
+        "showLevel": true,
+        "showControls": false,
+        "displayedFields": ["service_name", "operation", "status", "duration_ms", "summary"],
+        "enableLogDetails": true,
+        "unwrappedColumns": true,
+        "wrapLogMessage": true,
+        "sortOrder": "Ascending"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "editorMode": "code",
+          "queryType": "range",
+          "expr": "{service_name=~\"${service:regex}\",level=~\"${level:regex}\"}\n| json | __error__=\"\"\n| label_format matches=`{{- $q := trim (urldecode \"${search:percentencode}\") -}}\n{{- if hasPrefix \"request_id:\" $q -}}\n  {{- $id := trimPrefix \"request_id:\" $q | trim -}}{{ and (ne $id \"\") (eq $id .request_id) }}\n{{- else if hasPrefix \"session_id:\" $q -}}\n  {{- $id := trimPrefix \"session_id:\" $q | trim -}}{{ and (ne $id \"\") (eq $id .session_id) }}\n{{- else -}}\n  {{- or (eq $q .request_id) (eq $q .session_id) (contains $q .message) (contains $q .operation) (contains $q .error_reason) -}}\n{{- end -}}`\n| matches=\"true\" | drop matches, error_file, error_line, error_function\n| label_format summary=`{{ .message }}{{ with .dependency }} · {{ . }}{{ end }}{{ with .upstream }} → {{ . }}{{ with $.upstream_status }} ({{ . }}){{ end }}{{ end }}{{ with .error_reason }}{{ if ne . $.message }} · {{ . }}{{ end }}{{ end }}{{ with .error_type }}{{ if ne . $.error_reason }} · {{ . }}{{ end }}{{ end }}{{ with .error_location }} · {{ . }}{{ end }}`"
+        }
+      ]
+    }
+  ]
+}

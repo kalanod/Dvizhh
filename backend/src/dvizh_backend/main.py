@@ -2,6 +2,9 @@ import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
+import uvicorn
+from dvizh_logging import error_fields
+from dvizh_logging.http import RequestLoggingMiddleware, configure_http_logging
 from fastapi import FastAPI, Request
 
 from .config import get_settings
@@ -11,7 +14,7 @@ from .routers.errors import register_error_handlers
 from .storage import MediaStorage
 
 settings = get_settings()
-logger = logging.getLogger("uvicorn.error")
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
@@ -25,14 +28,21 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         if settings.require_database:
             await database_service.dispose()
             raise
-        logger.warning("База данных недоступна: %s", exc)
+        logger.warning(
+            "Database unavailable", extra={"dependency": "postgresql", **error_fields(exc)}
+        )
     try:
         yield
     finally:
         await database_service.dispose()
 
 
-app = FastAPI(
+class Application(FastAPI):
+    def build_middleware_stack(self) -> RequestLoggingMiddleware:
+        return RequestLoggingMiddleware(super().build_middleware_stack())
+
+
+app = Application(
     title=settings.app_name,
     description="API персонализированной афиши событий: пользователи, события и участие в них.",
     docs_url="/api/docs",
@@ -64,3 +74,8 @@ async def health(request: Request) -> dict[str, str]:
 @app.get("/api", tags=["system"], summary="Проверка, что API запущен.")
 async def root() -> dict[str, str]:
     return {"message": "Dvizh API is running"}
+
+
+if __name__ == "__main__":
+    configure_http_logging("backend")
+    uvicorn.run(app, host="0.0.0.0", port=8000, log_config=None, access_log=False)
