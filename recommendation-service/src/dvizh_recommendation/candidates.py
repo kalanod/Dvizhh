@@ -2,6 +2,7 @@ from collections.abc import Sequence
 from uuid import UUID
 
 import asyncpg
+from dvizh_logging import log_dependency
 
 from .catalog import AVAILABLE_ITEMS_QUERY
 from .recommendations import RecommendationBatch, RecommendationQuery
@@ -31,13 +32,14 @@ async def get_candidates(
     if limit <= 0:
         raise ValueError("limit must be positive")
 
-    async with pool.acquire(timeout=timeout_seconds) as connection:
-        rows = await connection.fetch(
-            CANDIDATES_QUERY,
-            limit,
-            list(exclude_ids),
-            timeout=timeout_seconds,
-        )
+    with log_dependency("postgres", "get_candidates"):
+        async with pool.acquire(timeout=timeout_seconds) as connection:
+            rows = await connection.fetch(
+                CANDIDATES_QUERY,
+                limit,
+                list(exclude_ids),
+                timeout=timeout_seconds,
+            )
 
     return [row["id"] for row in rows]
 

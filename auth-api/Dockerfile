@@ -10,6 +10,8 @@ ENV UV_COMPILE_BYTECODE=1 \
 
 COPY --from=uv /uv /uvx /bin/
 WORKDIR /app
+COPY --from=dvizh_logging pyproject.toml /packages/dvizh-logging/
+COPY --from=dvizh_logging src /packages/dvizh-logging/src
 
 COPY pyproject.toml uv.lock ./
 RUN --mount=type=cache,target=/root/.cache/uv \
@@ -36,5 +38,5 @@ COPY --chown=app:app alembic ./alembic
 USER app
 EXPOSE 8003
 
-CMD ["sh", "-c", "alembic upgrade head && exec uvicorn dvizh_auth.main:app --host 0.0.0.0 --port 8003"]
+CMD ["sh", "-c", "alembic upgrade head && exec python -m dvizh_auth.main"]
 

@@ -2,6 +2,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Annotated
 
+from dvizh_logging.sqlalchemy import trace_sqlalchemy
 from fastapi import Depends, Request
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -10,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 class Database:
     def __init__(self, url: str) -> None:
         self.engine = create_async_engine(url, pool_pre_ping=True)
+        trace_sqlalchemy(self.engine.sync_engine)
         self.session_factory = async_sessionmaker(
             self.engine, expire_on_commit=False, autoflush=False
         )

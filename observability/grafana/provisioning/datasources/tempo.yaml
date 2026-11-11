@@ -1,0 +1,18 @@
+apiVersion: 1
+
+datasources:
+  - name: Tempo
+    uid: dvizh-tempo
+    type: tempo
+    access: proxy
+    url: http://tempo:3200
+    editable: false
+    jsonData:
+      tracesToLogsV2:
+        datasourceUid: dvizh-loki
+        spanStartTimeShift: -1m
+        spanEndTimeShift: 1m
+        tags:
+          - key: service.name
+            value: service_name
+        filterByTraceID: true

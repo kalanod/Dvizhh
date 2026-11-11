@@ -1,0 +1,16 @@
+services:
+  loki:
+    volumes:
+      - type: bind
+        source: ${OBSERVABILITY_DATA_DIR:?Set OBSERVABILITY_DATA_DIR}/loki
+        target: /loki
+        bind:
+          create_host_path: false
+
+  tempo:
+    volumes:
+      - type: bind
+        source: ${OBSERVABILITY_DATA_DIR:?Set OBSERVABILITY_DATA_DIR}/tempo
+        target: /var/tempo
+        bind:
+          create_host_path: false

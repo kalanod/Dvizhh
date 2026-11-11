@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
 from unittest.mock import Mock
@@ -18,20 +19,30 @@ from dvizh_recommendation.service import SERVICE_NAME
 @pytest.mark.parametrize("failure", ["connection", "timeout"])
 @pytest.mark.parametrize("dependency", ["redis", "source", "vector"])
 def test_health_tracks_failure_and_recovery_of_each_required_dependency(
-    monkeypatch: pytest.MonkeyPatch, dependency: str, failure: str
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    dependency: str,
+    failure: str,
 ) -> None:
     monkeypatch.setattr("dvizh_recommendation.main.HEALTH_CHECK_INTERVAL_SECONDS", 0.01)
+    caplog.set_level(logging.INFO, logger="dvizh_recommendation.main")
 
     class Dependency:
         def __init__(self, error):
             self.error = error
             self.mode = "healthy"
             self.entered = asyncio.Event()
+            self.rechecked = asyncio.Event()
+            self.failed_checks = 0
             self.active = 0
 
         async def check(self, *args, **kwargs):
             self.active += 1
             try:
+                if self.mode != "healthy":
+                    self.failed_checks += 1
+                    if self.failed_checks == 2:
+                        self.rechecked.set()
                 if self.mode == "connection":
                     raise self.error("Dependency unavailable")
                 if self.mode == "timeout":
@@ -95,8 +106,19 @@ def test_health_tracks_failure_and_recovery_of_each_required_dependency(
                 await expect_status(health_pb2.HealthCheckResponse.SERVING)
                 dependencies[dependency].mode = failure
                 await expect_status(health_pb2.HealthCheckResponse.NOT_SERVING)
+                await asyncio.wait_for(dependencies[dependency].rechecked.wait(), timeout=2)
                 dependencies[dependency].mode = "healthy"
                 await expect_status(health_pb2.HealthCheckResponse.SERVING)
+                name = {"redis": "redis", "source": "postgres", "vector": "pgvector"}[dependency]
+                transitions = [
+                    (record.getMessage(), record.dependency)
+                    for record in caplog.records
+                    if record.name == "dvizh_recommendation.main"
+                ]
+                assert transitions == [
+                    ("Dependency unavailable", name),
+                    ("Dependency recovered", name),
+                ]
                 dependencies[dependency].entered.clear()
                 dependencies[dependency].mode = "timeout"
                 await asyncio.wait_for(dependencies[dependency].entered.wait(), timeout=2)

@@ -3,6 +3,8 @@ from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
 import jwt
+import uvicorn
+from dvizh_logging.http import RequestLoggingMiddleware, configure_http_logging
 from fastapi import FastAPI, HTTPException, Request, Response, status
 from pydantic import BaseModel, EmailStr, Field, SecretStr
 
@@ -11,6 +13,7 @@ from .database import Database, SessionDep
 from .service import authenticate_account, register_account
 
 settings = get_settings()
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -22,13 +25,20 @@ async def lifespan(app: FastAPI):
         yield
     finally:
         await database.dispose()
-        
-        
-app = FastAPI(title=settings.app_name, lifespan=lifespan)
+
+
+class Application(FastAPI):
+    def build_middleware_stack(self) -> RequestLoggingMiddleware:
+        return RequestLoggingMiddleware(super().build_middleware_stack())
+
+
+app = Application(title=settings.app_name, lifespan=lifespan)
+
 
 @app.get("/health", tags=["system"])
 async def health() -> dict[str, str]:
     return {"status": "ok", "service": "auth-api"}
+
 
 class RegisterRequest(BaseModel):
     email: EmailStr
@@ -137,3 +147,8 @@ async def logout() -> Response:
     response = Response(status_code=204)
     response.delete_cookie("dvizh_access", path="/", httponly=True, samesite="lax")
     return response
+
+
+if __name__ == "__main__":
+    configure_http_logging("auth-api")
+    uvicorn.run(app, host="0.0.0.0", port=8003, log_config=None, access_log=False)

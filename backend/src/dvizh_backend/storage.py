@@ -2,6 +2,7 @@ import asyncio
 from io import BytesIO
 
 import urllib3
+from dvizh_logging import log_dependency
 from minio import Minio
 from minio.error import S3Error
 
@@ -28,7 +29,10 @@ class MediaStorage:
 
     async def put(self, bucket: str, key: str, data: bytes) -> None:
         def upload() -> None:
-            self.client.put_object(bucket, key, BytesIO(data), len(data), content_type="image/webp")
+            with log_dependency("minio", "put_object"):
+                self.client.put_object(
+                    bucket, key, BytesIO(data), len(data), content_type="image/webp"
+                )
 
         task = asyncio.create_task(asyncio.to_thread(upload))
         try:
@@ -44,15 +48,16 @@ class MediaStorage:
 
     async def read(self, bucket: str, key: str, limit: int) -> bytes:
         def download() -> bytes:
-            response = self.client.get_object(bucket, key)
-            try:
-                data = response.read(limit + 1)
-                if len(data) > limit:
-                    raise StorageUnavailableError("Stored media exceeds the size limit")
-                return data
-            finally:
-                response.close()
-                response.release_conn()
+            with log_dependency("minio", "get_object"):
+                response = self.client.get_object(bucket, key)
+                try:
+                    data = response.read(limit + 1)
+                    if len(data) > limit:
+                        raise StorageUnavailableError("Stored media exceeds the size limit")
+                    return data
+                finally:
+                    response.close()
+                    response.release_conn()
 
         try:
             return await asyncio.to_thread(download)
@@ -60,4 +65,8 @@ class MediaStorage:
             raise StorageUnavailableError("Media storage is unavailable") from exc
 
     async def remove(self, bucket: str, key: str) -> None:
-        await asyncio.to_thread(self.client.remove_object, bucket, key)
+        def delete() -> None:
+            with log_dependency("minio", "remove_object"):
+                self.client.remove_object(bucket, key)
+
+        await asyncio.to_thread(delete)
