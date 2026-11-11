@@ -48,8 +48,16 @@ class LocationDTO(BaseModel):
     name: str | None = Field(None, max_length=200, description="Название места.")
     city: str | None = Field(None, max_length=120, description="Город.")
     address_line: str | None = Field(None, description="Адрес.")
-    latitude: Decimal = Field(ge=-90, le=90, max_digits=9, decimal_places=6)
-    longitude: Decimal = Field(ge=-180, le=180, max_digits=9, decimal_places=6)
+    latitude: Decimal | None = Field(None, ge=-90, le=90, max_digits=9, decimal_places=6)
+    longitude: Decimal | None = Field(None, ge=-180, le=180, max_digits=9, decimal_places=6)
+
+    @model_validator(mode="after")
+    def check_location(self) -> Self:
+        if (self.latitude is None) != (self.longitude is None):
+            raise ValueError("latitude and longitude must be provided together")
+        if self.latitude is None and not (self.address_line or "").strip():
+            raise ValueError("Укажите адрес или выберите точку на карте.")
+        return self
 
 
 class UpdateEventDTO(BaseModel):

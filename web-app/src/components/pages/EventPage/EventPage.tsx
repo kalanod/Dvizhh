@@ -17,6 +17,7 @@ import {
 import { InvitePanel } from "./InvitePanel";
 import { OrganizerPanel } from "./OrganizerPanel";
 import { ParticipationPanel } from "./ParticipationPanel";
+import { EventLocationMap } from "../../widgets/EventLocation/EventLocationMap";
 
 const Row = ({ label, children }: { label: string; children: ReactNode }) => (
     <div className="flex flex-wrap items-center gap-2">
@@ -149,6 +150,14 @@ export const EventPage = () => {
                         {isOrganizer && userId && <OrganizerPanel event={event} userId={userId} onChanged={reloadAll} />}
                     </div>
                 </div>
+
+                {event.format !== "ONLINE" && event.location && (
+                    <div className="flex w-full flex-col gap-3 rounded-lg bg-cards-surface p-4 sm:p-8">
+                        <h2 className="text-h2 text-textprimary">Место проведения</h2>
+                        <p className="text-body text-textprimary">{formatPlace(event)}</p>
+                        <EventLocationMap location={event.location} />
+                    </div>
+                )}
 
                 <ParticipationPanel
                     event={event}

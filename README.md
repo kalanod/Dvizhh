@@ -8,6 +8,9 @@ docker compose up --build
 
 Сайт: **http://localhost:8080**. 
 
+Для карты места события и подсказок адреса заполните ключи Яндекса в `.env`:
+[подключение Яндекс Карт](docs/yandex-maps.md). Дальше используется та же команда запуска.
+
 API изображений, черновиков и уведомлений: [MEDIA_LIFECYCLE_API.md](backend/MEDIA_LIFECYCLE_API.md).
 
 Основной пользовательский API: [профиль, личные списки и приглашения](backend/PERSONAL_API.md).
