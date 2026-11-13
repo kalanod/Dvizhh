@@ -32,8 +32,8 @@ class Settings(BaseSettings):
 
     @field_validator("jwt_secret", mode="before")
     @classmethod
-    def secret_or_random(cls, value: str) -> str:
-        return value or token_urlsafe(48)
+    def temporary_secret_when_blank(cls, value: object) -> object:
+        return token_urlsafe(48) if isinstance(value, str) and not value.strip() else value
 
 
 @lru_cache

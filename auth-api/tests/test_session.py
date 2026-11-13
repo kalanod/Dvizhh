@@ -13,32 +13,42 @@ from dvizh_auth.main import current_account, logout, settings
 
 class SessionTests(unittest.IsolatedAsyncioTestCase):
     async def test_cookie_identity_requires_valid_signature_and_expiry(self):
-        account = SimpleNamespace(id=uuid4(), email="session@example.com", is_admin=False)
+        account = SimpleNamespace(
+            id=uuid4(),
+            username="session_user",
+            email="session@example.com",
+            role=SimpleNamespace(name="user"),
+        )
         now = datetime.now(UTC)
-        claims = dict(sub=str(account.id), iss=settings.jwt_issuer,
-                      aud=settings.jwt_audience, iat=now,
-                      exp=now + timedelta(minutes=5))
+        claims = dict(
+            sub=str(account.id),
+            iss=settings.jwt_issuer,
+            aud=settings.jwt_audience,
+            iat=now,
+            exp=now + timedelta(minutes=5),
+        )
         valid = jwt.encode(claims, settings.jwt_secret, algorithm=settings.jwt_algorithm)
-        expired = jwt.encode({**claims, "exp": now - timedelta(minutes=1)},
-                             settings.jwt_secret, algorithm=settings.jwt_algorithm)
-        forged = jwt.encode(claims, "different-secret-with-at-least-32-characters",
-                            algorithm=settings.jwt_algorithm)
+        expired = jwt.encode(
+            {**claims, "exp": now - timedelta(minutes=1)},
+            settings.jwt_secret,
+            algorithm=settings.jwt_algorithm,
+        )
+        forged = jwt.encode(
+            claims, "different-secret-with-at-least-32-characters", algorithm=settings.jwt_algorithm
+        )
         session = SimpleNamespace(get=AsyncMock(return_value=account))
         for token in ("", expired, forged):
-            request = Request({"type": "http", "headers": [
-                (b"cookie", f"dvizh_access={token}".encode())]})
+            request = Request(
+                {"type": "http", "headers": [(b"cookie", f"dvizh_access={token}".encode())]}
+            )
             with self.assertRaises(HTTPException) as error:
                 await current_account(request, session)
             self.assertEqual(error.exception.status_code, 401)
         session.get.assert_not_awaited()
-        request = Request({"type": "http", "headers": [
-            (b"cookie", f"dvizh_access={valid}".encode())]})
+        request = Request(
+            {"type": "http", "headers": [(b"cookie", f"dvizh_access={valid}".encode())]}
+        )
         self.assertEqual((await current_account(request, session)).id, account.id)
-        self.assertFalse((await current_account(request, session)).is_admin)
-        account.is_admin = True
-        self.assertTrue((await current_account(request, session)).is_admin)
-        account.is_admin = False
-        self.assertFalse((await current_account(request, session)).is_admin)
         session.get.return_value = None
         with self.assertRaises(HTTPException):
             await current_account(request, session)

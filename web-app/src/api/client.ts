@@ -7,6 +7,7 @@ interface RequestOptions {
     query?: Record<string, QueryValue>;
     /** Отмена запроса, например когда пользователь ушёл со страницы. */
     signal?: AbortSignal;
+    headers?: Record<string, string>;
 }
 
 export class ApiError extends Error {
@@ -20,7 +21,7 @@ export class ApiError extends Error {
 }
 
 /** Запрос к backend через прокси web-app: все пути начинаются с /api. */
-export async function request<T>(path: string, { method = "GET", body, rawBody, query, signal }: RequestOptions = {}): Promise<T> {
+export async function request<T>(path: string, { method = "GET", body, rawBody, query, signal, headers }: RequestOptions = {}): Promise<T> {
     const url = new URL(`/api${path}`, window.location.origin);
     for (const [key, value] of Object.entries(query ?? {})) {
         if (value !== undefined && value !== null && value !== "" && value !== false) {
@@ -34,9 +35,12 @@ export async function request<T>(path: string, { method = "GET", body, rawBody, 
             method,
             credentials: "same-origin",
             signal,
-            headers: rawBody !== undefined
-                ? { "Content-Type": "application/octet-stream" }
-                : body === undefined ? undefined : { "Content-Type": "application/json" },
+            headers: {
+                ...(rawBody !== undefined
+                    ? { "Content-Type": "application/octet-stream" }
+                    : body === undefined ? {} : { "Content-Type": "application/json" }),
+                ...headers,
+            },
             body: rawBody ?? (body === undefined ? undefined : JSON.stringify(body)),
         });
     } catch (error) {
@@ -66,7 +70,10 @@ function errorMessage(payload: unknown, status: number): string {
     }
 
     if (detail === "Invalid email or password") return "Неверный email или пароль.";
+    if (detail === "Invalid login or password") return "Неверный никнейм, почта или пароль.";
     if (detail === "Email is already registered") return "Этот email уже зарегистрирован. Войдите в аккаунт.";
+    if (detail === "Username is already registered") return "Этот никнейм уже занят. Выберите другой или войдите в аккаунт.";
+    if (detail === "Username or email is already registered") return "Никнейм или почта уже заняты. Выберите другие данные или войдите в аккаунт.";
     if (detail === "Authentication required") return "Войдите в аккаунт, чтобы продолжить.";
 
     if (typeof detail === "string") {

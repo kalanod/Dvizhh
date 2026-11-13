@@ -1,7 +1,7 @@
 """Authenticate administrators through the account service, never client-supplied IDs."""
 
 import asyncio
-from typing import Annotated
+from typing import Annotated, Literal
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
 from urllib.request import Request as UrlRequest
@@ -9,14 +9,14 @@ from urllib.request import urlopen
 from uuid import UUID
 
 from fastapi import Depends, HTTPException, Request
-from pydantic import BaseModel, StrictBool, ValidationError
+from pydantic import BaseModel, ValidationError
 
 from ..config import Settings, get_settings
 
 
 class AdminAccount(BaseModel):
     id: UUID
-    is_admin: StrictBool
+    role: Literal["user", "admin"]
 
 
 def _fetch_account(auth_url: str, token: str) -> AdminAccount:
@@ -45,12 +45,21 @@ async def require_admin(
         if request.headers.get("x-dvizh-admin") != "1":
             raise HTTPException(403, "X-Dvizh-Admin: 1 header required")
         origin = request.headers.get("origin")
-        if origin and (
-            urlsplit(origin).netloc.lower() != request.headers.get("host", "").lower()
-            or urlsplit(origin).scheme not in ("http", "https")
-        ):
-            raise HTTPException(403, "Cross-origin admin requests are forbidden")
+        if origin:
+            try:
+                parsed = urlsplit(origin)
+            except ValueError:
+                raise HTTPException(403, "Invalid request origin") from None
+            if (
+                parsed.netloc.lower() != request.headers.get("host", "").lower()
+                or parsed.scheme not in ("http", "https")
+                or parsed.username is not None
+                or parsed.path not in ("", "/")
+                or parsed.query
+                or parsed.fragment
+            ):
+                raise HTTPException(403, "Cross-origin admin requests are forbidden")
     account = await asyncio.to_thread(_fetch_account, settings.auth_url, token)
-    if not account.is_admin:
+    if account.role != "admin":
         raise HTTPException(403, "Administrator access required")
     return account

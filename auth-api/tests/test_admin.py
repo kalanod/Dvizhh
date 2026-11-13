@@ -7,7 +7,12 @@ from dvizh_auth.main import RegisterRequest
 
 def test_public_registration_cannot_grant_admin() -> None:
     with pytest.raises(ValidationError):
-        RegisterRequest(email="admin@example.com", password="test-password-123", is_admin=True)
+        RegisterRequest(
+            username="test_admin",
+            email="admin@example.com",
+            password="test-password-123",
+            is_admin=True,
+        )
 
 
 def test_missing_signing_secret_is_random_and_explicit_secret_is_stable() -> None:

@@ -19,7 +19,7 @@ def client(monkeypatch):
 
     monkeypatch.setattr(
         admin_auth, "_fetch_account",
-        lambda *_: admin_auth.AdminAccount(id=uuid4(), is_admin=True),
+        lambda *_: admin_auth.AdminAccount(id=uuid4(), role="admin"),
     )
     with TestClient(app) as http:
         yield http
@@ -35,7 +35,7 @@ def test_admin_checks_current_account_privilege(client, monkeypatch):
     assert client.get("/admin").status_code == 200
     monkeypatch.setattr(
         admin_auth, "_fetch_account",
-        lambda *_: admin_auth.AdminAccount(id=uuid4(), is_admin=False),
+        lambda *_: admin_auth.AdminAccount(id=uuid4(), role="user"),
     )
     assert client.get("/admin").status_code == 403
 
@@ -47,6 +47,8 @@ def test_admin_writes_reject_cross_origin_requests(client):
     assert client.post("/admin", headers=headers).status_code == 403
     headers["Origin"] = "http://testserver"
     assert client.post("/admin", headers=headers).status_code == 200
+    headers["Origin"] = "http://[invalid"
+    assert client.post("/admin", headers=headers).status_code == 403
 
 
 def test_admin_auth_outage_fails_closed(client, monkeypatch):
