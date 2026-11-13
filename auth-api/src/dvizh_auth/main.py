@@ -1,16 +1,20 @@
 from contextlib import asynccontextmanager
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
+from typing import Literal
 from uuid import UUID
 
 import jwt
 from fastapi import FastAPI, HTTPException, Request, Response, status
-from pydantic import BaseModel, EmailStr, Field, SecretStr
+from pydantic import BaseModel
 
 from .config import get_settings
 from .database import Database, SessionDep
-from .service import authenticate_account, register_account
+from .dependencies import require_account, require_account_write
+from .dto import LoginRequest, RegisterRequest, UpdateAccountRequest
+from .service import AccountConflictError, authenticate_account, register_account, update_account
 
 settings = get_settings()
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -22,25 +26,20 @@ async def lifespan(app: FastAPI):
         yield
     finally:
         await database.dispose()
-        
-        
+
+
 app = FastAPI(title=settings.app_name, lifespan=lifespan)
+
 
 @app.get("/health", tags=["system"])
 async def health() -> dict[str, str]:
     return {"status": "ok", "service": "auth-api"}
 
-class RegisterRequest(BaseModel):
-    email: EmailStr
-    password: SecretStr = Field(
-        min_length=settings.password_min_length,
-        max_length=128,
-    )
-
 
 class RegisterResponse(BaseModel):
     id: UUID
-    email: str
+    username: str
+    email: str | None
 
 
 @app.post(
@@ -54,38 +53,34 @@ async def register(
 ) -> RegisterResponse:
     account = await register_account(
         session,
-        email=str(data.email),
+        username=data.username,
+        email=str(data.email) if data.email is not None else None,
         password=data.password.get_secret_value(),
     )
     if account is None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Email is already registered",
+            detail="Username or email is already registered",
         )
 
-    return RegisterResponse(id=account.id, email=account.email)
-
-
-class LoginRequest(BaseModel):
-    email: EmailStr
-    password: SecretStr = Field(max_length=128)
+    return RegisterResponse(id=account.id, username=account.username, email=account.email)
 
 
 @app.post("/api/auth/login", status_code=status.HTTP_204_NO_CONTENT)
 async def login(data: LoginRequest, session: SessionDep) -> Response:
     account = await authenticate_account(
         session,
-        email=str(data.email),
+        login=str(data.login),
         password=data.password.get_secret_value(),
     )
     if account is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid email or password",
+            detail="Invalid login or password",
         )
 
     ttl = settings.access_token_ttl_seconds
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     access_token = jwt.encode(
         {
             "sub": str(account.id),
@@ -110,26 +105,42 @@ async def login(data: LoginRequest, session: SessionDep) -> Response:
     )
     return response
 
-@app.get("/api/auth/me", response_model=RegisterResponse)
-async def current_account(request: Request, session: SessionDep) -> RegisterResponse:
-    from .models import Account
 
+class CurrentAccountResponse(RegisterResponse):
+    role: Literal["user", "admin"]
+
+
+@app.get("/api/auth/me", response_model=CurrentAccountResponse)
+async def current_account(request: Request, session: SessionDep) -> CurrentAccountResponse:
+    account = await require_account(request, session)
+    return CurrentAccountResponse(
+        id=account.id,
+        username=account.username,
+        email=account.email,
+        role=account.role.name,
+    )
+
+
+@app.patch("/api/auth/me", response_model=CurrentAccountResponse)
+async def update_current_account(
+    data: UpdateAccountRequest,
+    request: Request,
+    session: SessionDep,
+) -> CurrentAccountResponse:
+    account = await require_account(request, session)
+    require_account_write(request)
     try:
-        payload = jwt.decode(
-            request.cookies.get("dvizh_access", ""),
-            settings.jwt_secret,
-            algorithms=[settings.jwt_algorithm],
-            audience=settings.jwt_audience,
-            issuer=settings.jwt_issuer,
-            options={"require": ["sub", "exp", "iat", "iss", "aud"]},
-        )
-        account_id = UUID(payload["sub"])
-    except (jwt.InvalidTokenError, ValueError, TypeError, KeyError):
-        raise HTTPException(status_code=401, detail="Authentication required") from None
-    account = await session.get(Account, account_id)
-    if account is None:
-        raise HTTPException(status_code=401, detail="Authentication required")
-    return RegisterResponse(id=account.id, email=account.email)
+        await update_account(session, account, data.model_dump(exclude_unset=True))
+    except AccountConflictError:
+        raise HTTPException(
+            status_code=409, detail="Username or email is already registered"
+        ) from None
+    return CurrentAccountResponse(
+        id=account.id,
+        username=account.username,
+        email=account.email,
+        role=account.role.name,
+    )
 
 
 @app.post("/api/auth/logout", status_code=204)

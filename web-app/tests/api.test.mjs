@@ -17,6 +17,10 @@ for (const name of [
     "components/pages/EventFormPage/formState",
     "api/paging",
     "api/client",
+    "api/auth",
+    "api/users",
+    "api/registration",
+    "api/profileAccount",
     "api/personal",
     "api/events",
     "api/media",
@@ -42,6 +46,9 @@ for (const name of [
 }
 const require = createRequire(import.meta.url);
 const personal = require(join(output, "api/personal.js"));
+const auth = require(join(output, "api/auth.js"));
+const { registerProfile } = require(join(output, "api/registration.js"));
+const { saveProfileWithAccount } = require(join(output, "api/profileAccount.js"));
 const api = require(join(output, "api/events.js"));
 const media = require(join(output, "api/media.js"));
 const { createEventSaver } = require(join(output, "api/eventCover.js"));
@@ -62,6 +69,146 @@ after(() => {
     assert.equal(dirname(output), resolve(testRoot));
     assert.ok(basename(output).startsWith("dvizh-api-test-"));
     rmSync(output, { recursive: true, force: true });
+});
+
+test("account API uses username or email login, optional email and protected updates", async (t) => {
+    const calls = recordFetch(t, () => Response.json({ id: "u", username: "alice", email: null, role: "user" }));
+    await auth.registerAccount({ username: " Alice ", email: "   ", password: "password" });
+    await auth.registerAccount({ username: " Alice ", password: "password" });
+    await auth.registerAccount({ username: " Alice ", email: " A@Example.COM ", password: "password" });
+    await auth.loginAccount({ login: " ADMIN ", password: "admin" });
+    await auth.loginAccount({ login: " A@Example.COM ", password: "password" });
+    await auth.updateAccount({ username: " New_Name ", email: " " });
+    assert.deepEqual(JSON.parse(calls[0].body), { username: "alice", email: null, password: "password" });
+    assert.equal(JSON.parse(calls[1].body).email, null);
+    assert.equal(JSON.parse(calls[2].body).email, "a@example.com");
+    assert.deepEqual(JSON.parse(calls[3].body), { login: "admin", password: "admin" });
+    assert.equal(JSON.parse(calls[4].body).login, "a@example.com");
+    assert.equal(calls[5].options.method, "PATCH");
+    assert.equal(calls[5].url.pathname, "/api/auth/me");
+    assert.equal(calls[5].options.headers["X-Dvizh-Account"], "1");
+    assert.equal(calls[5].options.headers["Content-Type"], "application/json");
+    assert.equal(calls[5].options.credentials, "same-origin");
+    assert.deepEqual(JSON.parse(calls[5].body), { username: "new_name", email: null });
+});
+
+test("partial registration resumes only after authenticating the desired username", async (t) => {
+    const calls = recordFetch(t, (url, options) => {
+        if (url.pathname === "/api/auth/register") return Response.json({ detail: "Username is already registered" }, { status: 409 });
+        if (url.pathname === "/api/auth/login") return new Response(null, { status: 204 });
+        if (url.pathname === "/api/auth/me") return Response.json({ id: "u", username: "alice", email: null, role: "user" });
+        if (options.method === "GET") return Response.json({ detail: "Not found" }, { status: 404 });
+        return Response.json({ id: "u", ...JSON.parse(options.body) }, { status: 201 });
+    });
+    const profile = await registerProfile({ username: " Alice ", email: "", password: "password" }, { display_name: "Alice", bio: null, city: null });
+    assert.equal(profile.username, "alice");
+    assert.equal(JSON.parse(calls[1].body).login, "alice");
+    assert.equal(JSON.parse(calls[4].body).id, "u");
+    assert.equal(JSON.parse(calls[4].body).username, "alice");
+});
+
+test("registration conflicts do not create a profile for another account", async (t) => {
+    const calls = recordFetch(t, (url) => {
+        if (url.pathname === "/api/auth/register") return Response.json({ detail: "Email is already registered" }, { status: 409 });
+        return Response.json({ detail: "Invalid login or password" }, { status: 401 });
+    });
+    await assert.rejects(registerProfile({ username: "alice", email: "taken@example.com", password: "wrong" }, { display_name: "Alice", bio: null, city: null }), /email уже зарегистрирован/);
+    assert.equal(calls.length, 2);
+    t.mock.method(globalThis, "fetch", async (url) => {
+        if (url.pathname === "/api/auth/register") return Response.json({ id: "u", username: "alice", email: null });
+        if (url.pathname === "/api/auth/login") return new Response(null, { status: 204 });
+        if (url.pathname === "/api/auth/me") return Response.json({ id: "other", username: "other", email: null, role: "user" });
+        throw new Error("Must not access another profile");
+    });
+    await assert.rejects(registerProfile({ username: "alice", password: "password" }, { display_name: "Alice", bio: null, city: null }), /подтвердить никнейм/);
+});
+
+test("profile nickname updates auth first and retries only the unsaved profile", async (t) => {
+    let currentUsername = "old_name";
+    let profileAttempts = 0;
+    const calls = recordFetch(t, (url, options) => {
+        if (url.pathname === "/api/auth/me") {
+            if (options.method === "PATCH") currentUsername = JSON.parse(options.body).username;
+            return Response.json({ id: "u", username: currentUsername, email: null, role: "user" });
+        }
+        profileAttempts += 1;
+        return profileAttempts === 1
+            ? Response.json({ detail: "Try again" }, { status: 503 })
+            : Response.json({ id: "u", ...JSON.parse(options.body) });
+    });
+    const input = { username: " New_Name ", display_name: "New name" };
+    await assert.rejects(saveProfileWithAccount("u", "old_name", input), /Никнейм для входа уже изменён на «new_name»/);
+    assert.equal(currentUsername, "new_name");
+    const profile = await saveProfileWithAccount("u", "old_name", input);
+    assert.equal(profile.username, "new_name");
+    assert.equal(calls.filter((call) => call.url.pathname === "/api/auth/me" && call.options.method === "PATCH").length, 1);
+    assert.deepEqual(calls.map((call) => [call.url.pathname, call.options.method]), [
+        ["/api/auth/me", "GET"], ["/api/auth/me", "PATCH"], ["/api/users/u", "PATCH"],
+        ["/api/auth/me", "GET"], ["/api/users/u", "PATCH"],
+    ]);
+});
+
+test("failed auth rename never changes the profile", async (t) => {
+    const calls = recordFetch(t, (_url, options) => options.method === "GET"
+        ? Response.json({ id: "u", username: "old_name", email: null, role: "user" })
+        : Response.json({ detail: "Username is already registered" }, { status: 409 }));
+    await assert.rejects(saveProfileWithAccount("u", "old_name", { username: "taken" }), /никнейм уже занят/);
+    assert.equal(calls.length, 2);
+});
+
+test("profile nickname conflict after auth rename asks for another nickname", async (t) => {
+    let username = "old_name";
+    recordFetch(t, (url, options) => {
+        if (url.pathname === "/api/auth/me") {
+            if (options.method === "PATCH") username = JSON.parse(options.body).username;
+            return Response.json({ id: "u", username, email: null, role: "user" });
+        }
+        return Response.json({ detail: "Username already exists" }, { status: 409 });
+    });
+    await assert.rejects(saveProfileWithAccount("u", "old_name", { username: "orphan_name" }), (error) => {
+        assert.match(error.message, /Никнейм для входа уже изменён на «orphan_name»/);
+        assert.match(error.message, /Выберите другой никнейм/);
+        assert.doesNotMatch(error.message, /Повторите сохранение/);
+        return true;
+    });
+});
+
+test("profile email clearing updates only auth and omitted email is preserved", async (t) => {
+    let account = { id: "u", username: "alice", email: "old@example.com", role: "user" };
+    const calls = recordFetch(t, (url, options) => {
+        if (url.pathname === "/api/auth/me") {
+            if (options.method === "PATCH") account = { ...account, ...JSON.parse(options.body) };
+            return Response.json(account);
+        }
+        return Response.json({ id: "u", ...JSON.parse(options.body) });
+    });
+    await saveProfileWithAccount("u", "alice", { username: "alice", city: "City" }, " ");
+    assert.equal(account.email, null);
+    assert.deepEqual(JSON.parse(calls[1].body), { email: null });
+    assert.equal("email" in JSON.parse(calls[2].body), false);
+    account.email = "keep@example.com";
+    await saveProfileWithAccount("u", "alice", { username: "bob" });
+    assert.deepEqual(JSON.parse(calls[4].body), { username: "bob" });
+    assert.equal(account.email, "keep@example.com");
+});
+
+test("email saved before a profile failure produces a recoverable partial-save message", async (t) => {
+    let email = null;
+    let attempts = 0;
+    const calls = recordFetch(t, (url, options) => {
+        if (url.pathname === "/api/auth/me") {
+            if (options.method === "PATCH") email = JSON.parse(options.body).email;
+            return Response.json({ id: "u", username: "alice", email, role: "user" });
+        }
+        attempts += 1;
+        return attempts === 1
+            ? Response.json({ detail: "Try again" }, { status: 503 })
+            : Response.json({ id: "u", ...JSON.parse(options.body) });
+    });
+    await assert.rejects(saveProfileWithAccount("u", "alice", { username: "alice" }, "new@example.com"), /Данные аккаунта для входа сохранены/);
+    await saveProfileWithAccount("u", "alice", { username: "alice" }, "new@example.com");
+    assert.equal(email, "new@example.com");
+    assert.equal(calls.filter((call) => call.url.pathname === "/api/auth/me" && call.options.method === "PATCH").length, 1);
 });
 
 test("device geolocation returns map coordinates in longitude-latitude order", async (t) => {

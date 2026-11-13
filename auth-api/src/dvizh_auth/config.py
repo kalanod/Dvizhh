@@ -1,6 +1,7 @@
 from functools import lru_cache
+from secrets import token_urlsafe
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -9,7 +10,7 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+asyncpg://dvizh_auth:change-me@localhost:5432/dvizh_auth"
     require_database: bool = False
 
-    jwt_secret: str = Field("dev-only-change-me-please-32-bytes-min", min_length=32)
+    jwt_secret: str = Field(default_factory=lambda: token_urlsafe(48), min_length=32)
     jwt_algorithm: str = "HS256"
     jwt_issuer: str = "dvizh-auth"
     jwt_audience: str = "dvizh-api"
@@ -28,6 +29,11 @@ class Settings(BaseSettings):
     password_hash_concurrency: int = Field(4, ge=1, le=64)
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+    @field_validator("jwt_secret", mode="before")
+    @classmethod
+    def temporary_secret_when_blank(cls, value: object) -> object:
+        return token_urlsafe(48) if isinstance(value, str) and not value.strip() else value
 
 
 @lru_cache
