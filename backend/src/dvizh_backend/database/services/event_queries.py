@@ -8,6 +8,7 @@ from sqlalchemy import Date, Select, case, cast, delete, exists, func, or_, sele
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...dto.event import EventPersonalStateDTO
+from ...dto.tag import CategoryDTO, EventTagDTO
 from ..models import (
     Event,
     EventDismissal,
@@ -15,12 +16,13 @@ from ..models import (
     EventMedia,
     EventOccurrence,
     EventParticipation,
-    EventTopic,
+    EventTag,
     Friendship,
     Location,
     MediaAsset,
     Profile,
-    Topic,
+    Tag,
+    TagCategory,
 )
 from ..models.enums import (
     EventMediaRole,
@@ -32,6 +34,8 @@ from ..models.enums import (
     OccurrenceStatus,
     ParticipationStatus,
 )
+from .exceptions import InvalidTagSelectionError
+from .tags import TagRepository
 
 # Количество участников проведения со статусом «иду».
 going_count = (
@@ -78,7 +82,7 @@ class EventQueryService:
         self,
         *,
         text_query: str | None = None,
-        tag: str | None = None,
+        tag_id: UUID | None = None,
         date_from: date | None = None,
         date_to: date | None = None,
         free_only: bool = False,
@@ -103,12 +107,12 @@ class EventQueryService:
         if text_query:
             tsquery = func.websearch_to_tsquery("russian", text_query)
             statement = statement.where(Event.search_document.op("@@")(tsquery))
-        if tag:
+        if tag_id is not None:
             statement = statement.where(
                 exists().where(
-                    EventTopic.event_id == Event.id,
-                    EventTopic.topic_id == Topic.id,
-                    Topic.slug == tag,
+                    EventTag.event_id == Event.id,
+                    EventTag.tag_id == Tag.id,
+                    Tag.id == tag_id,
                 )
             )
         if date_from is not None:
@@ -299,17 +303,26 @@ class EventQueryService:
             )
         )
 
-    async def topic_slugs(self, event_ids: Iterable[UUID]) -> dict[UUID, list[str]]:
-        result = await self.session.execute(
-            select(EventTopic.event_id, Topic.slug)
-            .join(Topic, Topic.id == EventTopic.topic_id)
-            .where(EventTopic.event_id.in_(list(event_ids)))
-            .order_by(Topic.slug)
+    async def event_tags(self, event_ids: Iterable[UUID]) -> dict[UUID, list[EventTagDTO]]:
+        rows = await self.session.execute(
+            select(EventTag.event_id, Tag, TagCategory)
+            .join(Tag, Tag.id == EventTag.tag_id)
+            .join(TagCategory, TagCategory.id == Tag.category_id)
+            .where(EventTag.event_id.in_(list(event_ids)))
+            .order_by(TagCategory.sort_order, Tag.sort_order, Tag.name, Tag.id)
         )
-        slugs: dict[UUID, list[str]] = {}
-        for event_id, slug in result:
-            slugs.setdefault(event_id, []).append(slug)
-        return slugs
+        result: dict[UUID, list[EventTagDTO]] = {}
+        for event_id, tag, category in rows:
+            result.setdefault(event_id, []).append(
+                EventTagDTO(
+                    id=tag.id,
+                    slug=tag.slug,
+                    name=tag.name,
+                    is_active=tag.is_active,
+                    category=CategoryDTO.model_validate(category),
+                )
+            )
+        return result
 
     async def locations(self, location_ids: Iterable[UUID]) -> dict[UUID, Location]:
         result = await self.session.scalars(
@@ -321,26 +334,33 @@ class EventQueryService:
         result = await self.session.scalars(select(Profile).where(Profile.id.in_(list(user_ids))))
         return {profile.id: profile for profile in result}
 
-    async def ensure_topics(self, slugs: Sequence[str]) -> list[UUID]:
-        """Return topic IDs for the slugs, creating the topics that do not exist yet."""
-        if not slugs:
+    async def validate_tags(
+        self,
+        tag_ids: Sequence[UUID],
+        *,
+        event_id: UUID | None = None,
+    ) -> list[UUID]:
+        if len(tag_ids) > 5 or len(set(tag_ids)) != len(tag_ids):
+            raise InvalidTagSelectionError("Choose at most five unique tags")
+        if not tag_ids:
             return []
-        result = await self.session.execute(
-            select(Topic.slug, Topic.id).where(Topic.slug.in_(slugs))
-        )
-        ids = {slug: topic_id for slug, topic_id in result}
-        new_topics = [Topic(slug=slug, name=slug) for slug in slugs if slug not in ids]
-        if new_topics:
-            self.session.add_all(new_topics)
-            await self.session.flush()
-            ids.update({topic.slug: topic.id for topic in new_topics})
-        return [ids[slug] for slug in slugs]
+        tags = await TagRepository(self.session).selected(tag_ids)
+        if len(tags) != len(tag_ids):
+            raise InvalidTagSelectionError("One or more tags do not exist")
+        existing = set()
+        if event_id is not None:
+            existing = set(
+                await self.session.scalars(
+                    select(EventTag.tag_id).where(EventTag.event_id == event_id)
+                )
+            )
+        if any(not tag.is_active and tag.id not in existing for tag in tags):
+            raise InvalidTagSelectionError("Inactive tags cannot be newly assigned")
+        return list(tag_ids)
 
-    async def replace_topics(self, event_id: UUID, topic_ids: Iterable[UUID]) -> None:
-        await self.session.execute(delete(EventTopic).where(EventTopic.event_id == event_id))
-        self.session.add_all(
-            EventTopic(event_id=event_id, topic_id=topic_id) for topic_id in topic_ids
-        )
+    async def replace_tags(self, event_id: UUID, tag_ids: Iterable[UUID]) -> None:
+        await self.session.execute(delete(EventTag).where(EventTag.event_id == event_id))
+        self.session.add_all(EventTag(event_id=event_id, tag_id=tag_id) for tag_id in tag_ids)
         await self.session.flush()
 
     @staticmethod

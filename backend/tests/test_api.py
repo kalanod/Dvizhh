@@ -26,6 +26,7 @@ from dvizh_backend.dto.event import (
     LocationDTO,
     UpdateEventDTO,
 )
+from dvizh_backend.dto.tag import CategoryDTO, EventTagDTO
 from dvizh_backend.main import app
 from dvizh_backend.routers.errors import STATUS_BY_ERROR
 from dvizh_backend.routers.users import UserCreate
@@ -103,7 +104,7 @@ def test_event_columns_are_normalized() -> None:
     event = UpdateEventDTO(
         title="  Настолки ",
         starts_at=STARTS_AT,
-        tags=["Игры", "игры ", ""],
+        tag_ids=[EVENT_ID],
         price_min=0,
         location=LOCATION,
     )
@@ -111,7 +112,7 @@ def test_event_columns_are_normalized() -> None:
     columns = event.event_columns()
 
     assert columns["title"] == "Настолки"
-    assert event.tags == ["игры"]
+    assert event.tag_ids == [EVENT_ID]
     assert columns["price_type"] == EventPriceType.FREE
     assert columns["price_min"] is None
     assert columns["currency"] is None
@@ -130,7 +131,7 @@ def test_feed_query_compiles_for_postgres_with_all_filters() -> None:
         session.execute.return_value = []
         await EventQueryService(session).list_public(
             text_query="настолки",
-            tag="игры",
+            tag_id=EVENT_ID,
             date_from=date(2026, 10, 1),
             date_to=date(2026, 10, 31),
             free_only=True,
@@ -179,7 +180,19 @@ def make_event_service() -> EventService:
     )
     service.profiles.get_by_id = AsyncMock(return_value=profile)
     service.queries.get_primary = AsyncMock(return_value=EventRow(event, occurrence, 3))
-    service.queries.topic_slugs = AsyncMock(return_value={EVENT_ID: ["игры"]})
+    service.queries.event_tags = AsyncMock(
+        return_value={
+            EVENT_ID: [
+                EventTagDTO(
+                    id=EVENT_ID,
+                    slug="games",
+                    name="Игры",
+                    is_active=True,
+                    category=CategoryDTO(id=USER_ID, name="Игры", color="#123456", sort_order=0),
+                )
+            ]
+        }
+    )
     service.queries.locations = AsyncMock(return_value={})
     service.queries.profiles = AsyncMock(return_value={USER_ID: profile})
     service.queries.covers = AsyncMock(return_value={})
@@ -193,7 +206,7 @@ def test_event_is_assembled_from_event_occurrence_and_lookups() -> None:
 
         assert event.occurrence_id == OCCURRENCE_ID
         assert event.starts_at == STARTS_AT
-        assert event.tags == ["игры"]
+        assert event.tags[0].name == "Игры"
         assert event.participants_count == 3
         assert event.organizer is not None
         assert event.organizer.username == "first"
@@ -215,8 +228,8 @@ def test_personal_state_changes_do_not_create_event_update_notifications() -> No
         service.events._require_manager = AsyncMock()
         service.events.update = AsyncMock()
         service._save_location = AsyncMock(return_value=None)
-        service.queries.ensure_topics = AsyncMock(return_value=[])
-        service.queries.replace_topics = AsyncMock()
+        service.queries.validate_tags = AsyncMock(return_value=[])
+        service.queries.replace_tags = AsyncMock()
         service.notifications.event_changed = AsyncMock()
         data = UpdateEventDTO(
             title=before.title,
@@ -237,7 +250,7 @@ def test_personal_state_changes_do_not_create_event_update_notifications() -> No
 def test_create_event_publishes_it_with_one_occurrence() -> None:
     async def scenario() -> None:
         service = make_event_service()
-        service.queries.ensure_topics = AsyncMock(return_value=[])
+        service.queries.validate_tags = AsyncMock(return_value=[])
         service.events.create_with_occurrence = AsyncMock()
         data = CreateEventDTO(
             title="Настолки",

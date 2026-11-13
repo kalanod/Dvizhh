@@ -307,9 +307,9 @@ def test_draft_publish_update_cancel_and_transactional_notifications() -> None:
                     "location",
                     "visibility",
                     "join_policy",
-                    "tags",
                 )
             }
+            updated["tag_ids"] = [tag["id"] for tag in card["tags"]]
             updated["title"] = "Changed title"
             assert (
                 await http.put(f"/api/events/{event_id}?actor_id={stranger}", json=updated)

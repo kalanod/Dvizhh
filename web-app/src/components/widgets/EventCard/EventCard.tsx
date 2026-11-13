@@ -89,7 +89,7 @@ export const EventCard = ({ event: initial, onTagClick, onPersonalChange, collap
                     <div className="flex w-full flex-wrap items-center justify-between gap-2 py-1">
                         <div className="flex flex-wrap gap-1">
                             {event.tags.map((tag) => (
-                                <Tag key={tag} label={tag} variant="topic" onClick={onTagClick ? () => onTagClick(tag) : undefined} />
+                                <Tag key={tag.id} label={tag.name} color={tag.category.color} onClick={onTagClick ? () => onTagClick(tag.id) : undefined} />
                             ))}
                         </div>
                         <PersonalToggles event={event} onChange={handlePersonalChange} />

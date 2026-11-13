@@ -1,10 +1,10 @@
 from contextlib import asynccontextmanager
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 import jwt
 from fastapi import FastAPI, HTTPException, Request, Response, status
-from pydantic import BaseModel, EmailStr, Field, SecretStr
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, SecretStr
 
 from .config import get_settings
 from .database import Database, SessionDep
@@ -31,6 +31,8 @@ async def health() -> dict[str, str]:
     return {"status": "ok", "service": "auth-api"}
 
 class RegisterRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     email: EmailStr
     password: SecretStr = Field(
         min_length=settings.password_min_length,
@@ -41,6 +43,10 @@ class RegisterRequest(BaseModel):
 class RegisterResponse(BaseModel):
     id: UUID
     email: str
+
+
+class CurrentAccountResponse(RegisterResponse):
+    is_admin: bool
 
 
 @app.post(
@@ -85,7 +91,7 @@ async def login(data: LoginRequest, session: SessionDep) -> Response:
         )
 
     ttl = settings.access_token_ttl_seconds
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     access_token = jwt.encode(
         {
             "sub": str(account.id),
@@ -110,8 +116,8 @@ async def login(data: LoginRequest, session: SessionDep) -> Response:
     )
     return response
 
-@app.get("/api/auth/me", response_model=RegisterResponse)
-async def current_account(request: Request, session: SessionDep) -> RegisterResponse:
+@app.get("/api/auth/me", response_model=CurrentAccountResponse)
+async def current_account(request: Request, session: SessionDep) -> CurrentAccountResponse:
     from .models import Account
 
     try:
@@ -129,7 +135,7 @@ async def current_account(request: Request, session: SessionDep) -> RegisterResp
     account = await session.get(Account, account_id)
     if account is None:
         raise HTTPException(status_code=401, detail="Authentication required")
-    return RegisterResponse(id=account.id, email=account.email)
+    return CurrentAccountResponse(id=account.id, email=account.email, is_admin=account.is_admin)
 
 
 @app.post("/api/auth/logout", status_code=204)

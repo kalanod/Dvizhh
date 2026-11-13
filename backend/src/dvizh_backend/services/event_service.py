@@ -55,7 +55,7 @@ class EventService:
         self,
         *,
         text_query: str | None = None,
-        tag: str | None = None,
+        tag_id: UUID | None = None,
         date_from: date | None = None,
         date_to: date | None = None,
         free_only: bool = False,
@@ -69,7 +69,7 @@ class EventService:
             await self._require_active_profile(viewer_id)
         rows = await self.queries.list_public(
             text_query=text_query.strip() if text_query and text_query.strip() else None,
-            tag=tag.strip().lower() if tag and tag.strip() else None,
+            tag_id=tag_id,
             date_from=date_from,
             date_to=date_to,
             free_only=free_only,
@@ -196,8 +196,8 @@ class EventService:
             **data.event_columns(),
         )
         occurrence = EventOccurrence(**data.occurrence_columns())
-        topic_ids = await self.queries.ensure_topics(data.tags)
-        await self.events.create_with_occurrence(event, occurrence, topic_ids=topic_ids)
+        tag_ids = await self.queries.validate_tags(data.tag_ids)
+        await self.events.create_with_occurrence(event, occurrence, tag_ids=tag_ids)
         return await self.get_event(event.id, viewer_id=data.organizer_id)
 
     async def list_drafts(
@@ -239,7 +239,9 @@ class EventService:
         await self.events.update(row.event, location_id=location_id, **data.event_columns())
         if location_id is None and previous_location_id is not None:
             await self._delete_location(previous_location_id)
-        await self.queries.replace_topics(event_id, await self.queries.ensure_topics(data.tags))
+        await self.queries.replace_tags(
+            event_id, await self.queries.validate_tags(data.tag_ids, event_id=event_id)
+        )
         after = await self.get_event(event_id, viewer_id=actor_id)
         before_data = before.model_dump(mode="json", exclude={"personal_state"})
         after_data = after.model_dump(mode="json", exclude={"personal_state"})
@@ -341,7 +343,7 @@ class EventService:
         if not rows:
             return []
         events = [row.event for row in rows]
-        tags = await self.queries.topic_slugs(event.id for event in events)
+        tags = await self.queries.event_tags(event.id for event in events)
         locations = await self.queries.locations(
             event.location_id for event in events if event.location_id is not None
         )

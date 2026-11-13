@@ -7,7 +7,7 @@ from .catalog import (
     MediaAssetService,
     OrganizationService,
     ProfileService,
-    TopicService,
+    TagService,
 )
 from .engagement import EngagementService, InvitationService
 from .events import EventService
@@ -26,5 +26,5 @@ __all__ = [
     "OrganizationService",
     "ParticipationService",
     "ProfileService",
-    "TopicService",
+    "TagService",
 ]

@@ -23,6 +23,8 @@ from dvizh_backend.database.models.enums import (
     ParticipationStatus,
 )
 
+from .tag import EventTagDTO
+
 
 class UserSummaryDTO(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -65,7 +67,9 @@ class UpdateEventDTO(BaseModel):
 
     title: str = Field(min_length=1, max_length=200, description="Название события.")
     description: str = Field("", description="Описание события.")
-    tags: list[str] = Field(default_factory=list, description="Тематики (теги) события.")
+    tag_ids: list[UUID] = Field(
+        default_factory=list, max_length=5, description="Тематики (теги) события."
+    )
 
     starts_at: AwareDatetime = Field(description="Начало события (с часовым поясом).")
     ends_at: AwareDatetime | None = Field(None, description="Окончание события.")
@@ -129,13 +133,12 @@ class UpdateEventDTO(BaseModel):
             raise ValueError("Название не может быть пустым.")
         return value
 
-    @field_validator("tags")
+    @field_validator("tag_ids")
     @classmethod
-    def normalize_tags(cls, value: list[str]) -> list[str]:
-        tags = list(dict.fromkeys(tag.strip().lower() for tag in value if tag.strip()))
-        if any(len(tag) > 80 for tag in tags):
-            raise ValueError("Тег не может быть длиннее 80 символов.")
-        return tags
+    def unique_tags(cls, value: list[UUID]) -> list[UUID]:
+        if len(value) != len(set(value)):
+            raise ValueError("Tag IDs must be unique")
+        return value
 
     @field_validator("timezone")
     @classmethod
@@ -210,7 +213,7 @@ class EventDTO(BaseModel):
     slug: str
     title: str
     description: str
-    tags: list[str]
+    tags: list[EventTagDTO]
     starts_at: datetime
     ends_at: datetime | None
     timezone: str

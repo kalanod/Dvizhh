@@ -15,7 +15,7 @@ export const listEvents = (filters: EventFilters = {}, signal?: AbortSignal) =>
         signal,
         query: {
             q: filters.q,
-            tag: filters.tag,
+            tag_id: filters.tagId,
             from: filters.from,
             to: filters.to,
             free_only: filters.freeOnly,

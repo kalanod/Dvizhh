@@ -2,7 +2,7 @@ from uuid import UUID
 
 from sqlalchemy import select
 
-from ..models import ExternalSource, Location, MediaAsset, Organization, Profile, Topic
+from ..models import ExternalSource, Location, MediaAsset, Organization, Profile, Tag
 from ..models.enums import ProfileStatus
 from .base import BaseCRUDService
 
@@ -44,8 +44,8 @@ class OrganizationService(BaseCRUDService[Organization]):
     model = Organization
 
 
-class TopicService(BaseCRUDService[Topic]):
-    model = Topic
+class TagService(BaseCRUDService[Tag]):
+    model = Tag
 
 
 class LocationService(BaseCRUDService[Location]):
