@@ -33,7 +33,7 @@ async def list_events(
     q: Annotated[
         str | None, Query(description="Полнотекстовый поиск по названию и описанию.")
     ] = None,
-    tag: Annotated[str | None, Query(description="Тематика (тег) события.")] = None,
+    tag_id: Annotated[uuid.UUID | None, Query(description="Тематика (тег) события.")] = None,
     date_from: Annotated[
         date | None,
         Query(
@@ -72,7 +72,7 @@ async def list_events(
 ) -> list[EventDTO]:
     return await events.list_public(
         text_query=q,
-        tag=tag,
+        tag_id=tag_id,
         date_from=date_from,
         date_to=date_to,
         free_only=free_only,

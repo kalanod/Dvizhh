@@ -8,6 +8,7 @@ import { emptyForm, formToInput, validateForm, type EventFormState } from "./for
 import type { EventCoverChange } from "../../../utils/media";
 import { EventCoverField } from "./EventCoverField";
 import { EventLocationField } from "./EventLocationField";
+import { EventTagField } from "./EventTagField";
 
 interface EventFormProps {
     title: string;
@@ -95,9 +96,7 @@ export const EventForm = ({ title, submitLabel, initial, allowDraft, userId, ini
                         onChange={set("description")}
                     />
                 </FormField>
-                <FormField label="Тематики" htmlFor="tags" hint="Через запятую: походы, природа, выходные">
-                    <Input id="tags" placeholder="походы, природа" value={form.tags} onChange={set("tags")} />
-                </FormField>
+                <EventTagField selected={form.tags} initialTags={initial?.tags} disabled={submitting} onChange={set("tags")} />
             </Section>
 
             <Section title="Когда">

@@ -39,7 +39,7 @@ export const EVENT_STATUS_LABELS: Record<EventStatus, string> = {
 const CHANGED_FIELD_LABELS: Record<string, string> = {
     title: "название",
     description: "описание",
-    tags: "тематики",
+    tags: "теги",
     starts_at: "время начала",
     ends_at: "время окончания",
     timezone: "часовой пояс",

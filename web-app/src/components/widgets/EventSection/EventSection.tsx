@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { errorText, listEvents } from "../../../api";
 import { useAsync, useCurrentUser, useEventFilters } from "../../../hooks";
 import { Button, Input, Tag } from "../../ui";
@@ -21,7 +21,7 @@ export const EventSection = ({ title }: EventSectionProps) => {
 
     const query = {
         q: filters.q,
-        tag: filters.tag,
+        tagId: filters.tagId,
         from: filters.from,
         to: filters.to,
         freeOnly: filters.freeOnly,
@@ -31,19 +31,6 @@ export const EventSection = ({ title }: EventSectionProps) => {
         limit,
     };
     const { data: events, error, loading } = useAsync((signal) => listEvents(query, signal), JSON.stringify(query));
-
-    const suggestedTags = useMemo(() => {
-        const counts = new Map<string, number>();
-        for (const event of events ?? []) {
-            for (const tag of event.tags) {
-                counts.set(tag, (counts.get(tag) ?? 0) + 1);
-            }
-        }
-        return [...counts.entries()]
-            .sort((a, b) => b[1] - a[1])
-            .slice(0, 15)
-            .map(([tag]) => tag);
-    }, [events]);
 
     const applyFilters = (patch: Parameters<typeof setFilters>[0]) => {
         setLimit(PAGE_SIZE);
@@ -66,7 +53,7 @@ export const EventSection = ({ title }: EventSectionProps) => {
 
     const activeChips = [
         filters.q && `«${filters.q}»`,
-        filters.tag && filters.tag,
+        filters.tagId && (events?.flatMap((event) => event.tags).find((tag) => tag.id === filters.tagId)?.name ?? "Фильтр по тегу"),
         filters.from && `с ${new Date(filters.from).toLocaleDateString("ru-RU")}`,
         filters.to && `по ${new Date(filters.to).toLocaleDateString("ru-RU")}`,
         filters.freeOnly && "бесплатные",
@@ -131,7 +118,7 @@ export const EventSection = ({ title }: EventSectionProps) => {
                     loading={loading}
                     error={error ? errorText(error) : null}
                     emptyText={activeChips.length > 0 ? "Под эти фильтры ничего не нашлось" : "Событий пока нет — создайте первый движ!"}
-                    onTagClick={(tag) => applyFilters({ tag })}
+                    onTagClick={(tagId) => applyFilters({ tagId })}
                     collapseDismissed
                     footer={
                         hasMore && !loading ? (
@@ -152,7 +139,6 @@ export const EventSection = ({ title }: EventSectionProps) => {
                 activeCount={activeCount}
                 onChange={applyFilters}
                 onClear={handleClearAllFilters}
-                suggestedTags={suggestedTags}
                 canFilterByFriends={Boolean(userId)}
             >
                 {/* На телефоне и планшете превью календаря скрыто: оно отодвигало бы ленту, а календарь есть в меню. */}

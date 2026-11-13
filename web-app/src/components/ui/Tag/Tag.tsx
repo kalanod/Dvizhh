@@ -1,4 +1,6 @@
 /** Варианты тегов шаблона, переосмысленные для событий. */
+import { tagColorStyle } from "../../../utils/tags";
+
 export type TagVariant = "topic" | "format" | "price" | "free" | "policy" | "muted";
 
 interface TagProps {
@@ -6,6 +8,7 @@ interface TagProps {
     variant?: TagVariant;
     className?: string;
     onClick?: () => void;
+    color?: string;
 }
 
 const variantClassMap: Record<TagVariant, string> = {
@@ -17,8 +20,9 @@ const variantClassMap: Record<TagVariant, string> = {
     muted: "bg-secondary text-textthird",
 };
 
-export const Tag = ({ label, variant = "topic", className = "", onClick }: TagProps) => {
-    const classes = `inline-flex h-[20px] w-fit items-center justify-center whitespace-nowrap rounded-lg px-[6px] ${variantClassMap[variant]} ${className}`;
+export const Tag = ({ label, variant = "topic", className = "", onClick, color }: TagProps) => {
+    const classes = `inline-flex min-h-[20px] max-w-full w-fit items-center justify-center rounded-lg px-[6px] ${color ? "border text-textprimary" : variantClassMap[variant]} ${className}`;
+    const style = color ? tagColorStyle(color) : undefined;
     const content = <span className="text-small">{label}</span>;
 
     if (onClick) {
@@ -30,11 +34,12 @@ export const Tag = ({ label, variant = "topic", className = "", onClick }: TagPr
                     onClick();
                 }}
                 className={`${classes} cursor-pointer transition-opacity hover:opacity-80`}
+                style={style}
             >
                 {content}
             </button>
         );
     }
 
-    return <div className={classes}>{content}</div>;
+    return <div className={classes} style={style}>{content}</div>;
 };

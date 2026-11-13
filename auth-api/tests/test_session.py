@@ -1,5 +1,5 @@
 import unittest
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 from uuid import uuid4
@@ -13,8 +13,8 @@ from dvizh_auth.main import current_account, logout, settings
 
 class SessionTests(unittest.IsolatedAsyncioTestCase):
     async def test_cookie_identity_requires_valid_signature_and_expiry(self):
-        account = SimpleNamespace(id=uuid4(), email="session@example.com")
-        now = datetime.now(timezone.utc)
+        account = SimpleNamespace(id=uuid4(), email="session@example.com", is_admin=False)
+        now = datetime.now(UTC)
         claims = dict(sub=str(account.id), iss=settings.jwt_issuer,
                       aud=settings.jwt_audience, iat=now,
                       exp=now + timedelta(minutes=5))
@@ -34,6 +34,11 @@ class SessionTests(unittest.IsolatedAsyncioTestCase):
         request = Request({"type": "http", "headers": [
             (b"cookie", f"dvizh_access={valid}".encode())]})
         self.assertEqual((await current_account(request, session)).id, account.id)
+        self.assertFalse((await current_account(request, session)).is_admin)
+        account.is_admin = True
+        self.assertTrue((await current_account(request, session)).is_admin)
+        account.is_admin = False
+        self.assertFalse((await current_account(request, session)).is_admin)
         session.get.return_value = None
         with self.assertRaises(HTTPException):
             await current_account(request, session)

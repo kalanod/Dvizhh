@@ -1,4 +1,5 @@
 import type { UserSummary } from "./user";
+import type { EventTag } from "./tag";
 
 export type EventFormat = "OFFLINE" | "ONLINE" | "HYBRID";
 export type EventPriceType = "FREE" | "PAID";
@@ -29,7 +30,7 @@ export interface DvizhEvent {
     slug: string;
     title: string;
     description: string;
-    tags: string[];
+    tags: EventTag[];
     starts_at: string;
     ends_at: string | null;
     timezone: string;
@@ -67,7 +68,7 @@ export interface EventLocationInput {
 export interface EventInput {
     title: string;
     description: string;
-    tags: string[];
+    tag_ids: string[];
     starts_at: string;
     ends_at: string | null;
     timezone: string;
@@ -97,7 +98,7 @@ export interface Participant {
 /** Параметры ленты GET /api/events. */
 export interface EventFilters {
     q?: string;
-    tag?: string;
+    tagId?: string;
     from?: string;
     to?: string;
     freeOnly?: boolean;
