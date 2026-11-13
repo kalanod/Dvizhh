@@ -1,5 +1,6 @@
 export * from "./client";
 export * from "./events";
+export * from "./tags";
 export * from "./media";
 export * from "./personal";
 export * from "./users";

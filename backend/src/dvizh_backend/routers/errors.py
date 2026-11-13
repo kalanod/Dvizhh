@@ -5,6 +5,7 @@ from ..database.services.exceptions import (
     CapacityReachedError,
     EntityNotFoundError,
     InvalidStateTransitionError,
+    InvalidTagSelectionError,
     JoinUnavailableError,
     PermissionDeniedError,
 )
@@ -22,9 +23,12 @@ from ..services.media_errors import (
     MediaUnavailableError,
     StorageUnavailableError,
 )
+from ..services.tag_service import CatalogConflictError
 
 STATUS_BY_ERROR: dict[type[Exception], int] = {
     InvalidImageError: 415,
+    CatalogConflictError: 409,
+    InvalidTagSelectionError: 422,
     MediaTooLargeError: 413,
     MediaUnavailableError: 409,
     StorageUnavailableError: 503,

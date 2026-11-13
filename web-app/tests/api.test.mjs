@@ -23,11 +23,13 @@ for (const name of [
     "api/profileAccount",
     "api/personal",
     "api/events",
+    "api/tags",
     "api/media",
     "api/eventCover",
     "api/profileImage",
     "utils/media",
     "utils/format",
+    "utils/tags",
     "components/widgets/EventCard/EventCoverMicro",
     "components/ui/Avatar/Avatar",
     "api/maps",
@@ -50,6 +52,8 @@ const auth = require(join(output, "api/auth.js"));
 const { registerProfile } = require(join(output, "api/registration.js"));
 const { saveProfileWithAccount } = require(join(output, "api/profileAccount.js"));
 const api = require(join(output, "api/events.js"));
+const catalog = require(join(output, "api/tags.js"));
+const { toggleEventTag, MAX_EVENT_TAGS, tagColorStyle } = require(join(output, "utils/tags.js"));
 const media = require(join(output, "api/media.js"));
 const { createEventSaver } = require(join(output, "api/eventCover.js"));
 const { createAvatarSaver } = require(join(output, "api/profileImage.js"));
@@ -209,6 +213,42 @@ test("email saved before a profile failure produces a recoverable partial-save m
     await saveProfileWithAccount("u", "alice", { username: "alice" }, "new@example.com");
     assert.equal(email, "new@example.com");
     assert.equal(calls.filter((call) => call.url.pathname === "/api/auth/me" && call.options.method === "PATCH").length, 1);
+});
+
+test("tag selection limits new choices and allows removing inactive tags", () => {
+    const category = { id: "category-1", name: "Nature", color: "#228844", sort_order: 0 };
+    const tags = Array.from({ length: 6 }, (_, index) => ({
+        id: `tag-${index}`, slug: `tag-${index}`, name: `Tag ${index}`, is_active: true, category,
+    }));
+    let selected = [];
+    for (const tag of tags) selected = toggleEventTag(selected, tag);
+    assert.equal(selected.length, MAX_EVENT_TAGS);
+    assert.equal(selected.some((tag) => tag.id === tags[5].id), false);
+    selected = toggleEventTag(selected, tags[0]);
+    selected = toggleEventTag(selected, tags[5]);
+    assert.equal(selected.length, MAX_EVENT_TAGS);
+    assert.equal(selected.some((tag) => tag.id === tags[5].id), true);
+    const inactive = { ...tags[0], is_active: false };
+    assert.deepEqual(toggleEventTag([inactive], inactive), []);
+    assert.deepEqual(toggleEventTag([], inactive), []);
+    const form = { ...emptyForm(), title: "Meeting", startsAt: "2030-01-01T12:00", address: "Street", tags };
+    assert.match(validateForm(form), /пяти тегов/);
+    const body = formToInput({ ...form, tags: [tags[0], tags[0], tags[1]] });
+    assert.deepEqual(body.tag_ids, [tags[0].id, tags[1].id]);
+    assert.equal("tags" in body, false);
+    assert.deepEqual(formFromEvent({ ...body, tags: [inactive] }).tags, [inactive]);
+    assert.deepEqual(tagColorStyle("not a color"), { backgroundColor: "#64748b20", borderColor: "#64748b" });
+});
+
+test("tag catalog and feed filter use stable IDs", async (t) => {
+    const calls = recordFetch(t, () => Response.json([]));
+    const controller = new AbortController();
+    await catalog.listTags(controller.signal);
+    await api.listEvents({ tagId: "tag-id", limit: 20 });
+    assert.equal(calls[0].url.pathname, "/api/tags");
+    assert.equal(calls[0].options.signal, controller.signal);
+    assert.equal(calls[1].url.searchParams.get("tag_id"), "tag-id");
+    assert.equal(calls[1].url.searchParams.has("tag"), false);
 });
 
 test("device geolocation returns map coordinates in longitude-latitude order", async (t) => {

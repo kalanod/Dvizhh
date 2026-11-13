@@ -20,3 +20,7 @@ class CapacityReachedError(DatabaseDomainError):
 
 class JoinUnavailableError(DatabaseDomainError):
     pass
+
+
+class InvalidTagSelectionError(Exception):
+    pass

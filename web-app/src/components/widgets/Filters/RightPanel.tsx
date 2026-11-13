@@ -1,15 +1,16 @@
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { AccordionFilter } from "./AccordionFilter";
-import { FormField, Input, Tag, Toggle } from "../../ui";
+import { Button, FormField, Input, Notice, Toggle } from "../../ui";
 import type { FeedFilters } from "../../../hooks";
+import { useAsync } from "../../../hooks";
+import { errorText, listTags } from "../../../api";
+import { tagColorStyle } from "../../../utils/tags";
 
 interface RightPanelProps {
     filters: FeedFilters;
     activeCount: number;
     onChange: (patch: Partial<FeedFilters>) => void;
     onClear: () => void;
-    /** Тематики, встречающиеся в текущей выдаче — для быстрого выбора. */
-    suggestedTags: string[];
     canFilterByFriends: boolean;
     children?: ReactNode;
 }
@@ -19,10 +20,17 @@ export const RightPanel = ({
     activeCount,
     onChange,
     onClear,
-    suggestedTags,
     canFilterByFriends,
     children,
-}: RightPanelProps) => (
+}: RightPanelProps) => {
+    const catalog = useAsync(listTags, "filter-tag-catalog");
+    const [tagSearch, setTagSearch] = useState("");
+    const query = tagSearch.trim().toLocaleLowerCase("ru");
+    const categories = (catalog.data ?? []).map((category) => ({
+        ...category,
+        tags: category.tags.filter((tag) => `${category.name} ${tag.name}`.toLocaleLowerCase("ru").includes(query)),
+    })).filter((category) => category.tags.length > 0);
+    return (
     <div className="flex w-full flex-col gap-[10px] max-lg:order-first lg:w-[300px] lg:shrink-0">
         {children}
 
@@ -45,27 +53,43 @@ export const RightPanel = ({
                 </FormField>
             </AccordionFilter>
 
-            <AccordionFilter title="Тематики" activeCount={Number(Boolean(filters.tag))}>
+            <AccordionFilter title="Теги" activeCount={Number(Boolean(filters.tagId))}>
                 <Input
-                    placeholder="Поиск (Тематики)..."
-                    aria-label="Тематика"
-                    value={filters.tag}
-                    onChange={(tag) => onChange({ tag: tag.toLowerCase() })}
+                    placeholder="Найти тег…"
+                    aria-label="Поиск тегов"
+                    value={tagSearch}
+                    onChange={setTagSearch}
                 />
-                {suggestedTags.length > 0 ? (
-                    <div className="flex max-h-[300px] flex-wrap gap-2 overflow-y-auto">
-                        {suggestedTags.map((tag) => (
-                            <Tag
-                                key={tag}
-                                label={tag}
-                                variant={filters.tag === tag ? "free" : "topic"}
-                                onClick={() => onChange({ tag: filters.tag === tag ? "" : tag })}
-                            />
-                        ))}
+                {filters.tagId && <Button onClick={() => onChange({ tagId: "" })}>Снять фильтр по тегу</Button>}
+                {catalog.loading && <p role="status" className="text-small text-textsecondary">Загружаем теги…</p>}
+                {catalog.error != null && (
+                    <div className="flex flex-col items-start gap-2">
+                        <Notice tone="error">{errorText(catalog.error)}</Notice>
+                        <Button onClick={catalog.reload}>Повторить загрузку тегов</Button>
                     </div>
-                ) : (
-                    <div className="px-2 py-2 text-center text-sm text-textsecondary">Ничего не найдено</div>
                 )}
+                <div className="flex max-h-[400px] flex-col gap-3 overflow-y-auto p-1">
+                    {categories.map((category) => (
+                        <div key={category.id} className="flex flex-col gap-2">
+                            <span className="text-small text-textsecondary">{category.name}</span>
+                            <div className="flex flex-wrap gap-2">
+                                {category.tags.map((tag) => (
+                                    <button
+                                        key={tag.id}
+                                        type="button"
+                                        aria-pressed={filters.tagId === tag.id}
+                                        onClick={() => onChange({ tagId: filters.tagId === tag.id ? "" : tag.id })}
+                                        className={`min-h-9 max-w-full cursor-pointer break-words rounded-lg border px-2 py-1 text-small text-textprimary focus-visible:outline-2 focus-visible:outline-offset-2 ${filters.tagId === tag.id ? "ring-2 ring-textprimary" : "hover:opacity-80"}`}
+                                        style={tagColorStyle(category.color)}
+                                    >
+                                        {filters.tagId === tag.id && <span aria-hidden="true">✓ </span>}{tag.name}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                    ))}
+                    {catalog.data && !categories.length && <p className="text-small text-textsecondary">Теги не найдены</p>}
+                </div>
             </AccordionFilter>
 
             <AccordionFilter
@@ -88,4 +112,5 @@ export const RightPanel = ({
             </AccordionFilter>
         </aside>
     </div>
-);
+    );
+};

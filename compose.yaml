@@ -245,7 +245,7 @@ services:
     volumes:
       - minio-data:/data
     ports:
-      - "9873:9873"
+      - "${MINIO_CONSOLE_PORT:-9873}:9873"
     healthcheck:
       test: ["CMD", "mc", "ready", "local"]
       interval: 5s

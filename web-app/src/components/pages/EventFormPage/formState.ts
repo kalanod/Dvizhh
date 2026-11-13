@@ -1,11 +1,12 @@
-import type { DvizhEvent, EventFormat, EventInput, EventJoinPolicy, EventVisibility } from "../../../models";
+import type { DvizhEvent, EventFormat, EventInput, EventJoinPolicy, EventTag, EventVisibility } from "../../../models";
+import { MAX_EVENT_TAGS } from "../../../utils/tags";
 import { browserTimeZone, fromDateTimeLocal, toDateTimeLocal } from "../../../utils/format";
 
 /** Состояние формы: все поля строками, как их отдают input-ы. */
 export interface EventFormState {
     title: string;
     description: string;
-    tags: string;
+    tags: EventTag[];
     startsAt: string;
     endsAt: string;
     isAllDay: boolean;
@@ -29,7 +30,7 @@ export interface EventFormState {
 export const emptyForm = (): EventFormState => ({
     title: "",
     description: "",
-    tags: "",
+    tags: [],
     startsAt: "",
     endsAt: "",
     isAllDay: false,
@@ -53,7 +54,7 @@ export const emptyForm = (): EventFormState => ({
 export const formFromEvent = (event: DvizhEvent): EventFormState => ({
     title: event.title,
     description: event.description,
-    tags: event.tags.join(", "),
+    tags: event.tags ?? [],
     startsAt: toDateTimeLocal(event.starts_at, event.timezone),
     endsAt: toDateTimeLocal(event.ends_at, event.timezone),
     isAllDay: event.is_all_day,
@@ -89,6 +90,7 @@ const money = (value: string) => {
 
 /** Проверки, которые удобнее показать до отправки; остальное валидирует backend. */
 export const validateForm = (form: EventFormState): string | null => {
+    if (new Set(form.tags.map((tag) => tag.id)).size > MAX_EVENT_TAGS) return "Можно выбрать не больше пяти тегов.";
     if (!/^[A-Z]{3}$/.test(form.currency)) return "Укажите трёхбуквенный код валюты.";
     try {
         new Intl.DateTimeFormat("en", { timeZone: form.timezone }).format();
@@ -113,10 +115,7 @@ export const formToInput = (form: EventFormState): EventInput => {
     return {
         title: form.title.trim(),
         description: form.description.trim(),
-        tags: form.tags
-            .split(",")
-            .map((tag) => tag.trim().replace(/^#/, ""))
-            .filter(Boolean),
+        tag_ids: [...new Set(form.tags.map((tag) => tag.id))],
         starts_at: fromDateTimeLocal(form.startsAt, form.timezone) ?? "",
         ends_at: fromDateTimeLocal(form.endsAt, form.timezone),
         timezone: form.timezone,

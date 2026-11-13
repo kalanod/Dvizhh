@@ -4,7 +4,7 @@ from uuid import UUID
 
 from sqlalchemy import Select, func, or_, select, update
 
-from ..models import Event, EventOccurrence, EventParticipation, EventTopic
+from ..models import Event, EventOccurrence, EventParticipation, EventTag
 from ..models.enums import (
     EventPriceType,
     EventStatus,
@@ -29,14 +29,14 @@ class EventService(BaseCRUDService[Event]):
         event: Event,
         occurrence: EventOccurrence,
         *,
-        topic_ids: Iterable[UUID] = (),
+        tag_ids: Iterable[UUID] = (),
     ) -> Event:
         self.session.add(event)
         await self.session.flush()
 
         occurrence.event_id = event.id
         self.session.add(occurrence)
-        self.session.add_all(EventTopic(event_id=event.id, topic_id=value) for value in topic_ids)
+        self.session.add_all(EventTag(event_id=event.id, tag_id=value) for value in tag_ids)
         await self.session.flush()
         return event
 
@@ -83,16 +83,16 @@ class EventService(BaseCRUDService[Event]):
         await self.session.refresh(event)
         return event
 
-    async def set_topics(
-        self, event_id: UUID, actor_user_id: UUID, topic_ids: Iterable[UUID]
+    async def set_tags(
+        self, event_id: UUID, actor_user_id: UUID, tag_ids: Iterable[UUID]
     ) -> None:
         event = await self._get_locked(event_id)
         await self._require_manager(event, actor_user_id)
         await self.session.execute(
-            EventTopic.__table__.delete().where(EventTopic.event_id == event.id)
+            EventTag.__table__.delete().where(EventTag.event_id == event.id)
         )
         self.session.add_all(
-            EventTopic(event_id=event.id, topic_id=topic_id) for topic_id in set(topic_ids)
+            EventTag(event_id=event.id, tag_id=tag_id) for tag_id in set(tag_ids)
         )
         await self.session.flush()
 
@@ -101,7 +101,7 @@ class EventService(BaseCRUDService[Event]):
         *,
         starts_from: datetime | None = None,
         starts_until: datetime | None = None,
-        topic_ids: Sequence[UUID] = (),
+        tag_ids: Sequence[UUID] = (),
         free_only: bool = False,
         available_only: bool = False,
         limit: int = 50,
@@ -122,9 +122,9 @@ class EventService(BaseCRUDService[Event]):
 
         if starts_until is not None:
             statement = statement.where(EventOccurrence.starts_at < starts_until)
-        if topic_ids:
-            statement = statement.join(EventTopic, EventTopic.event_id == Event.id).where(
-                EventTopic.topic_id.in_(topic_ids)
+        if tag_ids:
+            statement = statement.join(EventTag, EventTag.event_id == Event.id).where(
+                EventTag.tag_id.in_(tag_ids)
             )
         if free_only:
             statement = statement.where(Event.price_type == EventPriceType.FREE)
