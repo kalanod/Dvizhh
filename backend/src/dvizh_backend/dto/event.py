@@ -68,7 +68,7 @@ class UpdateEventDTO(BaseModel):
     title: str = Field(min_length=1, max_length=200, description="Название события.")
     description: str = Field("", description="Описание события.")
     tag_ids: list[UUID] = Field(
-        default_factory=list, max_length=5, description="Тематики (теги) события."
+        default_factory=list, max_length=5, description="Тематики события."
     )
 
     starts_at: AwareDatetime = Field(description="Начало события (с часовым поясом).")

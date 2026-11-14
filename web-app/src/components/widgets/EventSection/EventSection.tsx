@@ -53,7 +53,7 @@ export const EventSection = ({ title }: EventSectionProps) => {
 
     const activeChips = [
         filters.q && `«${filters.q}»`,
-        filters.tagId && (events?.flatMap((event) => event.tags).find((tag) => tag.id === filters.tagId)?.name ?? "Фильтр по тегу"),
+        filters.tagId && (events?.flatMap((event) => event.tags).find((tag) => tag.id === filters.tagId)?.name ?? "Фильтр по тематике"),
         filters.from && `с ${new Date(filters.from).toLocaleDateString("ru-RU")}`,
         filters.to && `по ${new Date(filters.to).toLocaleDateString("ru-RU")}`,
         filters.freeOnly && "бесплатные",

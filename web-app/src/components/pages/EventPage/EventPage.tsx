@@ -108,7 +108,7 @@ export const EventPage = () => {
                                 <span className="text-body text-textprimary">{VISIBILITY_LABELS[event.visibility]}</span>
                             </Row>
                             {event.tags.length > 0 && (
-                                <Row label="Теги">
+                                <Row label="Тематики">
                                     <div className="flex flex-wrap gap-2">
                                         {event.tags.map((tag) => (
                                             <Tag key={tag.id} label={tag.name} color={tag.category.color} onClick={() => navigate(`/?tag_id=${encodeURIComponent(tag.id)}`)} />

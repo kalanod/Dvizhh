@@ -5,13 +5,15 @@ from uuid import UUID
 
 import jwt
 from fastapi import FastAPI, HTTPException, Request, Response, status
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from .config import get_settings
 from .database import Database, SessionDep
 from .dependencies import require_account, require_account_write
-from .dto import LoginRequest, RegisterRequest, UpdateAccountRequest
-from .service import AccountConflictError, authenticate_account, register_account, update_account
+from .dto import ChangePasswordRequest, LoginRequest, RegisterRequest, UpdateAccountRequest
+from .service import AccountConflictError, AccountService, InvalidCurrentPasswordError
 
 settings = get_settings()
 
@@ -29,6 +31,15 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title=settings.app_name, lifespan=lifespan)
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_error(request: Request, error: RequestValidationError) -> JSONResponse:
+    # FastAPI otherwise echoes invalid password inputs in validation responses.
+    return JSONResponse(status_code=422, content={"detail": [
+        {"type": item["type"], "loc": item["loc"], "msg": item["msg"]}
+        for item in error.errors()
+    ]})
 
 
 @app.get("/health", tags=["system"])
@@ -51,25 +62,20 @@ async def register(
     data: RegisterRequest,
     session: SessionDep,
 ) -> RegisterResponse:
-    account = await register_account(
-        session,
-        username=data.username,
-        email=str(data.email) if data.email is not None else None,
-        password=data.password.get_secret_value(),
-    )
-    if account is None:
+    try:
+        account = await AccountService(session).register(data)
+    except AccountConflictError:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Username or email is already registered",
-        )
+        ) from None
 
     return RegisterResponse(id=account.id, username=account.username, email=account.email)
 
 
 @app.post("/api/auth/login", status_code=status.HTTP_204_NO_CONTENT)
 async def login(data: LoginRequest, session: SessionDep) -> Response:
-    account = await authenticate_account(
-        session,
+    account = await AccountService(session).authenticate(
         login=str(data.login),
         password=data.password.get_secret_value(),
     )
@@ -130,7 +136,7 @@ async def update_current_account(
     account = await require_account(request, session)
     require_account_write(request)
     try:
-        await update_account(session, account, data.model_dump(exclude_unset=True))
+        await AccountService(session).update(account, data)
     except AccountConflictError:
         raise HTTPException(
             status_code=409, detail="Username or email is already registered"
@@ -141,6 +147,21 @@ async def update_current_account(
         email=account.email,
         role=account.role.name,
     )
+
+
+@app.post("/api/auth/password", status_code=status.HTTP_204_NO_CONTENT)
+async def change_password(
+    data: ChangePasswordRequest,
+    request: Request,
+    session: SessionDep,
+) -> Response:
+    account = await require_account(request, session)
+    require_account_write(request)
+    try:
+        await AccountService(session).change_password(account.id, data)
+    except InvalidCurrentPasswordError:
+        raise HTTPException(status_code=400, detail="Invalid current password") from None
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @app.post("/api/auth/logout", status_code=204)

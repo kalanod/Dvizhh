@@ -53,19 +53,19 @@ export const RightPanel = ({
                 </FormField>
             </AccordionFilter>
 
-            <AccordionFilter title="Теги" activeCount={Number(Boolean(filters.tagId))}>
+            <AccordionFilter title="Тематики" activeCount={Number(Boolean(filters.tagId))}>
                 <Input
-                    placeholder="Найти тег…"
-                    aria-label="Поиск тегов"
+                    placeholder="Найти тематику…"
+                    aria-label="Поиск тематик"
                     value={tagSearch}
                     onChange={setTagSearch}
                 />
-                {filters.tagId && <Button onClick={() => onChange({ tagId: "" })}>Снять фильтр по тегу</Button>}
-                {catalog.loading && <p role="status" className="text-small text-textsecondary">Загружаем теги…</p>}
+                {filters.tagId && <Button onClick={() => onChange({ tagId: "" })}>Снять фильтр по тематике</Button>}
+                {catalog.loading && <p role="status" className="text-small text-textsecondary">Загружаем тематики…</p>}
                 {catalog.error != null && (
                     <div className="flex flex-col items-start gap-2">
                         <Notice tone="error">{errorText(catalog.error)}</Notice>
-                        <Button onClick={catalog.reload}>Повторить загрузку тегов</Button>
+                        <Button onClick={catalog.reload}>Повторить загрузку тематик</Button>
                     </div>
                 )}
                 <div className="flex max-h-[400px] flex-col gap-3 overflow-y-auto p-1">
@@ -88,7 +88,7 @@ export const RightPanel = ({
                             </div>
                         </div>
                     ))}
-                    {catalog.data && !categories.length && <p className="text-small text-textsecondary">Теги не найдены</p>}
+                    {catalog.data && !categories.length && <p className="text-small text-textsecondary">Тематики не найдены</p>}
                 </div>
             </AccordionFilter>
 

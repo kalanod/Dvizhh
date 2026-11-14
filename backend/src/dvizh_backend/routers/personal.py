@@ -1,9 +1,10 @@
 from typing import Annotated, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Request, Response
 from pydantic import BaseModel, ConfigDict
 
+from ..dto.account import AccountRequestContext, ChangePasswordCommand
 from ..dto.event import EventDTO
 from ..dto.invitation import CreateInvitationDTO, InvitationCardDTO, InvitationDTO
 from ..dto.user import FriendshipRequestDTO, ProfileDTO, UpdateProfileDTO
@@ -12,6 +13,19 @@ from ..services.dependencies import EventServiceDep, UserServiceDep
 router = APIRouter(prefix="/api", tags=["personal"])
 Offset = Annotated[int, Query(ge=0)]
 Limit = Annotated[int, Query(ge=1, le=100)]
+
+
+@router.post("/personal/password", status_code=204, summary="Сменить пароль аккаунта.")
+async def change_password(
+    body: ChangePasswordCommand, request: Request, users: UserServiceDep
+) -> Response:
+    await users.change_password(body, AccountRequestContext(
+        token=request.cookies.get("dvizh_access", ""),
+        host=request.headers.get("host", ""),
+        origin=request.headers.get("origin"),
+        write_header=request.headers.get("x-dvizh-account", ""),
+    ))
+    return Response(status_code=204)
 
 
 class ProfilePatch(UpdateProfileDTO):

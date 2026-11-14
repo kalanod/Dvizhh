@@ -7,6 +7,7 @@ from fastapi import FastAPI, Request
 from .config import get_settings
 from .database.database_service import DatabaseService
 from .routers import admin, events, friends, lifecycle, maps, media, personal, tags, users
+from .routers import settings as settings_router
 from .routers.errors import register_error_handlers
 from .storage import MediaStorage
 
@@ -41,6 +42,7 @@ app = FastAPI(
     lifespan=lifespan,
 )
 app.include_router(admin.router)
+app.include_router(settings_router.router)
 app.include_router(tags.router)
 app.include_router(users.router)
 app.include_router(friends.router)

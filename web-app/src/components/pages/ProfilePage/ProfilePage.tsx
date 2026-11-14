@@ -10,6 +10,7 @@ import { PeopleList } from "../../widgets";
 import { formatJoinedAt } from "../../../utils/format";
 import { ProfileEditor } from "./ProfileEditor";
 import { ProfileAvatarEditor } from "./ProfileAvatarEditor";
+import { PasswordEditor } from "./PasswordEditor";
 
 /** /profile — свой профиль, /users/:id — профиль другого пользователя. */
 export const ProfilePage = () => {
@@ -79,6 +80,7 @@ const ProfileDetailsSection = ({ profileId }: { profileId: string }) => {
                         </div>
                         {isMe && me && <ProfileEditor profile={profile} onSaved={updateUser} />}
                         {isMe && me && <ProfileAvatarEditor key={profile.id} profile={profile} onSaved={updateUser} />}
+                        {isMe && me && <PasswordEditor key={`password-${profile.id}`} />}
                     </div>
                 )}
 

@@ -6,6 +6,7 @@ export interface Account { id: string; username: string; email: string | null }
 export type AccountRole = "user" | "admin";
 export interface CurrentAccount extends Account { role: AccountRole }
 export interface UpdateAccountInput { username?: string; email?: string | null }
+export interface ChangePasswordInput { current_password: string; new_password: string }
 
 export const normalizeUsername = (username: string) => username.trim().toLowerCase();
 const normalizeEmail = (email?: string | null) => email?.trim().toLowerCase() || null;
@@ -28,3 +29,6 @@ export const updateAccount = (body: UpdateAccountInput) => request<CurrentAccoun
     },
 });
 export const logoutAccount = () => request<void>("/auth/logout", { method: "POST" });
+export const changePassword = (body: ChangePasswordInput) => request<void>("/personal/password", {
+    method: "POST", headers: { "X-Dvizh-Account": "1" }, body,
+});

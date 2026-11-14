@@ -34,7 +34,7 @@ export const EventTagField = ({ selected, initialTags = [], disabled, onChange }
                     style={tagColorStyle(tag.category.color)}
                 >
                     <span aria-hidden="true" className="w-4 shrink-0 text-center">{checked ? "✓" : "+"}</span>
-                    <span className="break-words">{tag.name}{unavailable ? " · отключён" : ""}</span>
+                    <span className="break-words">{tag.name}{unavailable ? " · отключена" : ""}</span>
                 </span>
             </label>
         );
@@ -42,15 +42,15 @@ export const EventTagField = ({ selected, initialTags = [], disabled, onChange }
 
     return (
         <fieldset className="flex min-w-0 flex-col gap-3">
-            <legend className="text-body text-textprimary">Теги</legend>
+            <legend className="text-body text-textprimary">Тематики</legend>
             <p className="text-small text-textsecondary" role="status" aria-live="polite">
-                Выбрано {selected.length} / {MAX_EVENT_TAGS}. {atLimit ? "Снимите тег, чтобы выбрать другой." : "Можно выбрать до пяти тегов или оставить без тегов."}
+                Выбрано {selected.length} / {MAX_EVENT_TAGS}. {atLimit ? "Снимите тематику, чтобы выбрать другую." : "Можно выбрать до пяти тематик или оставить без тематик."}
             </p>
-            {catalog.loading && <p role="status" className="text-small text-textsecondary">Загружаем теги…</p>}
+            {catalog.loading && <p role="status" className="text-small text-textsecondary">Загружаем тематики…</p>}
             {catalog.error != null && (
                 <div className="flex flex-col items-start gap-2">
                     <Notice tone="error">{errorText(catalog.error)}</Notice>
-                    <Button onClick={catalog.reload} disabled={disabled}>Повторить загрузку тегов</Button>
+                    <Button onClick={catalog.reload} disabled={disabled}>Повторить загрузку тематик</Button>
                 </div>
             )}
             {!catalog.data && initialTags.length > 0 && (
@@ -67,11 +67,11 @@ export const EventTagField = ({ selected, initialTags = [], disabled, onChange }
                 </fieldset>
             ))}
             {catalog.data && !catalog.data.some((category) => category.tags.length) && (
-                <p className="text-small text-textsecondary">Тегов пока нет. Событие можно сохранить без них.</p>
+                <p className="text-small text-textsecondary">Тематик пока нет. Событие можно сохранить без них.</p>
             )}
             {unavailable.length > 0 && (
                 <div className="flex flex-col gap-2">
-                    <p className="text-small text-textsecondary">Ранее выбранные отключённые теги можно сохранить или снять.</p>
+                    <p className="text-small text-textsecondary">Ранее выбранные отключённые тематики можно сохранить или снять.</p>
                     <div className="flex flex-wrap gap-2">{unavailable.map((tag) => tile(tag, true))}</div>
                 </div>
             )}

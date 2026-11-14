@@ -90,7 +90,7 @@ const money = (value: string) => {
 
 /** Проверки, которые удобнее показать до отправки; остальное валидирует backend. */
 export const validateForm = (form: EventFormState): string | null => {
-    if (new Set(form.tags.map((tag) => tag.id)).size > MAX_EVENT_TAGS) return "Можно выбрать не больше пяти тегов.";
+    if (new Set(form.tags.map((tag) => tag.id)).size > MAX_EVENT_TAGS) return "Можно выбрать не больше пяти тематик.";
     if (!/^[A-Z]{3}$/.test(form.currency)) return "Укажите трёхбуквенный код валюты.";
     try {
         new Intl.DateTimeFormat("en", { timeZone: form.timezone }).format();

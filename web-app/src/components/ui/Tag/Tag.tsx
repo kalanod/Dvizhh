@@ -1,4 +1,4 @@
-/** Варианты тегов шаблона, переосмысленные для событий. */
+/** Варианты меток шаблона, переосмысленные для событий. */
 import { tagColorStyle } from "../../../utils/tags";
 
 export type TagVariant = "topic" | "format" | "price" | "free" | "policy" | "muted";
