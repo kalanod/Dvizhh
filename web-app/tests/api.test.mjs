@@ -18,6 +18,8 @@ for (const name of [
     "api/paging",
     "api/client",
     "api/auth",
+    "api/settings",
+    "components/pages/AdminPanelPage/settingsState",
     "api/users",
     "api/registration",
     "api/profileAccount",
@@ -36,7 +38,7 @@ for (const name of [
     "utils/yandexMaps",
     "utils/geolocation",
 ]) {
-    const extension = name.startsWith("components/") && !name.endsWith("formState") ? "tsx" : "ts";
+    const extension = name.startsWith("components/") && !name.endsWith("formState") && !name.endsWith("settingsState") ? "tsx" : "ts";
     const source = readFileSync(new URL(`../src/${name}.${extension}`, import.meta.url), "utf8");
     const { outputText } = ts.transpileModule(source, {
         fileName: `${name}.${extension}`,
@@ -49,6 +51,8 @@ for (const name of [
 const require = createRequire(import.meta.url);
 const personal = require(join(output, "api/personal.js"));
 const auth = require(join(output, "api/auth.js"));
+const settings = require(join(output, "api/settings.js"));
+const settingsState = require(join(output, "components/pages/AdminPanelPage/settingsState.js"));
 const { registerProfile } = require(join(output, "api/registration.js"));
 const { saveProfileWithAccount } = require(join(output, "api/profileAccount.js"));
 const api = require(join(output, "api/events.js"));
@@ -73,6 +77,15 @@ after(() => {
     assert.equal(dirname(output), resolve(testRoot));
     assert.ok(basename(output).startsWith("dvizh-api-test-"));
     rmSync(output, { recursive: true, force: true });
+});
+
+test("password change delegates through backend with unchanged secrets and protected writes", async (t) => {
+    const calls = recordFetch(t, () => new Response(null, { status: 204 }));
+    await auth.changePassword({ current_password: " old password ", new_password: " new password " });
+    assert.equal(calls[0].url.pathname, "/api/personal/password");
+    assert.equal(calls[0].options.method, "POST");
+    assert.equal(calls[0].options.headers["X-Dvizh-Account"], "1");
+    assert.deepEqual(JSON.parse(calls[0].options.body), { current_password: " old password ", new_password: " new password " });
 });
 
 test("account API uses username or email login, optional email and protected updates", async (t) => {
@@ -232,7 +245,7 @@ test("tag selection limits new choices and allows removing inactive tags", () =>
     assert.deepEqual(toggleEventTag([inactive], inactive), []);
     assert.deepEqual(toggleEventTag([], inactive), []);
     const form = { ...emptyForm(), title: "Meeting", startsAt: "2030-01-01T12:00", address: "Street", tags };
-    assert.match(validateForm(form), /пяти тегов/);
+    assert.match(validateForm(form), /пяти тематик/);
     const body = formToInput({ ...form, tags: [tags[0], tags[0], tags[1]] });
     assert.deepEqual(body.tag_ids, [tags[0].id, tags[1].id]);
     assert.equal("tags" in body, false);
@@ -817,6 +830,110 @@ test("event edits preserve currency and local time in a different zone", () => {
     assert.equal(formToInput(form).starts_at, original.starts_at);
     assert.notEqual(validateForm({ ...form, timezone: "Invalid/Zone" }), null);
     assert.notEqual(validateForm({ ...form, currency: "XX" }), null);
+});
+
+function settingsDocument() {
+    return { schema_version: 2, tabs: [{ id: "catalog", label: "Каталог", cards: [{ id: "catalog.edit", title: "Записи", actions: [
+        { id: "save", type: "button", label: "Сохранить все", action_id: "tag.save", tone: "primary", validate_fields: true, rows: "changed" },
+    ], rows: [{ id: "tag.one", elements: [
+        { id: "title", type: "text", text: "Tag", tone: "normal" },
+        { id: "name", type: "input", label: "Имя", input_type: "text", value: "Original", required: true, max_length: 120 },
+        { id: "category", type: "select", label: "Категория", value: "a", required: true, options: [{ value: "a", label: "A" }, { value: "b", label: "B" }] },
+        { id: "active", type: "toggle", label: "Активен", value: true },
+        { id: "password", type: "input", label: "Пароль", input_type: "password", value: "", required: true, min_length: 8, max_length: 128 },
+        { id: "confirmation", type: "input", label: "Подтверждение", input_type: "password", value: "", required: true, matches: "password" },
+        { id: "delete", type: "button", label: "Удалить", action_id: "tag.delete.one", tone: "danger", validate_fields: false, rows: "all" },
+    ] }] }] }] };
+}
+
+test("settings API validates cards and sends one versioned protected batch command", async (t) => {
+    const document = settingsDocument();
+    const calls = recordFetch(t, (url) => Response.json(url.pathname.includes("/actions/")
+        ? { schema_version: 2, message: "Saved", document, applied_rows: ["tag.one"] } : document));
+    const controller = new AbortController();
+    assert.deepEqual(await settings.getSettingsDocument(controller.signal), document);
+    const rows = { "tag.one": { password: " secret value ", confirmation: " secret value ", active: false } };
+    const result = await settings.executeSettingsAction("tag.save", rows, controller.signal);
+    assert.equal(result.message, "Saved");
+    assert.deepEqual(result.applied_rows, ["tag.one"]);
+    assert.equal(calls[0].url.pathname, "/api/settings");
+    assert.equal(calls[1].url.pathname, "/api/settings/actions/tag.save");
+    assert.equal(calls[1].options.method, "POST");
+    assert.equal(calls[1].options.headers["X-Dvizh-Admin"], "1");
+    assert.equal(calls[1].options.headers["X-Dvizh-Account"], "1");
+    assert.deepEqual(JSON.parse(calls[1].body), { schema_version: 2, rows });
+    assert.equal(calls[1].options.signal, controller.signal);
+    assert.equal(calls[0].options.signal, controller.signal);
+});
+
+test("settings schema fails closed for unknown types, versions, duplicate IDs and leaked secrets", () => {
+    const changes = [
+        (doc) => { doc.schema_version = 1; },
+        (doc) => { doc.schema_version = 3; },
+        (doc) => { doc.tabs[0].cards[0].rows[0].elements[0].type = "html"; },
+        (doc) => { doc.tabs.push(structuredClone(doc.tabs[0])); },
+        (doc) => { doc.tabs[0].cards.push(structuredClone(doc.tabs[0].cards[0])); },
+        (doc) => { doc.tabs[0].cards[0].rows.push(structuredClone(doc.tabs[0].cards[0].rows[0])); },
+        (doc) => { doc.tabs[0].cards[0].rows[0].elements[1].id = "title"; },
+        (doc) => { doc.tabs[0].cards[0].rows[0].elements[2].value = "not-an-option"; },
+        (doc) => { doc.tabs[0].cards[0].rows[0].elements[4].value = "server-secret"; },
+        (doc) => { doc.tabs[0].cards[0].rows[0].elements[5].matches = "missing"; },
+        (doc) => { doc.tabs[0].cards[0].rows[0].elements[1].pattern = "["; },
+        (doc) => { doc.tabs[0].cards[0].rows[0].elements[6].action_id = "https://evil.example"; },
+        (doc) => { doc.tabs[0].cards[0].rows[0].elements[6].action_id = "tag.save"; },
+        (doc) => { doc.tabs[0].cards[0].actions[0].rows = "unknown"; },
+    ];
+    for (const change of changes) {
+        const doc = settingsDocument(); change(doc);
+        assert.throws(() => settings.parseSettingsDocument(doc), settings.SettingsProtocolError);
+    }
+    assert.deepEqual(settings.parseSettingsDocument({ schema_version: 2, tabs: [] }).tabs, []);
+    const emptyCard = settingsDocument(); emptyCard.tabs[0].cards[0].rows = [];
+    assert.equal(settings.parseSettingsDocument(emptyCard).tabs[0].cards[0].rows.length, 0);
+});
+
+test("settings refresh retains unrelated drafts, removes stale selects and never retains password fields", () => {
+    const document = settingsDocument();
+    const row = document.tabs[0].cards[0].rows[0];
+    document.tabs[0].cards[0].rows.push({ ...structuredClone(row), id: "tag.two" });
+    const drafts = {
+        "tag.one": { name: "Unsaved", category: "b", active: false, password: "must-not-retain", confirmation: "must-not-retain" },
+        "tag.two": { name: "Completed" },
+        removed: { name: "Removed" },
+    };
+    assert.deepEqual(settingsState.reconcileSettingsDrafts(document, drafts, ["tag.two"]), {
+        "tag.one": { name: "Unsaved", category: "b", active: false },
+    });
+    row.elements.find((element) => element.id === "category").options.pop();
+    assert.deepEqual(settingsState.reconcileSettingsDrafts(document, drafts, ["tag.two"]), {
+        "tag.one": { name: "Unsaved", active: false },
+    });
+});
+
+test("settings fields validate confirmations and toggle types without trimming passwords", () => {
+    const row = settingsDocument().tabs[0].cards[0].rows[0];
+    const values = { ...settingsState.rowValues(row), password: " secret value ", confirmation: " secret value " };
+    assert.equal(settingsState.validateSettingsValues(row, values), null);
+    assert.ok(settingsState.validateSettingsValues(row, { ...values, confirmation: "secret value" }));
+    assert.ok(settingsState.validateSettingsValues(row, { ...values, active: "false" }));
+    assert.ok(settingsState.validateSettingsValues(row, { ...values, password: "short" }));
+});
+
+test("card actions send only dirty rows, include full field sets and ignore reverted edits", () => {
+    const card = settingsDocument().tabs[0].cards[0];
+    card.rows.push({ ...structuredClone(card.rows[0]), id: "tag.two" });
+    const action = card.actions[0];
+    assert.deepEqual(settingsState.cardActionRows(card, action, {}), {});
+    assert.deepEqual(settingsState.cardActionRows(card, action, { "tag.one": { name: "Original" } }), {});
+    const changed = settingsState.cardActionRows(card, action, { "tag.two": { name: "Changed" }, foreign: { name: "Do not send" } });
+    assert.deepEqual(Object.keys(changed), ["tag.two"]);
+    assert.deepEqual(changed["tag.two"], { ...settingsState.rowValues(card.rows[1]), name: "Changed" });
+    assert.deepEqual(Object.keys(settingsState.cardActionRows(card, { ...action, rows: "all" }, {})), ["tag.one", "tag.two"]);
+});
+
+test("batch response cannot acknowledge or clear unrelated drafts", async (t) => {
+    recordFetch(t, () => Response.json({ schema_version: 2, message: "Saved", document: settingsDocument(), applied_rows: ["foreign"] }));
+    await assert.rejects(settings.executeSettingsAction("tag.save", { "tag.one": { name: "Changed" } }), settings.SettingsProtocolError);
 });
 
 test("draft submit button passes its action to the native button", () => {

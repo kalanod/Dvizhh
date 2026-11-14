@@ -33,7 +33,7 @@ async def list_events(
     q: Annotated[
         str | None, Query(description="Полнотекстовый поиск по названию и описанию.")
     ] = None,
-    tag_id: Annotated[uuid.UUID | None, Query(description="Тематика (тег) события.")] = None,
+    tag_id: Annotated[uuid.UUID | None, Query(description="Тематика события.")] = None,
     date_from: Annotated[
         date | None,
         Query(

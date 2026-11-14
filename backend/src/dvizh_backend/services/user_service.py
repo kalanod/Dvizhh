@@ -8,6 +8,7 @@ from dvizh_backend.database.models import Friendship, Profile
 from dvizh_backend.database.models.enums import FriendshipStatus, MediaStatus, ProfileStatus
 from dvizh_backend.database.services.catalog import MediaAssetService, ProfileService
 from dvizh_backend.database.services.social import FriendshipService
+from dvizh_backend.dto.account import AccountRequestContext, ChangePasswordCommand
 from dvizh_backend.dto.user import (
     CreateProfileDTO,
     FriendshipDTO,
@@ -16,6 +17,7 @@ from dvizh_backend.dto.user import (
     UpdateProfileDTO,
 )
 
+from .account_gateway import AccountGateway
 from .errors import (
     AvatarUnavailableError,
     FriendshipStateError,
@@ -30,13 +32,23 @@ class UserService:
     """Profile and friendship rules within one request-scoped database transaction.
 
     The caller supplies an authenticated user ID. Credential checks and token handling
-    belong to auth-api; this service owns only the core domain profile.
+    belong to auth-api; account commands are delegated through the account gateway.
+    This service owns the core domain profile and coordinates user operations.
     """
 
-    def __init__(self, session: AsyncSession) -> None:
+    def __init__(self, session: AsyncSession, accounts: AccountGateway | None = None) -> None:
         self.profiles = ProfileService(session)
         self.friendships = FriendshipService(session)
         self.media = MediaAssetService(session)
+        self.accounts = accounts
+
+    async def change_password(
+        self, command: ChangePasswordCommand, context: AccountRequestContext
+    ) -> None:
+        """Delegate credentials to auth-api without inspecting or storing them."""
+        if self.accounts is None:
+            raise RuntimeError("Account gateway is not configured")
+        await self.accounts.change_password(command, context)
 
     async def create_profile(self, data: CreateProfileDTO) -> ProfileDTO:
         if await self.profiles.get_by_id(data.id) is not None:

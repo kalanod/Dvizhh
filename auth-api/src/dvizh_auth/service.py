@@ -1,13 +1,14 @@
-from secrets import token_urlsafe
+﻿from secrets import token_urlsafe
+from uuid import UUID
 
 from pwdlib import PasswordHash
-from sqlalchemy import Select, select
-from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.concurrency import run_in_threadpool
 
+from .dto import ChangePasswordRequest, RegisterRequest, UpdateAccountRequest
 from .models import USER_ROLE_ID, Account
+from .repository import AccountRepository
 
 password_hasher = PasswordHash.recommended()
 
@@ -23,58 +24,53 @@ class AccountConflictError(Exception):
     pass
 
 
-def account_statement(identifier: str) -> Select[tuple[Account]]:
-    normalized = identifier.strip().lower()
-    column = Account.email if "@" in normalized else Account.username
-    return select(Account).where(column == normalized)
+class InvalidCurrentPasswordError(Exception):
+    pass
 
 
-async def authenticate_account(
-    session: AsyncSession,
-    login: str,
-    password: str,
-) -> Account | None:
-    account = await session.scalar(account_statement(login))
+class AccountService:
+    """Account rules, independent of HTTP and backend profile storage.
 
-    stored_hash = account.password_hash if account is not None else dummy_password_hash
-    password_matches = await run_in_threadpool(
-        password_hasher.verify,
-        password,
-        stored_hash,
-    )
+    The caller owns the transaction; repositories only read and persist data.
+    """
 
-    if not password_matches:
-        return None
+    def __init__(self, session: AsyncSession) -> None:
+        self.accounts = AccountRepository(session)
 
-    return account
+    async def authenticate(self, login: str, password: str) -> Account | None:
+        account = await self.accounts.find(login.strip().lower())
+        stored_hash = account.password_hash if account is not None else dummy_password_hash
+        matches = await run_in_threadpool(password_hasher.verify, password, stored_hash)
+        return account if matches else None
 
+    async def register(self, data: RegisterRequest) -> Account:
+        password_hash = await run_in_threadpool(hash_password, data.password.get_secret_value())
+        account = await self.accounts.create(
+            username=data.username,
+            email=str(data.email) if data.email is not None else None,
+            password_hash=password_hash,
+            role_id=USER_ROLE_ID,
+        )
+        if account is None:
+            raise AccountConflictError
+        return account
 
-async def register_account(
-    session: AsyncSession,
-    username: str,
-    email: str | None,
-    password: str,
-) -> Account | None:
-    username = username.strip().lower()
-    email = email.strip().lower() if email else None
-    password_hash = await run_in_threadpool(hash_password, password)
+    async def update(self, account: Account, data: UpdateAccountRequest) -> None:
+        try:
+            await self.accounts.update(account, data.model_dump(exclude_unset=True))
+        except IntegrityError:
+            raise AccountConflictError from None
 
-    statement = (
-        insert(Account)
-        .values(username=username, email=email, password_hash=password_hash, role_id=USER_ROLE_ID)
-        .on_conflict_do_nothing()
-        .returning(Account)
-    )
-    return await session.scalar(statement)
-
-
-async def update_account(session: AsyncSession, account: Account, fields: dict) -> None:
-    try:
-        async with session.begin_nested():
-            for name, value in fields.items():
-                if name not in {"username", "email"}:
-                    raise ValueError("Unknown account field")
-                setattr(account, name, value)
-            await session.flush()
-    except IntegrityError:
-        raise AccountConflictError from None
+    async def change_password(self, account_id: UUID, data: ChangePasswordRequest) -> None:
+        account = await self.accounts.get_for_update(account_id)
+        if account is None:
+            raise InvalidCurrentPasswordError
+        matches = await run_in_threadpool(
+            password_hasher.verify, data.current_password.get_secret_value(), account.password_hash
+        )
+        if not matches:
+            raise InvalidCurrentPasswordError
+        account.password_hash = await run_in_threadpool(
+            hash_password, data.new_password.get_secret_value()
+        )
+        await self.accounts.flush()

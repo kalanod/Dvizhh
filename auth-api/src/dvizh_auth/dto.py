@@ -30,6 +30,9 @@ Username = Annotated[
     BeforeValidator(normalize_text),
 ]
 OptionalEmail = Annotated[EmailStr | None, BeforeValidator(normalize_email)]
+NewPassword = Annotated[
+    SecretStr, Field(min_length=get_settings().password_min_length, max_length=128)
+]
 
 
 class RegisterRequest(BaseModel):
@@ -37,7 +40,7 @@ class RegisterRequest(BaseModel):
 
     username: Username
     email: OptionalEmail = None
-    password: SecretStr = Field(min_length=get_settings().password_min_length, max_length=128)
+    password: NewPassword
 
 
 class LoginRequest(BaseModel):
@@ -65,3 +68,10 @@ class UpdateAccountRequest(BaseModel):
         if not self.model_fields_set:
             raise ValueError("Provide username or email")
         return self
+
+
+class ChangePasswordRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    current_password: SecretStr = Field(min_length=1, max_length=128)
+    new_password: NewPassword

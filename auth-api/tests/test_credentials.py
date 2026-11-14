@@ -13,9 +13,11 @@ from starlette.requests import Request
 from dvizh_auth.database import Database
 from dvizh_auth.dependencies import require_account_write
 from dvizh_auth.main import (
+    ChangePasswordRequest,
     LoginRequest,
     RegisterRequest,
     UpdateAccountRequest,
+    change_password,
     current_account,
     login,
     register,
@@ -193,6 +195,29 @@ def test_registration_login_and_authenticated_account_changes() -> None:
                         session,
                     )
                 ).status_code == 204
+            async with database.session() as session:
+                with pytest.raises(HTTPException) as error:
+                    await change_password(
+                        ChangePasswordRequest(
+                            current_password="wrong", new_password="new-password"
+                        ),
+                        account_request(cookie), session,
+                    )
+                assert error.value.status_code == 400
+            async with database.session() as session:
+                assert (await change_password(
+                    ChangePasswordRequest(current_password=password, new_password=" new-password "),
+                    account_request(cookie), session,
+                )).status_code == 204
+            async with database.session() as session:
+                with pytest.raises(HTTPException) as error:
+                    await login(LoginRequest(login=new_username, password=password), session)
+                assert error.value.status_code == 401
+                assert (await login(
+                    LoginRequest(login=new_username, password=" new-password "), session,
+                )).status_code == 204
+                # Existing cookies retain their documented lifetime.
+                assert (await current_account(account_request(cookie), session)).id == first.id
         finally:
             await database.dispose()
 
