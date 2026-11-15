@@ -77,13 +77,13 @@ export const formatAgo = (iso: string, now = Date.now()) => {
 const sameDay =(a: Date, b: Date, timeZone: string) =>
     a.toLocaleDateString("ru-RU", { timeZone }) === b.toLocaleDateString("ru-RU", { timeZone });
 
-/** «сб, 25 окт · 19:00–22:00» в часовом поясе события. */
+/** «сб, 25 окт. 2025 г. · 19:00–22:00» в часовом поясе события. */
 export const formatEventDate = (event: Pick<DvizhEvent, "starts_at" | "ends_at" | "is_all_day" | "timezone">) => {
     const timeZone = event.timezone || undefined;
     const start = new Date(event.starts_at);
     const end = event.ends_at ? new Date(event.ends_at) : null;
     const day = (date: Date) =>
-        date.toLocaleDateString("ru-RU", { timeZone, weekday: "short", day: "numeric", month: "short" });
+        date.toLocaleDateString("ru-RU", { timeZone, weekday: "short", day: "numeric", month: "short", year: "numeric" });
     const time = (date: Date) => date.toLocaleTimeString("ru-RU", { timeZone, hour: "2-digit", minute: "2-digit" });
 
     if (event.is_all_day) {

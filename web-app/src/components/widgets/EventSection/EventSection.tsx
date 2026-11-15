@@ -16,7 +16,13 @@ interface EventSectionProps {
 export const EventSection = ({ title }: EventSectionProps) => {
     const { userId } = useCurrentUser();
     const { filters, setFilters, clearFilters, activeCount } = useEventFilters();
-    const [searchValue, setSearchValue] = useState(filters.q);
+    const [searchDraft, setSearchDraft] = useState({ query: filters.q, value: filters.q });
+    const searchValue = searchDraft.query === filters.q ? searchDraft.value : filters.q;
+    const setSearchValue = (value: string) => setSearchDraft({ query: filters.q, value });
+    // Переход по хештегу и история браузера обновляют URL без размонтирования ленты.
+    if (searchDraft.query !== filters.q) {
+        setSearchDraft({ query: filters.q, value: filters.q });
+    }
     const [limit, setLimit] = useState(PAGE_SIZE);
 
     const query = {

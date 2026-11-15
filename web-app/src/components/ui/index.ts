@@ -7,3 +7,4 @@ export * from "./Notice";
 export * from "./Tag";
 export * from "./Toggle";
 export * from "./ImagePicker";
+export * from "./EventTitle/EventTitle";
