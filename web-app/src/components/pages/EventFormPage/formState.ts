@@ -1,6 +1,7 @@
 import type { DvizhEvent, EventFormat, EventInput, EventJoinPolicy, EventTag, EventVisibility } from "../../../models";
 import { MAX_EVENT_TAGS } from "../../../utils/tags";
 import { browserTimeZone, fromDateTimeLocal, toDateTimeLocal } from "../../../utils/format";
+import { placeCoordinates, placeFromLocation, placeToLocation, textPlace, type EventPlaceValue } from "./eventPlace";
 
 /** Состояние формы: все поля строками, как их отдают input-ы. */
 export interface EventFormState {
@@ -12,16 +13,10 @@ export interface EventFormState {
     isAllDay: boolean;
     timezone: string;
     format: EventFormat;
-    placeName: string;
-    city: string;
-    address: string;
-    latitude: string;
-    longitude: string;
+    place: EventPlaceValue;
     onlineUrl: string;
     registrationUrl: string;
-    currency: string;
-    priceMin: string;
-    priceMax: string;
+    price: string;
     capacity: string;
     visibility: EventVisibility;
     joinPolicy: EventJoinPolicy;
@@ -36,16 +31,10 @@ export const emptyForm = (): EventFormState => ({
     isAllDay: false,
     timezone: browserTimeZone(),
     format: "OFFLINE",
-    placeName: "",
-    city: "",
-    address: "",
-    latitude: "",
-    longitude: "",
+    place: textPlace(),
     onlineUrl: "",
     registrationUrl: "",
-    currency: "RUB",
-    priceMin: "",
-    priceMax: "",
+    price: "",
     capacity: "",
     visibility: "PUBLIC",
     joinPolicy: "OPEN",
@@ -60,16 +49,10 @@ export const formFromEvent = (event: DvizhEvent): EventFormState => ({
     isAllDay: event.is_all_day,
     timezone: event.timezone,
     format: event.format,
-    placeName: event.location?.name ?? "",
-    city: event.location?.city ?? "",
-    address: event.location?.address_line ?? "",
-    latitude: event.location?.latitude ?? "",
-    longitude: event.location?.longitude ?? "",
+    place: placeFromLocation(event.location),
     onlineUrl: event.online_url ?? "",
     registrationUrl: event.registration_url ?? "",
-    currency: event.currency ?? "RUB",
-    priceMin: event.price_min ?? "",
-    priceMax: event.price_max ?? "",
+    price: event.price_min ?? "",
     capacity: event.capacity?.toString() ?? "",
     visibility: event.visibility,
     joinPolicy: event.join_policy,
@@ -77,65 +60,54 @@ export const formFromEvent = (event: DvizhEvent): EventFormState => ({
 
 const orNull = (value: string) => value.trim() || null;
 
-const coordinate = (value: string) => {
-    if (!value.trim()) return null;
-    const number = Number(value.replace(",", "."));
-    return Number.isFinite(number) ? number.toFixed(6) : value;
-};
-
 const money = (value: string) => {
     const trimmed = value.trim().replace(",", ".");
     return trimmed === "" ? null : trimmed;
 };
 
 /** Проверки, которые удобнее показать до отправки; остальное валидирует backend. */
-export const validateForm = (form: EventFormState): string | null => {
+export const validateForm = (form: EventFormState, timezone = form.timezone): string | null => {
     if (new Set(form.tags.map((tag) => tag.id)).size > MAX_EVENT_TAGS) return "Можно выбрать не больше пяти тематик.";
-    if (!/^[A-Z]{3}$/.test(form.currency)) return "Укажите трёхбуквенный код валюты.";
     try {
-        new Intl.DateTimeFormat("en", { timeZone: form.timezone }).format();
-        fromDateTimeLocal(form.startsAt, form.timezone);
-        fromDateTimeLocal(form.endsAt, form.timezone);
+        new Intl.DateTimeFormat("en", { timeZone: timezone }).format();
+        fromDateTimeLocal(form.startsAt, timezone);
+        fromDateTimeLocal(form.endsAt, timezone);
     } catch { return "Проверьте часовой пояс и время: выбранное время может не существовать при переходе на летнее время."; }
     if (!form.title.trim()) return "Укажите название.";
     if (!form.startsAt) return "Укажите, когда начинается событие.";
     if (form.endsAt && form.endsAt <= form.startsAt) return "Окончание должно быть позже начала.";
-    if (form.format !== "ONLINE" && !form.address.trim() && (!form.latitude.trim() || !form.longitude.trim())) {
+    const location = placeToLocation(form.place);
+    if (form.format !== "ONLINE" && !location?.address_line && !placeCoordinates(form.place)) {
         return "Укажите адрес или выберите место события на карте.";
     }
+    if (form.format !== "ONLINE" && form.place.kind === "text" && form.place.text.trim().length > 500) return "Описание места должно быть не длиннее 500 символов.";
+    if (form.format !== "ONLINE" && form.place.kind === "resolved" && (form.place.location.latitude || form.place.location.longitude) && !placeCoordinates(form.place)) return "Проверьте точку места события на карте.";
     if (form.format !== "OFFLINE" && !form.onlineUrl.trim()) return "Добавьте ссылку на трансляцию.";
-    if (form.priceMax.trim() && !form.priceMin.trim()) return "Укажите цену «от», если задаёте цену «до».";
     return null;
 };
 
-export const formToInput = (form: EventFormState): EventInput => {
+export const formToInput = (form: EventFormState, timezone = form.timezone): EventInput => {
     const capacity = form.capacity.trim() === "" ? null : Number(form.capacity);
-    const priceMin = money(form.priceMin);
+    const price = money(form.price);
 
     return {
         title: form.title.trim(),
         description: form.description.trim(),
         tag_ids: [...new Set(form.tags.map((tag) => tag.id))],
-        starts_at: fromDateTimeLocal(form.startsAt, form.timezone) ?? "",
-        ends_at: fromDateTimeLocal(form.endsAt, form.timezone),
-        timezone: form.timezone,
+        starts_at: fromDateTimeLocal(form.startsAt, timezone) ?? "",
+        ends_at: fromDateTimeLocal(form.endsAt, timezone),
+        timezone,
         is_all_day: form.isAllDay,
         format: form.format,
         location:
             form.format === "ONLINE"
                 ? null
-                : {
-                      name: orNull(form.placeName),
-                      city: orNull(form.city),
-                      address_line: orNull(form.address),
-                      latitude: coordinate(form.latitude),
-                      longitude: coordinate(form.longitude),
-                  },
+                : placeToLocation(form.place),
         online_url: form.format === "OFFLINE" ? null : orNull(form.onlineUrl),
         registration_url: orNull(form.registrationUrl),
-        price_min: priceMin,
-        price_max: priceMin ? money(form.priceMax) : null,
-        currency: form.currency,
+        price_min: price,
+        price_max: null,
+        currency: "RUB",
         capacity: capacity !== null && Number.isFinite(capacity) ? capacity : null,
         visibility: form.visibility,
         join_policy: form.joinPolicy,

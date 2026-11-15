@@ -15,6 +15,7 @@ writeFileSync(join(output, "package.json"), '{"type":"commonjs"}');
 for (const name of [
     "components/ui/Button/Button",
     "components/pages/EventFormPage/formState",
+    "components/pages/EventFormPage/eventPlace",
     "api/paging",
     "api/client",
     "api/auth",
@@ -38,7 +39,7 @@ for (const name of [
     "utils/yandexMaps",
     "utils/geolocation",
 ]) {
-    const extension = name.startsWith("components/") && !name.endsWith("formState") && !name.endsWith("settingsState") ? "tsx" : "ts";
+    const extension = name.startsWith("components/") && !["formState", "settingsState", "eventPlace"].some((suffix) => name.endsWith(suffix)) ? "tsx" : "ts";
     const source = readFileSync(new URL(`../src/${name}.${extension}`, import.meta.url), "utf8");
     const { outputText } = ts.transpileModule(source, {
         fileName: `${name}.${extension}`,
@@ -66,6 +67,7 @@ const { mediaContentUrl, validateCoverFile } = require(join(output, "utils/media
 const { EventCoverMicro, EventCoverMain } = require(join(output, "components/widgets/EventCard/EventCoverMicro.js"));
 const { ApiError } = require(join(output, "api/client.js"));
 const maps = require(join(output, "api/maps.js"));
+const places = require(join(output, "components/pages/EventFormPage/eventPlace.js"));
 const { currentCoordinates } = require(join(output, "utils/geolocation.js"));
 const { locationCoordinates, loadYandexMaps, reportMapError } = require(join(output, "utils/yandexMaps.js"));
 const { emptyForm, formToInput, formFromEvent, validateForm } = require(join(output, "components/pages/EventFormPage/formState.js"));
@@ -244,7 +246,7 @@ test("tag selection limits new choices and allows removing inactive tags", () =>
     const inactive = { ...tags[0], is_active: false };
     assert.deepEqual(toggleEventTag([inactive], inactive), []);
     assert.deepEqual(toggleEventTag([], inactive), []);
-    const form = { ...emptyForm(), title: "Meeting", startsAt: "2030-01-01T12:00", address: "Street", tags };
+    const form = { ...emptyForm(), title: "Meeting", startsAt: "2030-01-01T12:00", place: places.textPlace("Street"), tags };
     assert.match(validateForm(form), /пяти тематик/);
     const body = formToInput({ ...form, tags: [tags[0], tags[0], tags[1]] });
     assert.deepEqual(body.tag_ids, [tags[0].id, tags[1].id]);
@@ -296,12 +298,11 @@ test("geolocation denial, unavailable position and timeout produce readable erro
 
 test("venue selection preserves latitude and longitude across API, form and map", () => {
     const form = { ...emptyForm(), title: "Встреча", startsAt: "2026-12-01T18:00" };
-    assert.equal(form.latitude, "");
-    assert.equal(form.longitude, "");
+    assert.equal(places.placeCoordinates(form.place), null);
     assert.match(validateForm(form), /Укажите адрес/);
-    Object.assign(form, {
+    form.place = places.placeFromGeocode({
         latitude: "59.9390954", longitude: "30.3158682",
-        city: "Санкт-Петербург", address: "Невский проспект, 1", placeName: "Вход со двора",
+        city: "Санкт-Петербург", address_line: "Невский проспект, 1", name: "Вход со двора",
     });
     assert.equal(validateForm(form), null);
     const body = formToInput(form);
@@ -311,12 +312,12 @@ test("venue selection preserves latitude and longitude across API, form and map"
     });
     assert.deepEqual(locationCoordinates(body.location.latitude, body.location.longitude), [30.315868, 59.939095]);
     const restored = formFromEvent(body);
-    assert.equal(restored.address, form.address);
-    assert.equal(restored.latitude, body.location.latitude);
+    assert.deepEqual(places.placeToLocation(restored.place), body.location);
+    assert.equal(restored.place.text, "Вход со двора, Невский проспект, 1, Санкт-Петербург");
     form.format = "ONLINE";
     form.onlineUrl = "https://example.org/meet";
     assert.equal(formToInput(form).location, null);
-    assert.equal(formFromEvent(formToInput(form)).latitude, "");
+    assert.equal(places.placeCoordinates(formFromEvent(formToInput(form)).place), null);
     assert.equal(locationCoordinates("", ""), null);
     assert.equal(locationCoordinates("0", "0")[0], 0);
 });
@@ -324,7 +325,7 @@ test("venue selection preserves latitude and longitude across API, form and map"
 test("manual addresses remain valid without keys or when Yandex requests fail", async (t) => {
     const form = {
         ...emptyForm(), title: "Meeting", startsAt: "2026-12-01T18:00",
-        address: "  Main street, 10  ", city: "Test city",
+        place: places.textPlace("  Main street, 10  "),
     };
     const assertAddressOnly = () => {
         assert.equal(validateForm(form), null);
@@ -333,21 +334,22 @@ test("manual addresses remain valid without keys or when Yandex requests fail", 
         assert.equal(body.location.latitude, null);
         assert.equal(body.location.longitude, null);
         const restored = formFromEvent(body);
-        assert.equal(restored.address, "Main street, 10");
-        assert.equal(restored.latitude, "");
-        assert.equal(restored.longitude, "");
+        assert.equal(restored.place.text, "Main street, 10");
+        assert.equal(places.placeCoordinates(restored.place), null);
+        assert.equal(body.location.name, null);
+        assert.equal(body.location.city, null);
     };
     t.mock.method(globalThis, "fetch", async () => Response.json({ api_key: "", search_enabled: false }));
     assert.equal((await maps.getMapsConfig()).api_key, "");
     assertAddressOnly();
     t.mock.method(globalThis, "fetch", async () => Response.json({ detail: "Provider unavailable" }, { status: 503 }));
-    await assert.rejects(maps.suggestAddresses(form.address, form.city));
-    await assert.rejects(maps.geocodeAddress(form.address));
+    await assert.rejects(maps.suggestAddresses(form.place.text, "Test city"));
+    await assert.rejects(maps.geocodeAddress(form.place.text));
     assertAddressOnly();
     form.format = "HYBRID";
     form.onlineUrl = "https://example.org/live";
     assertAddressOnly();
-    form.address = "   ";
+    form.place = places.textPlace("   ");
     assert.notEqual(validateForm(form), null);
 });
 
@@ -368,6 +370,63 @@ test("address lookup sends the selected Yandex uri and abort signal", async (t) 
     assert.equal(urls[0].searchParams.get("latitude"), "59.93");
     assert.equal(urls[1].pathname, "/api/maps/geocode");
     assert.equal(urls[1].searchParams.get("uri"), "ymapsbm1://geo?data=a&b=c");
+});
+
+test("free-form venue descriptions never invent city, name or coordinates", () => {
+    const selected = places.placeFromGeocode({
+        name: "Cafe", address_line: "Tokyo, Shibuya 1", city: "Tokyo",
+        latitude: "35.6591", longitude: "139.7006",
+    });
+    assert.equal(selected.text, "Cafe, Tokyo, Shibuya 1");
+    const changed = places.textPlace("  У входа в парк, рядом с кафе  ");
+    assert.deepEqual(places.placeToLocation(changed), {
+        name: null, city: null, address_line: "У входа в парк, рядом с кафе",
+        latitude: null, longitude: null,
+    });
+    assert.equal(places.placeCoordinates(changed), null);
+    assert.equal(places.placeContextUnchanged(changed, selected), false);
+    assert.equal(places.placeToLocation(places.textPlace("59.9, 30.3")).latitude, null);
+    assert.deepEqual(places.placeToLocation(places.pointPlace([30.315868, 59.939095])), {
+        name: null, city: null, address_line: null, latitude: "59.939095", longitude: "30.315868",
+    });
+});
+
+test("unchanged stored venue keeps metadata and instant; resolved timezone changes wall-clock conversion only on edit", () => {
+    const form = { ...emptyForm(), title: "Meet", startsAt: "2030-01-01T10:00", endsAt: "2030-01-01T11:00",
+        timezone: "Asia/Tokyo", place: places.placeFromGeocode({ name: "Cafe", city: "Tokyo",
+            address_line: "Tokyo, Shibuya 1", latitude: "35.6591", longitude: "139.7006" }) };
+    const original = formToInput(form);
+    const restored = formFromEvent(original);
+    assert.equal(places.placeContextUnchanged(restored.place, places.placeFromLocation(original.location)), true);
+    assert.deepEqual(formToInput(restored).location, original.location);
+    assert.equal(formToInput(restored).starts_at, "2030-01-01T01:00:00.000Z");
+    assert.equal(formToInput(restored).timezone, "Asia/Tokyo");
+    const moved = formToInput(restored, "Europe/Moscow");
+    assert.equal(restored.startsAt, "2030-01-01T10:00");
+    assert.equal(moved.starts_at, "2030-01-01T07:00:00.000Z");
+    assert.equal(moved.timezone, "Europe/Moscow");
+    assert.equal(moved.ends_at, "2030-01-01T08:00:00.000Z");
+});
+
+test("automatic timezone lookup sends place coordinates, profile ID and actual device zone", async (t) => {
+    const calls = recordFetch(t, () => Response.json({ timezone: "Asia/Tokyo", source: "place", city: null }));
+    const signal = new AbortController().signal;
+    const body = { place: { latitude: 35.6591, longitude: 139.7006 }, user_id: "actor", device_timezone: "America/New_York" };
+    const result = await maps.resolveEventTimezone(body, signal);
+    assert.equal(result.timezone, "Asia/Tokyo");
+    assert.equal(calls[0].url.pathname, "/api/maps/timezone");
+    assert.equal(calls[0].options.method, "POST");
+    assert.deepEqual(JSON.parse(calls[0].body), body);
+    assert.equal(calls[0].options.signal, signal);
+    await maps.resolveEventTimezone({ place: null, user_id: null, device_timezone: "Pacific/Auckland" });
+    assert.equal(JSON.parse(calls[1].body).device_timezone, "Pacific/Auckland");
+});
+
+test("malformed provider coordinates and overlong manual text cannot become a selected place", () => {
+    assert.throws(() => places.placeFromGeocode({ city: null, address_line: "Street", latitude: "bad", longitude: "30" }), /точку/);
+    const form = { ...emptyForm(), title: "Meet", startsAt: "2030-01-01T10:00", place: places.textPlace("x".repeat(501)) };
+    assert.match(validateForm(form), /500/);
+    assert.match(validateForm({ ...form, place: places.textPlace(" ") }), /Укажите адрес/);
 });
 
 test("Yandex SDK loads once and waits for API readiness", async (t) => {
@@ -819,17 +878,22 @@ test("event wall times use the selected zone and reject DST gaps", () => {
 });
 
 
-test("event edits preserve currency and local time in a different zone", () => {
+test("event edits use rubles and preserve local time in a different zone", () => {
     const { emptyForm, formToInput, formFromEvent, validateForm } = require(join(output, "components/pages/EventFormPage/formState.js"));
-    const original = { ...formToInput({ ...emptyForm(), title: "Tokyo", address: "Tokyo, Shibuya", startsAt: "2030-01-01T12:00", timezone: "Asia/Tokyo", currency: "JPY", priceMin: "500" }), price_type: "PAID" };
+    const original = { ...formToInput({ ...emptyForm(), title: "Tokyo", place: places.textPlace("Tokyo, Shibuya"), startsAt: "2030-01-01T12:00", timezone: "Asia/Tokyo", price: "500" }), price_type: "PAID" };
     const form = formFromEvent(original);
     assert.equal(form.startsAt, "2030-01-01T12:00");
-    assert.equal(form.currency, "JPY");
     assert.equal(validateForm(form), null);
-    assert.equal(formToInput(form).currency, "JPY");
+    assert.equal(formToInput(form).currency, "RUB");
+    assert.equal(formToInput(emptyForm()).currency, "RUB");
+    assert.equal(form.price, "500");
+    assert.equal(formToInput(form).price_min, "500");
+    assert.equal(formToInput(form).price_max, null);
+    const legacyRange = formFromEvent({ ...original, price_max: "900" });
+    assert.equal(formToInput(legacyRange).price_min, "500");
+    assert.equal(formToInput(legacyRange).price_max, null);
     assert.equal(formToInput(form).starts_at, original.starts_at);
     assert.notEqual(validateForm({ ...form, timezone: "Invalid/Zone" }), null);
-    assert.notEqual(validateForm({ ...form, currency: "XX" }), null);
 });
 
 function settingsDocument() {

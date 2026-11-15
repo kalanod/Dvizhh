@@ -47,6 +47,7 @@ const Field = ({ label, children }: { label: string; children: ReactNode }) => (
 const ProfileDetailsSection = ({ profileId }: { profileId: string }) => {
     const { userId, user: me, updateUser } = useCurrentUser();
     const isMe = profileId === userId;
+    const [editing, setEditing] = useState(false);
     const profileState = useAsync(() => (isMe && me ? Promise.resolve(me) : getUser(profileId)), profileId);
     const friendsState = useAsync(() => listFriends(profileId), profileId);
     const profile = isMe && me ? me : profileState.data;
@@ -61,14 +62,16 @@ const ProfileDetailsSection = ({ profileId }: { profileId: string }) => {
                         <p className="text-h2 text-textprimary">{errorText(profileState.error)}</p>
                     </div>
                 ) : (
-                    <div className="flex w-full flex-col items-start gap-[10px] rounded-lg bg-cards-surface p-4 sm:p-8">
-                        <div className="mb-4 flex w-full flex-wrap items-center justify-between gap-2">
+                    <div className="relative flex w-full flex-col items-start gap-[10px] rounded-lg bg-cards-surface p-4 sm:p-8">
+                        <div className={`mb-4 flex w-full flex-wrap items-center justify-between gap-2 ${isMe ? "min-h-[41px] pr-14" : ""}`}>
                             <h2 className="text-h2 text-textprimary">{isMe ? "Профиль" : "Профиль пользователя"}</h2>
                             {!isMe && userId && <FriendshipActions me={userId} other={profile} onChanged={friendsState.reload} />}
                         </div>
 
                         <div className="flex w-full flex-wrap gap-6 sm:gap-8">
-                            <Avatar name={profile.display_name} src={profile.avatar_url} size="lg" />
+                            {isMe && me ? (
+                                <ProfileAvatarEditor key={profile.id} profile={profile} editing={editing} onSaved={updateUser} />
+                            ) : <Avatar name={profile.display_name} src={profile.avatar_url} size="lg" />}
                             <div className="flex min-w-0 flex-1 flex-col gap-6">
                                 <Field label="Имя">{profile.display_name}</Field>
                                 <Field label="Никнейм">@{profile.username}</Field>
@@ -78,8 +81,7 @@ const ProfileDetailsSection = ({ profileId }: { profileId: string }) => {
                                 <Field label="На Движже">с {formatJoinedAt(profile.created_at)}</Field>
                             </div>
                         </div>
-                        {isMe && me && <ProfileEditor profile={profile} onSaved={updateUser} />}
-                        {isMe && me && <ProfileAvatarEditor key={profile.id} profile={profile} onSaved={updateUser} />}
+                        {isMe && me && <ProfileEditor profile={profile} editing={editing} onEditingChange={setEditing} onSaved={updateUser} />}
                         {isMe && me && <PasswordEditor key={`password-${profile.id}`} />}
                     </div>
                 )}

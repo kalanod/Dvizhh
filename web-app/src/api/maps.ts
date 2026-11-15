@@ -32,3 +32,18 @@ export const suggestAddresses = (text: string, city: string, signal?: AbortSigna
 
 export const geocodeAddress = (query: string, uri = "", signal?: AbortSignal) =>
     request<GeocodedPlace>("/maps/geocode", { query: { query, uri }, signal });
+
+export interface EventTimezoneRequest {
+    place: { latitude: number; longitude: number } | null;
+    user_id: string | null;
+    device_timezone: string;
+}
+
+export interface EventTimezone {
+    timezone: string;
+    source: "place" | "profile_coordinates" | "profile_city" | "device";
+    city: string | null;
+}
+
+export const resolveEventTimezone = (body: EventTimezoneRequest, signal?: AbortSignal) =>
+    request<EventTimezone>("/maps/timezone", { method: "POST", body, signal });

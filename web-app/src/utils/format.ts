@@ -1,4 +1,4 @@
-import type { DvizhEvent, EventFormat, EventJoinPolicy, EventStatus, EventVisibility, ParticipationStatus } from "../models";
+import type { DvizhEvent, EventFormat, EventJoinPolicy, EventLocation, EventStatus, EventVisibility, ParticipationStatus } from "../models";
 
 export const FORMAT_LABELS: Record<EventFormat, string> = {
     OFFLINE: "Офлайн",
@@ -116,25 +116,31 @@ export const formatJoinedAt = (iso: string) =>
     new Date(iso).toLocaleDateString("ru-RU", { month: "long", year: "numeric" });
 
 const money = (value: string, currency: string) =>
-    new Intl.NumberFormat("ru-RU", { style: "currency", currency, maximumFractionDigits: 0 }).format(Number(value));
+    new Intl.NumberFormat("ru-RU", { style: "currency", currency, minimumFractionDigits: 0, maximumFractionDigits: 2 }).format(Number(value));
 
-export const formatPrice = (event: Pick<DvizhEvent, "price_type" | "price_min" | "price_max" | "currency">) => {
+export const formatPrice = (event: Pick<DvizhEvent, "price_type" | "price_min" | "currency">) => {
     if (event.price_type === "FREE" || !event.price_min) {
         return "Бесплатно";
     }
     const currency = event.currency ?? "RUB";
-    if (event.price_max && event.price_max !== event.price_min) {
-        return `${money(event.price_min, currency)} – ${money(event.price_max, currency)}`;
-    }
     return money(event.price_min, currency);
 };
 
+export const formatLocationLabel = (location: EventLocation | null): string => {
+    if (!location) return "";
+    const name = location.name?.trim();
+    const address = location.address_line?.trim();
+    const city = location.city?.trim();
+    const parts = [name, address, city && !address?.toLocaleLowerCase().includes(city.toLocaleLowerCase()) ? city : null];
+    const labels = [...new Set(parts.filter((part): part is string => Boolean(part)))];
+    return labels.join(", ") || (location.latitude !== null && location.longitude !== null ? "Точка на карте" : "");
+};
+
 export const formatPlace = (event: Pick<DvizhEvent, "format" | "location">) => {
-    const parts = [event.location?.name, event.location?.address_line, event.location?.city].filter(Boolean);
     if (event.format === "ONLINE") {
         return "Онлайн";
     }
-    const place = parts.length > 0 ? parts.join(", ") : "Место уточняется";
+    const place = formatLocationLabel(event.location) || "Место уточняется";
     return event.format === "HYBRID" ? `${place} + онлайн` : place;
 };
 
@@ -184,4 +190,4 @@ export const fromDateTimeLocal = (value: string, timeZone?: string): string | nu
     throw new Error("В выбранном часовом поясе это время не существует.");
 };
 
-export const browserTimeZone = () => Intl.DateTimeFormat().resolvedOptions().timeZone || "Europe/Moscow";
+export const browserTimeZone = () => Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";

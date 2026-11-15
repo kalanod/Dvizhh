@@ -109,11 +109,12 @@ export const PageHeader = () => {
                                 )}
                             </button>
                             <button
+                                id="header-profile-avatar"
                                 type="button"
                                 aria-label="Профиль"
                                 title={`${user.display_name} (@${user.username})`}
                                 onClick={() => go("/profile")}
-                                className="cursor-pointer transition-opacity hover:opacity-80"
+                                className="inline-flex h-[37px] w-[37px] shrink-0 cursor-pointer items-center justify-center rounded-lg transition-opacity hover:opacity-80 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-borderfocus"
                             >
                                 <Avatar name={user.display_name} src={user.avatar_url} />
                             </button>

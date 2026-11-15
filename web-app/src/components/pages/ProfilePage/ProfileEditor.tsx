@@ -3,8 +3,12 @@ import { errorText, getAccount, normalizeUsername, saveProfileWithAccount } from
 import type { Profile } from "../../../models";
 import { Button, FormField, Input, Notice, Textarea } from "../../ui";
 
-export const ProfileEditor = ({ profile, onSaved }: { profile: Profile; onSaved: (profile: Profile) => void }) => {
-    const [editing, setEditing] = useState(false);
+export const ProfileEditor = ({ profile, editing, onEditingChange: setEditing, onSaved }: {
+    profile: Profile;
+    editing: boolean;
+    onEditingChange: (editing: boolean) => void;
+    onSaved: (profile: Profile) => void;
+}) => {
     const [form, setForm] = useState({ username: profile.username, email: "", display_name: profile.display_name,
         bio: profile.bio ?? "", city: profile.city ?? "", latitude: profile.latitude ?? "", longitude: profile.longitude ?? "" });
     const [busy, setBusy] = useState(false);
@@ -20,7 +24,23 @@ export const ProfileEditor = ({ profile, onSaved }: { profile: Profile; onSaved:
             setEditing(true);
         } catch (error) { setError(errorText(error)); } finally { setBusy(false); }
     };
-    if (!editing) return <div><Button onClick={() => void begin()} disabled={busy}>{busy ? "Загружаем аккаунт…" : "Редактировать профиль"}</Button>{saved && <Notice>Профиль сохранён.</Notice>}{error && <Notice tone="error">{error}</Notice>}</div>;
+    if (!editing) return <>
+        <Button
+            onClick={() => void begin()}
+            disabled={busy}
+            ariaLabel={busy ? "Загружаем аккаунт…" : "Редактировать профиль"}
+            title="Редактировать профиль"
+            className="absolute right-4 top-4 !h-[41px] !w-[41px] !px-0 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-borderfocus sm:right-8 sm:top-8"
+        >
+            {busy ? <span aria-hidden="true" className="h-5 w-5 animate-spin rounded-full border-2 border-current border-t-transparent" /> : (
+                <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="m16 3 5 5M4 20l4-1L21 6a2.1 2.1 0 0 0-3-3L5 16l-1 4Z" />
+                </svg>
+            )}
+        </Button>
+        {saved && <Notice>Профиль сохранён.</Notice>}
+        {error && <Notice tone="error">{error}</Notice>}
+    </>;
     const save = async (e: React.FormEvent) => {
         e.preventDefault(); setError(null);
         const username = normalizeUsername(form.username);
