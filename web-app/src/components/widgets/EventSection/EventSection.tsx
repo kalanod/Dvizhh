@@ -1,10 +1,13 @@
 import { useState } from "react";
 import { errorText, listEvents } from "../../../api";
-import { useAsync, useCurrentUser, useEventFilters } from "../../../hooks";
-import { Button, Input, Tag } from "../../ui";
+import { useAsync, useCurrentUser, useEventFilters, useFeed, type FeedCoordinates } from "../../../hooks";
+import type { FeedRanking } from "../../../models";
+import { currentCoordinates } from "../../../utils/geolocation";
+import { Button, Input, Notice, Tag } from "../../ui";
 import { CalendarPreview } from "../CalendarPreview";
 import { EventList } from "../EventList";
 import { RightPanel } from "../Filters";
+import { SortMenu } from "../SortMenu";
 
 const PAGE_SIZE = 20;
 
@@ -12,12 +15,38 @@ interface EventSectionProps {
     title: string;
 }
 
-/** Лента событий: поиск, список и панель фильтров (BookSection шаблона). */
+/**
+ * Лента событий: поиск, сортировка, список и панель фильтров (BookSection шаблона).
+ * Без фильтров порядок задаёт сервис рекомендаций (GET /api/events/feed);
+ * с поиском или фильтрами — прежняя лента по новизне (GET /api/events),
+ * потому что сервис рекомендаций фильтры пока не поддерживает.
+ */
 export const EventSection = ({ title }: EventSectionProps) => {
     const { userId } = useCurrentUser();
     const { filters, setFilters, clearFilters, activeCount } = useEventFilters();
     const [searchValue, setSearchValue] = useState(filters.q);
     const [limit, setLimit] = useState(PAGE_SIZE);
+    // null — сортировку по умолчанию выбирает сервер: «Рекомендуем» для вошедших, «Новые» для гостей.
+    const [ranking, setRanking] = useState<FeedRanking | null>(null);
+    const [coordinates, setCoordinates] = useState<FeedCoordinates | null>(null);
+    const [locationNotice, setLocationNotice] = useState<string | null>(null);
+
+    const filtered = Boolean(
+        filters.q ||
+            filters.tagId ||
+            filters.from ||
+            filters.to ||
+            filters.freeOnly ||
+            filters.availableOnly ||
+            (filters.withFriends && userId),
+    );
+    const feed = useFeed({
+        enabled: !filtered,
+        ranking,
+        viewerId: userId,
+        coordinates: ranking === "distance" ? coordinates : null,
+        pageSize: PAGE_SIZE,
+    });
 
     const query = {
         q: filters.q,
@@ -30,7 +59,35 @@ export const EventSection = ({ title }: EventSectionProps) => {
         viewerId: userId,
         limit,
     };
-    const { data: events, error, loading } = useAsync((signal) => listEvents(query, signal), JSON.stringify(query));
+    const filteredFeed = useAsync(
+        (signal) => (filtered ? listEvents(query, signal) : Promise.resolve(undefined)),
+        JSON.stringify({ query, filtered }),
+    );
+    const events = filtered ? filteredFeed.data : feed.events;
+    const error = filtered ? filteredFeed.error : feed.error;
+    const loading = filtered ? filteredFeed.loading : feed.loading;
+    const selectedRanking = ranking ?? feed.ranking ?? (userId ? "relevance" : "novelty");
+
+    const chooseRanking = async (next: FeedRanking) => {
+        setLocationNotice(null);
+        if (next !== "distance") {
+            setRanking(next);
+            return;
+        }
+        try {
+            const [longitude, latitude] = await currentCoordinates();
+            setCoordinates({ latitude, longitude });
+        } catch (geolocationError) {
+            setCoordinates(null);
+            if (!userId) {
+                // Гостю без геопозиции сортировать «рядом» не с чем.
+                setLocationNotice(errorText(geolocationError));
+                return;
+            }
+            setLocationNotice(`${errorText(geolocationError)} Показываем события рядом с городом из профиля.`);
+        }
+        setRanking("distance");
+    };
 
     const applyFilters = (patch: Parameters<typeof setFilters>[0]) => {
         setLimit(PAGE_SIZE);
@@ -61,7 +118,7 @@ export const EventSection = ({ title }: EventSectionProps) => {
         filters.withFriends && userId && "друзья идут",
     ].filter((chip): chip is string => Boolean(chip));
 
-    const hasMore = (events?.length ?? 0) >= limit;
+    const hasMore = filtered ? (events?.length ?? 0) >= limit : feed.hasMore;
 
     const searchButton = (
         <>
@@ -90,6 +147,11 @@ export const EventSection = ({ title }: EventSectionProps) => {
                     onKeyDown={handleKeyDown}
                 />
             </div>
+            <SortMenu
+                value={selectedRanking}
+                onChange={chooseRanking}
+                disabledReason={filtered ? "Сортировка недоступна вместе с поиском и фильтрами" : undefined}
+            />
         </>
     );
 
@@ -111,6 +173,8 @@ export const EventSection = ({ title }: EventSectionProps) => {
                     </div>
                 )}
 
+                {locationNotice && !filtered && <Notice tone="info">{locationNotice}</Notice>}
+
                 <EventList
                     title={title}
                     events={events}
@@ -125,7 +189,7 @@ export const EventSection = ({ title }: EventSectionProps) => {
                             <Button
                                 state="hover1"
                                 className="self-center"
-                                onClick={() => setLimit((value) => value + PAGE_SIZE)}
+                                onClick={filtered ? () => setLimit((value) => value + PAGE_SIZE) : feed.loadMore}
                             >
                                 Показать ещё
                             </Button>

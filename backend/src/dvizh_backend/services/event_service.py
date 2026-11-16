@@ -81,6 +81,13 @@ class EventService:
         )
         return await self._to_dtos(rows, viewer_id=viewer_id)
 
+    async def list_by_ids(
+        self, event_ids: list[UUID], *, viewer_id: UUID | None = None
+    ) -> list[EventDTO]:
+        if viewer_id is not None:
+            await self._require_active_profile(viewer_id)
+        return await self._to_dtos(await self.queries.list_by_ids(event_ids), viewer_id=viewer_id)
+
     async def list_calendar(self, user_id: UUID) -> list[EventDTO]:
         await self._require_active_profile(user_id)
         return await self._to_dtos(await self.queries.list_going(user_id), viewer_id=user_id)

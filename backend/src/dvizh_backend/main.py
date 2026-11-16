@@ -9,6 +9,7 @@ from .database.database_service import DatabaseService
 from .routers import admin, events, friends, lifecycle, maps, media, personal, tags, users
 from .routers import settings as settings_router
 from .routers.errors import register_error_handlers
+from .services.recommendation_gateway import RecommendationGateway
 from .storage import MediaStorage
 
 settings = get_settings()
@@ -20,6 +21,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     database_service = DatabaseService(settings.database_url)
     app.state.database_service = database_service
     app.state.media_storage = MediaStorage(settings)
+    app.state.recommendations = RecommendationGateway(
+        settings.recommendation_address, settings.recommendation_timeout_seconds
+    )
     try:
         await database_service.ping()
     except Exception as exc:
@@ -30,6 +34,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     try:
         yield
     finally:
+        await app.state.recommendations.close()
         await database_service.dispose()
 
 

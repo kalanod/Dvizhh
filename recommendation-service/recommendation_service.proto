@@ -24,6 +24,7 @@ message GetRecommendationsRequest {
   map<string, google.protobuf.Value> filters = 6;
   optional int32 page_size = 7;
   optional string page_token = 8;
+  optional string ranking = 9;
 }
 
 message GetRecommendationsResponse {

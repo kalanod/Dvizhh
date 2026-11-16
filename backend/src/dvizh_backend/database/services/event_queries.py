@@ -4,7 +4,8 @@ from datetime import date
 from typing import Literal
 from uuid import UUID
 
-from sqlalchemy import Date, Select, case, cast, delete, exists, func, or_, select
+from sqlalchemy import Date, Select, and_, case, cast, delete, exists, func, or_, select
+from sqlalchemy.dialects.postgresql import distinct_on
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...dto.event import EventPersonalStateDTO
@@ -77,6 +78,36 @@ class EventQueryService:
         if not occurrence_ids:
             return []
         return await self._fetch(self._select_rows().where(EventOccurrence.id.in_(occurrence_ids)))
+
+
+
+    async def list_by_ids(self, event_ids: Sequence[UUID]) -> list[EventRow]:
+        """Feed cards for ranked IDs, in the same order; unavailable events are skipped.
+
+        Each event is shown with its nearest current scheduled occurrence.
+        """
+        if not event_ids:
+            return []
+        statement = (
+            self._select_rows()
+            .where(
+                Event.id.in_(event_ids),
+                Event.status == EventStatus.PUBLISHED,
+                Event.visibility == EventVisibility.PUBLIC,
+                EventOccurrence.status == OccurrenceStatus.SCHEDULED,
+                or_(
+                    EventOccurrence.ends_at > func.now(),
+                    and_(
+                        EventOccurrence.ends_at.is_(None),
+                        EventOccurrence.starts_at >= func.now(),
+                    ),
+                ),
+            )
+            .ext(distinct_on(Event.id))
+            .order_by(Event.id, EventOccurrence.starts_at)
+        )
+        rows = {row.event.id: row for row in await self._fetch(statement)}
+        return [rows[event_id] for event_id in event_ids if event_id in rows]
 
     async def list_public(
         self,

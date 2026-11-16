@@ -3,10 +3,8 @@ from uuid import UUID
 
 import asyncpg
 
-AVAILABLE_ITEMS_QUERY = """
-SELECT e.id
-FROM events AS e
-WHERE e.status = 'PUBLISHED'
+AVAILABLE_ITEMS_CONDITION = """
+e.status = 'PUBLISHED'
     AND e.visibility = 'PUBLIC'
     AND e.deleted_at IS NULL
     AND EXISTS (
@@ -23,6 +21,8 @@ WHERE e.status = 'PUBLISHED'
           )
     )
 """
+
+AVAILABLE_ITEMS_QUERY = "SELECT e.id\nFROM events AS e\nWHERE " + AVAILABLE_ITEMS_CONDITION
 
 
 async def filter_available_items(

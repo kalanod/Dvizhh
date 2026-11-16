@@ -1,6 +1,6 @@
 from datetime import datetime
 from decimal import Decimal
-from typing import Any, Self
+from typing import Any, Literal, Self
 from uuid import UUID
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -259,3 +259,13 @@ class ReviewParticipationDTO(BaseModel):
 class ParticipantDTO(BaseModel):
     user: UserSummaryDTO
     status: ParticipationStatus
+
+FeedRanking = Literal["relevance", "novelty", "title", "distance"]
+
+class FeedPageDTO(BaseModel):
+    items: list[EventDTO] = Field(description="Карточки страницы в порядке ранжирования.")
+    ranking: FeedRanking = Field(description="Применённая сортировка.")
+    session_id: str = Field(description="Сессия ленты: передайте её за следующей страницей.")
+    next_page_token: str | None = Field(
+        None, description="Токен следующей страницы; null — лента закончилась."
+    )

@@ -7,12 +7,14 @@ from fastapi import APIRouter, Query, status
 from ..dto.event import (
     CreateEventDTO,
     EventDTO,
+    FeedPageDTO,
+    FeedRanking,
     JoinEventDTO,
     ParticipantDTO,
     ReviewParticipationDTO,
     UpdateEventDTO,
 )
-from ..services.dependencies import EventServiceDep
+from ..services.dependencies import EventServiceDep, FeedServiceDep
 
 router = APIRouter(prefix="/api/events", tags=["events"])
 
@@ -83,6 +85,68 @@ async def list_events(
         viewer_id=viewer_id,
     )
 
+@router.get(
+    "/feed",
+    summary="Лента с сортировкой сервиса рекомендаций.",
+    description=(
+        "Порядок событий рассчитывает сервис рекомендаций. Первая страница — без session_id: "
+        "сервер создаёт сессию и возвращает её. Следующие страницы — с тем же session_id, "
+        "next_page_token и параметрами; смена сортировки или координат — новая сессия. "
+        "Ответ 409 значит, что сессия истекла: начните ленту заново. Фильтры не "
+        "поддерживаются — для них используйте GET /api/events."
+    ),
+)
+async def get_feed(
+    feed: FeedServiceDep,
+    ranking: Annotated[
+        FeedRanking | None,
+        Query(
+            description=(
+                "relevance — рекомендации, novelty — новые, title — по названию, "
+                "distance — ближе к точке. По умолчанию relevance для вошедших, "
+                "novelty для гостей."
+            )
+        ),
+    ] = None,
+    session_id: Annotated[
+        str | None, Query(max_length=100, description="Сессия ленты из прошлого ответа.")
+    ] = None,
+    page_token: Annotated[
+        str | None, Query(max_length=200, description="next_page_token из прошлого ответа.")
+    ] = None,
+    limit: Annotated[int, Query(ge=1, le=100, description="Размер страницы.")] = 20,
+    latitude: Annotated[
+        float | None,
+        Query(ge=-90, le=90, description="Широта для distance; иначе точка из профиля."),
+    ] = None,
+    longitude: Annotated[
+        float | None, Query(ge=-180, le=180, description="Долгота для distance.")
+    ] = None,
+    viewer_id: Annotated[
+        uuid.UUID | None, Query(description="Пользователь: персональная лента и состояния.")
+    ] = None,
+) -> FeedPageDTO:
+    return await feed.get_page(
+        viewer_id=viewer_id,
+        ranking=ranking,
+        session_id=session_id,
+        page_token=page_token,
+        page_size=limit,
+        latitude=latitude,
+        longitude=longitude,
+    )
+
+
+@router.post(
+    "/feed/{session_id}/refresh",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Продлить сессию ленты.",
+    description="Вызывайте примерно раз в 10 минут, пока лента открыта; сессия живёт 30 минут.",
+)
+async def refresh_feed(
+    session_id: str, feed: FeedServiceDep, viewer_id: uuid.UUID | None = None
+) -> None:
+    await feed.refresh(viewer_id=viewer_id, session_id=session_id)
 
 @router.post(
     "",

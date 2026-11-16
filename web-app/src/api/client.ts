@@ -89,6 +89,10 @@ function errorMessage(payload: unknown, status: number): string {
     if (detail === "One or more tags do not exist") return "Одна или несколько тематик больше не существуют.";
     if (detail === "Inactive tags cannot be newly assigned") return "Отключённые тематики нельзя выбрать для нового назначения.";
 
+    if (typeof detail === "string" && detail.startsWith("Ranking 'distance' requires")) {
+        return "Чтобы показать события рядом, разрешите доступ к местоположению или укажите город в профиле.";
+    }
+
     if (typeof detail === "string") {
         return status === 502 ? "Backend недоступен. Попробуйте позже." : detail;
     }

@@ -8,6 +8,7 @@ class RecommendationQuery:
     user_id: str
     context: Mapping[str, object]
     filters: Mapping[str, object]
+    ranking: str | None = None
 
 
 @dataclass(frozen=True)
