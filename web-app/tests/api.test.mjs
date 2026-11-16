@@ -37,6 +37,8 @@ for (const name of [
     "api/maps",
     "utils/yandexMaps",
     "utils/geolocation",
+    "components/widgets/SortMenu/SortMenu",
+    "components/ui/Input/Input"
 ]) {
     const extension = name.startsWith("components/") && !name.endsWith("formState") && !name.endsWith("settingsState") ? "tsx" : "ts";
     const source = readFileSync(new URL(`../src/${name}.${extension}`, import.meta.url), "utf8");
@@ -67,6 +69,8 @@ const { EventCoverMicro, EventCoverMain } = require(join(output, "components/wid
 const { ApiError } = require(join(output, "api/client.js"));
 const maps = require(join(output, "api/maps.js"));
 const { currentCoordinates } = require(join(output, "utils/geolocation.js"));
+const { SortMenu } = require(join(output, "components/widgets/SortMenu/SortMenu.js"));
+const { Input } = require(join(output, "components/ui/Input/Input.js"));
 const { locationCoordinates, loadYandexMaps, reportMapError } = require(join(output, "utils/yandexMaps.js"));
 const { emptyForm, formToInput, formFromEvent, validateForm } = require(join(output, "components/pages/EventFormPage/formState.js"));
 const originalWindow = globalThis.window;
@@ -941,4 +945,64 @@ test("draft submit button passes its action to the native button", () => {
     const html = renderToStaticMarkup(createElement(Button, { type: "submit", action: "draft" }, "Save draft"));
     assert.match(html, /data-action="draft"/);
     assert.match(html, /type="submit"/);
+});
+
+test("ranked feed sends ranking, session, page token and coordinates", async (t) => {
+    const page = { items: [], ranking: "distance", session_id: "s1", next_page_token: "t2" };
+    const calls = recordFetch(t, () => Response.json(page));
+    const result = await api.getFeedPage({ ranking: "distance", latitude: 59.93, longitude: 30.31, viewerId: "viewer-1", limit: 20 });
+    await api.getFeedPage({ ranking: "distance", sessionId: "s1", pageToken: "t2", latitude: 59.93, longitude: 30.31, limit: 20 });
+    await api.getFeedPage();
+    assert.deepEqual(result, page);
+    assert.equal(calls[0].url.pathname, "/api/events/feed");
+    assert.deepEqual(Object.fromEntries(calls[0].url.searchParams), {
+        ranking: "distance",
+        latitude: "59.93",
+        longitude: "30.31",
+        viewer_id: "viewer-1",
+        limit: "20",
+    });
+    assert.equal(calls[1].url.searchParams.get("session_id"), "s1");
+    assert.equal(calls[1].url.searchParams.get("page_token"), "t2");
+    // Without a ranking the server chooses the default one.
+    assert.equal(calls[2].url.search, "");
+});
+
+test("feed session refresh posts to the session and keeps viewer_id", async (t) => {
+    const calls = recordFetch(t, () => new Response(null, { status: 204 }));
+    await api.refreshFeedSession("s 1", "viewer-1");
+    assert.equal(calls[0].url.pathname, "/api/events/feed/s%201/refresh");
+    assert.equal(calls[0].options.method, "POST");
+    assert.equal(calls[0].url.searchParams.get("viewer_id"), "viewer-1");
+});
+
+test("feed errors stay readable: expired session and missing location", async (t) => {
+    recordFetch(t, (url) =>
+        url.searchParams.get("ranking") === "distance"
+            ? Response.json({ detail: "Ranking 'distance' requires context.latitude and context.longitude or a location in the user profile" }, { status: 422 })
+            : Response.json({ detail: "Лента устарела, обновите её" }, { status: 409 }),
+    );
+    await assert.rejects(api.getFeedPage({ ranking: "distance" }), (error) => error instanceof ApiError && error.status === 422 && /разрешите доступ к местоположению/.test(error.message));
+    await assert.rejects(api.getFeedPage({ sessionId: "s1", pageToken: "t" }), (error) => error instanceof ApiError && error.status === 409);
+});
+
+test("sort menu names the current ranking and explains why it is disabled", () => {
+    const enabled = renderToStaticMarkup(createElement(SortMenu, { value: "distance", onChange: () => undefined }));
+    assert.match(enabled, /aria-label="Сортировка: Рядом со мной"/);
+    assert.doesNotMatch(enabled, /disabled=""/);
+    const disabled = renderToStaticMarkup(
+        createElement(SortMenu, { value: "novelty", onChange: () => undefined, disabledReason: "Сортировка недоступна вместе с поиском и фильтрами" }),
+    );
+    assert.match(disabled, /disabled=""/);
+    assert.match(disabled, /title="Сортировка недоступна вместе с поиском и фильтрами"/);
+});
+
+test("password inputs stay hidden and get a hold-to-reveal button; other inputs do not", () => {
+    const password = renderToStaticMarkup(createElement(Input, { type: "password", value: "secret", onChange: () => undefined }));
+    assert.match(password, /type="password"/);
+    assert.match(password, /aria-label="Показать пароль, пока кнопка нажата"/);
+    assert.match(password, /aria-pressed="false"/);
+    const text = renderToStaticMarkup(createElement(Input, { value: "", onChange: () => undefined }));
+    assert.match(text, /type="text"/);
+    assert.doesNotMatch(text, /Показать пароль/);
 });
