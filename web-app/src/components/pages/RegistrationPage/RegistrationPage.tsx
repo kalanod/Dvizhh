@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { ApiError, createUser, errorText, registerAccount, loginAccount, getAccount, getUser } from "../../../api";
+import { errorText, normalizeUsername, registerProfile } from "../../../api";
 import { useCurrentUser } from "../../../hooks";
 import { AuthLayout } from "../../layouts";
 import { Button, FormField, Input, Notice, Textarea } from "../../ui";
@@ -19,14 +19,15 @@ export const RegistrationPage = () => {
     const [submitting, setSubmitting] = useState(false);
 
     const next = searchParams.get("next");
-    const usernameInvalid = formData.username !== "" && !USERNAME_RE.test(formData.username);
+    const usernameInvalid = formData.username !== "" && !USERNAME_RE.test(normalizeUsername(formData.username));
 
     const handleChange = (field: keyof typeof formData) => (value: string) =>
         setFormData((prev) => ({ ...prev, [field]: value }));
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!USERNAME_RE.test(formData.username) || !formData.displayName.trim()) {
+        const username = normalizeUsername(formData.username);
+        if (!USERNAME_RE.test(username) || !formData.displayName.trim()) {
             setError("Заполните никнейм и имя.");
             return;
         }
@@ -37,29 +38,11 @@ export const RegistrationPage = () => {
         setSubmitting(true);
         setError(null);
         try {
-            const credentials = { email: email.trim(), password };
-            let account;
-            try {
-                account = await registerAccount(credentials);
-            } catch (error) {
-                if (!(error instanceof ApiError) || error.status !== 409) throw error;
-                // Retry profile creation after a previous partial registration.
-            }
-            await loginAccount(credentials);
-            account = account ?? await getAccount();
-            let profile;
-            try {
-                profile = await getUser(account.id);
-            } catch (error) {
-                if (!(error instanceof ApiError) || error.status !== 404) throw error;
-                profile = await createUser({
-                    id: account.id,
-                    username: formData.username,
-                    display_name: formData.displayName.trim(),
-                    city: formData.city.trim() || null,
-                    bio: formData.bio.trim() || null,
-                });
-            }
+            const profile = await registerProfile({ username, email, password }, {
+                display_name: formData.displayName.trim(),
+                city: formData.city.trim() || null,
+                bio: formData.bio.trim() || null,
+            });
             signIn(profile);
             navigate(next && next !== "/" ? next : "/profile", { replace: true });
         } catch (err) {
@@ -72,8 +55,8 @@ export const RegistrationPage = () => {
     return (
         <AuthLayout title="Регистрация">
             <form className="flex w-full flex-col items-start gap-2.5" onSubmit={handleSubmit}>
-                <FormField label="Email" htmlFor="email" required>
-                    <Input id="email" name="email" type="email" autoComplete="username" required
+                <FormField label="Почта" htmlFor="email" hint="Необязательно">
+                    <Input id="email" name="email" type="email" autoComplete="email"
                         maxLength={254} placeholder="you@example.com" value={email} onChange={setEmail} />
                 </FormField>
                 <FormField label="Пароль" htmlFor="password" hint="От 8 до 128 символов" required>
@@ -88,7 +71,10 @@ export const RegistrationPage = () => {
                 <FormField label="Никнейм" htmlFor="username" hint="Строчные латинские буквы, цифры и «_», от 3 символов" required>
                     <Input
                         id="username"
+                        name="username"
                         required
+                        minLength={3}
+                        maxLength={50}
                         placeholder="example"
                         autoComplete="username"
                         value={formData.username}

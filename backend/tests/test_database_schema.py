@@ -19,7 +19,7 @@ EXPECTED_TABLES = {
     "event_occurrences",
     "event_participations",
     "event_stories",
-    "event_topics",
+    "event_tags",
     "events",
     "external_event_links",
     "external_sources",
@@ -32,7 +32,8 @@ EXPECTED_TABLES = {
     "profiles",
     "recurrence_rules",
     "story_items",
-    "topics",
+    "tags",
+    "tag_categories",
 }
 
 
@@ -43,11 +44,13 @@ def test_all_domain_tables_are_registered() -> None:
 def test_migration_snapshot_covers_every_model() -> None:
     sql_dir = Path(__file__).parents[1] / "alembic" / "versions" / "sql"
     upgrade_sql = (sql_dir / "20261003_0002_core_schema.up.sql").read_text(encoding="utf-8")
-    downgrade_sql = (sql_dir / "20261003_0002_core_schema.down.sql").read_text(
-        encoding="utf-8"
-    )
+    downgrade_sql = (sql_dir / "20261003_0002_core_schema.down.sql").read_text(encoding="utf-8")
 
-    for table_name in EXPECTED_TABLES:
+    legacy_tables = (EXPECTED_TABLES - {"tags", "tag_categories", "event_tags"}) | {
+        "topics",
+        "event_topics",
+    }
+    for table_name in legacy_tables:
         assert f"CREATE TABLE {table_name} (" in upgrade_sql
         assert f"DROP TABLE {table_name};" in downgrade_sql
 

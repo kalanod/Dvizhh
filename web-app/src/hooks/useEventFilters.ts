@@ -3,7 +3,7 @@ import { useSearchParams } from "react-router-dom";
 
 export interface FeedFilters {
     q: string;
-    tag: string;
+    tagId: string;
     from: string;
     to: string;
     freeOnly: boolean;
@@ -13,7 +13,7 @@ export interface FeedFilters {
 
 const PARAM_BY_FILTER: Record<keyof FeedFilters, string> = {
     q: "q",
-    tag: "tag",
+    tagId: "tag_id",
     from: "from",
     to: "to",
     freeOnly: "free",
@@ -28,7 +28,7 @@ export const useEventFilters = () => {
     const filters = useMemo<FeedFilters>(
         () => ({
             q: searchParams.get("q") ?? "",
-            tag: searchParams.get("tag") ?? "",
+            tagId: searchParams.get("tag_id") ?? "",
             from: searchParams.get("from") ?? "",
             to: searchParams.get("to") ?? "",
             freeOnly: searchParams.get("free") === "1",
@@ -54,7 +54,7 @@ export const useEventFilters = () => {
     const clearFilters = () => setSearchParams({}, { replace: true });
 
     const activeCount = [
-        filters.tag,
+        filters.tagId,
         filters.from,
         filters.to,
         filters.freeOnly,

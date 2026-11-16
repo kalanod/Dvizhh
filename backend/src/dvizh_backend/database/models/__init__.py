@@ -11,10 +11,11 @@ from .events import (
     Event,
     EventManager,
     EventOccurrence,
-    EventTopic,
+    EventTag,
     Location,
     RecurrenceRule,
-    Topic,
+    Tag,
+    TagCategory,
 )
 from .external import ExternalEventLink, ExternalSource
 from .identity import Friendship, Organization, OrganizationMember, Profile
@@ -34,7 +35,7 @@ __all__ = [
     "EventOccurrence",
     "EventParticipation",
     "EventStory",
-    "EventTopic",
+    "EventTag",
     "ExternalEventLink",
     "ExternalSource",
     "Friendship",
@@ -46,5 +47,6 @@ __all__ = [
     "Profile",
     "RecurrenceRule",
     "StoryItem",
-    "Topic",
+    "Tag",
+    "TagCategory",
 ]

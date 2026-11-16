@@ -1,56 +1,76 @@
-from secrets import token_urlsafe
+﻿from secrets import token_urlsafe
+from uuid import UUID
 
 from pwdlib import PasswordHash
-
-from sqlalchemy import select
-from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.concurrency import run_in_threadpool
 
-from .models import Account
+from .dto import ChangePasswordRequest, RegisterRequest, UpdateAccountRequest
+from .models import USER_ROLE_ID, Account
+from .repository import AccountRepository
 
 password_hasher = PasswordHash.recommended()
+
 
 def hash_password(password: str) -> str:
     return password_hasher.hash(password)
 
+
 dummy_password_hash = hash_password(token_urlsafe(32))
 
 
-async def authenticate_account(
-    session: AsyncSession,
-    email: str,
-    password: str,
-) -> Account | None:
-    email = email.strip().lower()
-    account = await session.scalar(
-        select(Account).where(Account.email == email)
-    )
+class AccountConflictError(Exception):
+    pass
 
-    stored_hash = account.password_hash if account is not None else dummy_password_hash
-    password_matches = await run_in_threadpool(
-        password_hasher.verify,
-        password,
-        stored_hash,
-    )
 
-    if not password_matches:
-        return None
+class InvalidCurrentPasswordError(Exception):
+    pass
 
-    return account
 
-async def register_account(
-    session: AsyncSession,
-    email: str,
-    password: str,
-) -> Account | None:
-    email = email.strip().lower()
-    password_hash = await run_in_threadpool(hash_password, password)
+class AccountService:
+    """Account rules, independent of HTTP and backend profile storage.
 
-    statement = (
-        insert(Account)
-        .values(email=email, password_hash=password_hash)
-        .on_conflict_do_nothing(index_elements=[Account.email])
-        .returning(Account)
-    )
-    return await session.scalar(statement)
+    The caller owns the transaction; repositories only read and persist data.
+    """
+
+    def __init__(self, session: AsyncSession) -> None:
+        self.accounts = AccountRepository(session)
+
+    async def authenticate(self, login: str, password: str) -> Account | None:
+        account = await self.accounts.find(login.strip().lower())
+        stored_hash = account.password_hash if account is not None else dummy_password_hash
+        matches = await run_in_threadpool(password_hasher.verify, password, stored_hash)
+        return account if matches else None
+
+    async def register(self, data: RegisterRequest) -> Account:
+        password_hash = await run_in_threadpool(hash_password, data.password.get_secret_value())
+        account = await self.accounts.create(
+            username=data.username,
+            email=str(data.email) if data.email is not None else None,
+            password_hash=password_hash,
+            role_id=USER_ROLE_ID,
+        )
+        if account is None:
+            raise AccountConflictError
+        return account
+
+    async def update(self, account: Account, data: UpdateAccountRequest) -> None:
+        try:
+            await self.accounts.update(account, data.model_dump(exclude_unset=True))
+        except IntegrityError:
+            raise AccountConflictError from None
+
+    async def change_password(self, account_id: UUID, data: ChangePasswordRequest) -> None:
+        account = await self.accounts.get_for_update(account_id)
+        if account is None:
+            raise InvalidCurrentPasswordError
+        matches = await run_in_threadpool(
+            password_hasher.verify, data.current_password.get_secret_value(), account.password_hash
+        )
+        if not matches:
+            raise InvalidCurrentPasswordError
+        account.password_hash = await run_in_threadpool(
+            hash_password, data.new_password.get_secret_value()
+        )
+        await self.accounts.flush()

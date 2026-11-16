@@ -11,6 +11,7 @@ import {
     RegistrationPage,
 } from "../components/pages";
 import { CurrentUserProvider } from "./CurrentUserProvider";
+import { AdminPanelPage } from "../components/pages/AdminPanelPage/AdminPanelPage";
 
 function App() {
     return (
@@ -18,6 +19,7 @@ function App() {
             <BrowserRouter>
                 <Routes>
                     <Route path="/" element={<FeedPage />} />
+                    <Route path="/admin_panel" element={<AdminPanelPage />} />
                     <Route path="/events/new" element={<EventFormPage />} />
                     <Route path="/events/:id" element={<EventPage />} />
                     <Route path="/events/:id/edit" element={<EventFormPage />} />

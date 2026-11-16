@@ -111,7 +111,7 @@ export const EventPage = () => {
                                 <Row label="Тематики">
                                     <div className="flex flex-wrap gap-2">
                                         {event.tags.map((tag) => (
-                                            <Tag key={tag} label={tag} onClick={() => navigate(`/?tag=${encodeURIComponent(tag)}`)} />
+                                            <Tag key={tag.id} label={tag.name} color={tag.category.color} onClick={() => navigate(`/?tag_id=${encodeURIComponent(tag.id)}`)} />
                                         ))}
                                     </div>
                                 </Row>

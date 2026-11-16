@@ -9,7 +9,7 @@ export const LoginPage = () => {
     const navigate = useNavigate();
     const [searchParams] = useSearchParams();
     const { signIn } = useCurrentUser();
-    const [email, setEmail] = useState("");
+    const [login, setLogin] = useState("");
     const [password, setPassword] = useState("");
     const [error, setError] = useState<string | null>(null);
     const [submitting, setSubmitting] = useState(false);
@@ -21,7 +21,7 @@ export const LoginPage = () => {
         setSubmitting(true);
         setError(null);
         try {
-            await loginAccount({ email: email.trim(), password });
+            await loginAccount({ login, password });
             const account = await getAccount();
             signIn(await getUser(account.id));
             navigate(next, { replace: true });
@@ -35,9 +35,9 @@ export const LoginPage = () => {
     return (
         <AuthLayout title="Вход">
             <form className="flex w-full flex-col items-start gap-2.5" onSubmit={handleSubmit}>
-                <FormField label="Email" htmlFor="email">
-                    <Input id="email" name="email" type="email" autoComplete="username"
-                        placeholder="you@example.com" required maxLength={254} value={email} onChange={setEmail} />
+                <FormField label="Никнейм или почта" htmlFor="login">
+                    <Input id="login" name="login" type="text" autoComplete="username"
+                        placeholder="nickname или you@example.com" required maxLength={254} value={login} onChange={setLogin} />
                 </FormField>
                 <FormField label="Пароль" htmlFor="password">
                     <Input id="password" name="password" type="password" autoComplete="current-password"

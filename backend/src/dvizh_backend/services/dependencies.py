@@ -6,14 +6,17 @@ from dvizh_backend.config import Settings, get_settings
 from dvizh_backend.database.dependencies import DatabaseSession
 from dvizh_backend.storage import MediaStorage
 
+from .account_gateway import AccountGateway
 from .event_service import EventService
 from .media_service import MediaService
 from .notification_service import NotificationService
 from .user_service import UserService
 
 
-def get_user_service(session: DatabaseSession) -> UserService:
-    return UserService(session)
+def get_user_service(
+    session: DatabaseSession, settings: Annotated[Settings, Depends(get_settings)]
+) -> UserService:
+    return UserService(session, AccountGateway(settings.auth_url))
 
 
 def get_event_service(session: DatabaseSession) -> EventService:

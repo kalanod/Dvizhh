@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { Avatar, Button } from "../../ui";
 import { useCurrentUser, useInboxCount } from "../../../hooks";
 import logo from "../../../assets/images/logo.svg";
+import { useAdminAccess } from "../../../hooks/useAdminAccess";
 
 const navButtons = [
     { label: "Афиша", path: "/" },
@@ -16,6 +17,7 @@ export const PageHeader = () => {
     const { pathname } = useLocation();
     const { userId, user, signOut } = useCurrentUser();
     const inboxCount = useInboxCount(userId);
+    const { allowed: isAdmin } = useAdminAccess();
     // Меню-бургер на экранах уже lg; на широких навигация всегда видна.
     const [menuOpen, setMenuOpen] = useState(false);
 
@@ -68,6 +70,16 @@ export const PageHeader = () => {
                             {label}
                         </Button>
                     ))}
+                    {isAdmin && (
+                        <Button
+                            className="max-lg:!w-full"
+                            onClick={() => go("/admin_panel")}
+                            state={isActive("/admin_panel") ? "fixed1" : "hover1"}
+                            ariaPressed={isActive("/admin_panel")}
+                        >
+                            Настройки
+                        </Button>
+                    )}
                 </nav>
                 <div className="flex items-center gap-2">
                     {user ? (

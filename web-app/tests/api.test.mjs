@@ -17,20 +17,28 @@ for (const name of [
     "components/pages/EventFormPage/formState",
     "api/paging",
     "api/client",
+    "api/auth",
+    "api/settings",
+    "components/pages/AdminPanelPage/settingsState",
+    "api/users",
+    "api/registration",
+    "api/profileAccount",
     "api/personal",
     "api/events",
+    "api/tags",
     "api/media",
     "api/eventCover",
     "api/profileImage",
     "utils/media",
     "utils/format",
+    "utils/tags",
     "components/widgets/EventCard/EventCoverMicro",
     "components/ui/Avatar/Avatar",
     "api/maps",
     "utils/yandexMaps",
     "utils/geolocation",
 ]) {
-    const extension = name.startsWith("components/") && !name.endsWith("formState") ? "tsx" : "ts";
+    const extension = name.startsWith("components/") && !name.endsWith("formState") && !name.endsWith("settingsState") ? "tsx" : "ts";
     const source = readFileSync(new URL(`../src/${name}.${extension}`, import.meta.url), "utf8");
     const { outputText } = ts.transpileModule(source, {
         fileName: `${name}.${extension}`,
@@ -42,7 +50,14 @@ for (const name of [
 }
 const require = createRequire(import.meta.url);
 const personal = require(join(output, "api/personal.js"));
+const auth = require(join(output, "api/auth.js"));
+const settings = require(join(output, "api/settings.js"));
+const settingsState = require(join(output, "components/pages/AdminPanelPage/settingsState.js"));
+const { registerProfile } = require(join(output, "api/registration.js"));
+const { saveProfileWithAccount } = require(join(output, "api/profileAccount.js"));
 const api = require(join(output, "api/events.js"));
+const catalog = require(join(output, "api/tags.js"));
+const { toggleEventTag, MAX_EVENT_TAGS, tagColorStyle } = require(join(output, "utils/tags.js"));
 const media = require(join(output, "api/media.js"));
 const { createEventSaver } = require(join(output, "api/eventCover.js"));
 const { createAvatarSaver } = require(join(output, "api/profileImage.js"));
@@ -62,6 +77,191 @@ after(() => {
     assert.equal(dirname(output), resolve(testRoot));
     assert.ok(basename(output).startsWith("dvizh-api-test-"));
     rmSync(output, { recursive: true, force: true });
+});
+
+test("password change delegates through backend with unchanged secrets and protected writes", async (t) => {
+    const calls = recordFetch(t, () => new Response(null, { status: 204 }));
+    await auth.changePassword({ current_password: " old password ", new_password: " new password " });
+    assert.equal(calls[0].url.pathname, "/api/personal/password");
+    assert.equal(calls[0].options.method, "POST");
+    assert.equal(calls[0].options.headers["X-Dvizh-Account"], "1");
+    assert.deepEqual(JSON.parse(calls[0].options.body), { current_password: " old password ", new_password: " new password " });
+});
+
+test("account API uses username or email login, optional email and protected updates", async (t) => {
+    const calls = recordFetch(t, () => Response.json({ id: "u", username: "alice", email: null, role: "user" }));
+    await auth.registerAccount({ username: " Alice ", email: "   ", password: "password" });
+    await auth.registerAccount({ username: " Alice ", password: "password" });
+    await auth.registerAccount({ username: " Alice ", email: " A@Example.COM ", password: "password" });
+    await auth.loginAccount({ login: " ADMIN ", password: "admin" });
+    await auth.loginAccount({ login: " A@Example.COM ", password: "password" });
+    await auth.updateAccount({ username: " New_Name ", email: " " });
+    assert.deepEqual(JSON.parse(calls[0].body), { username: "alice", email: null, password: "password" });
+    assert.equal(JSON.parse(calls[1].body).email, null);
+    assert.equal(JSON.parse(calls[2].body).email, "a@example.com");
+    assert.deepEqual(JSON.parse(calls[3].body), { login: "admin", password: "admin" });
+    assert.equal(JSON.parse(calls[4].body).login, "a@example.com");
+    assert.equal(calls[5].options.method, "PATCH");
+    assert.equal(calls[5].url.pathname, "/api/auth/me");
+    assert.equal(calls[5].options.headers["X-Dvizh-Account"], "1");
+    assert.equal(calls[5].options.headers["Content-Type"], "application/json");
+    assert.equal(calls[5].options.credentials, "same-origin");
+    assert.deepEqual(JSON.parse(calls[5].body), { username: "new_name", email: null });
+});
+
+test("partial registration resumes only after authenticating the desired username", async (t) => {
+    const calls = recordFetch(t, (url, options) => {
+        if (url.pathname === "/api/auth/register") return Response.json({ detail: "Username is already registered" }, { status: 409 });
+        if (url.pathname === "/api/auth/login") return new Response(null, { status: 204 });
+        if (url.pathname === "/api/auth/me") return Response.json({ id: "u", username: "alice", email: null, role: "user" });
+        if (options.method === "GET") return Response.json({ detail: "Not found" }, { status: 404 });
+        return Response.json({ id: "u", ...JSON.parse(options.body) }, { status: 201 });
+    });
+    const profile = await registerProfile({ username: " Alice ", email: "", password: "password" }, { display_name: "Alice", bio: null, city: null });
+    assert.equal(profile.username, "alice");
+    assert.equal(JSON.parse(calls[1].body).login, "alice");
+    assert.equal(JSON.parse(calls[4].body).id, "u");
+    assert.equal(JSON.parse(calls[4].body).username, "alice");
+});
+
+test("registration conflicts do not create a profile for another account", async (t) => {
+    const calls = recordFetch(t, (url) => {
+        if (url.pathname === "/api/auth/register") return Response.json({ detail: "Email is already registered" }, { status: 409 });
+        return Response.json({ detail: "Invalid login or password" }, { status: 401 });
+    });
+    await assert.rejects(registerProfile({ username: "alice", email: "taken@example.com", password: "wrong" }, { display_name: "Alice", bio: null, city: null }), /email уже зарегистрирован/);
+    assert.equal(calls.length, 2);
+    t.mock.method(globalThis, "fetch", async (url) => {
+        if (url.pathname === "/api/auth/register") return Response.json({ id: "u", username: "alice", email: null });
+        if (url.pathname === "/api/auth/login") return new Response(null, { status: 204 });
+        if (url.pathname === "/api/auth/me") return Response.json({ id: "other", username: "other", email: null, role: "user" });
+        throw new Error("Must not access another profile");
+    });
+    await assert.rejects(registerProfile({ username: "alice", password: "password" }, { display_name: "Alice", bio: null, city: null }), /подтвердить никнейм/);
+});
+
+test("profile nickname updates auth first and retries only the unsaved profile", async (t) => {
+    let currentUsername = "old_name";
+    let profileAttempts = 0;
+    const calls = recordFetch(t, (url, options) => {
+        if (url.pathname === "/api/auth/me") {
+            if (options.method === "PATCH") currentUsername = JSON.parse(options.body).username;
+            return Response.json({ id: "u", username: currentUsername, email: null, role: "user" });
+        }
+        profileAttempts += 1;
+        return profileAttempts === 1
+            ? Response.json({ detail: "Try again" }, { status: 503 })
+            : Response.json({ id: "u", ...JSON.parse(options.body) });
+    });
+    const input = { username: " New_Name ", display_name: "New name" };
+    await assert.rejects(saveProfileWithAccount("u", "old_name", input), /Никнейм для входа уже изменён на «new_name»/);
+    assert.equal(currentUsername, "new_name");
+    const profile = await saveProfileWithAccount("u", "old_name", input);
+    assert.equal(profile.username, "new_name");
+    assert.equal(calls.filter((call) => call.url.pathname === "/api/auth/me" && call.options.method === "PATCH").length, 1);
+    assert.deepEqual(calls.map((call) => [call.url.pathname, call.options.method]), [
+        ["/api/auth/me", "GET"], ["/api/auth/me", "PATCH"], ["/api/users/u", "PATCH"],
+        ["/api/auth/me", "GET"], ["/api/users/u", "PATCH"],
+    ]);
+});
+
+test("failed auth rename never changes the profile", async (t) => {
+    const calls = recordFetch(t, (_url, options) => options.method === "GET"
+        ? Response.json({ id: "u", username: "old_name", email: null, role: "user" })
+        : Response.json({ detail: "Username is already registered" }, { status: 409 }));
+    await assert.rejects(saveProfileWithAccount("u", "old_name", { username: "taken" }), /никнейм уже занят/);
+    assert.equal(calls.length, 2);
+});
+
+test("profile nickname conflict after auth rename asks for another nickname", async (t) => {
+    let username = "old_name";
+    recordFetch(t, (url, options) => {
+        if (url.pathname === "/api/auth/me") {
+            if (options.method === "PATCH") username = JSON.parse(options.body).username;
+            return Response.json({ id: "u", username, email: null, role: "user" });
+        }
+        return Response.json({ detail: "Username already exists" }, { status: 409 });
+    });
+    await assert.rejects(saveProfileWithAccount("u", "old_name", { username: "orphan_name" }), (error) => {
+        assert.match(error.message, /Никнейм для входа уже изменён на «orphan_name»/);
+        assert.match(error.message, /Выберите другой никнейм/);
+        assert.doesNotMatch(error.message, /Повторите сохранение/);
+        return true;
+    });
+});
+
+test("profile email clearing updates only auth and omitted email is preserved", async (t) => {
+    let account = { id: "u", username: "alice", email: "old@example.com", role: "user" };
+    const calls = recordFetch(t, (url, options) => {
+        if (url.pathname === "/api/auth/me") {
+            if (options.method === "PATCH") account = { ...account, ...JSON.parse(options.body) };
+            return Response.json(account);
+        }
+        return Response.json({ id: "u", ...JSON.parse(options.body) });
+    });
+    await saveProfileWithAccount("u", "alice", { username: "alice", city: "City" }, " ");
+    assert.equal(account.email, null);
+    assert.deepEqual(JSON.parse(calls[1].body), { email: null });
+    assert.equal("email" in JSON.parse(calls[2].body), false);
+    account.email = "keep@example.com";
+    await saveProfileWithAccount("u", "alice", { username: "bob" });
+    assert.deepEqual(JSON.parse(calls[4].body), { username: "bob" });
+    assert.equal(account.email, "keep@example.com");
+});
+
+test("email saved before a profile failure produces a recoverable partial-save message", async (t) => {
+    let email = null;
+    let attempts = 0;
+    const calls = recordFetch(t, (url, options) => {
+        if (url.pathname === "/api/auth/me") {
+            if (options.method === "PATCH") email = JSON.parse(options.body).email;
+            return Response.json({ id: "u", username: "alice", email, role: "user" });
+        }
+        attempts += 1;
+        return attempts === 1
+            ? Response.json({ detail: "Try again" }, { status: 503 })
+            : Response.json({ id: "u", ...JSON.parse(options.body) });
+    });
+    await assert.rejects(saveProfileWithAccount("u", "alice", { username: "alice" }, "new@example.com"), /Данные аккаунта для входа сохранены/);
+    await saveProfileWithAccount("u", "alice", { username: "alice" }, "new@example.com");
+    assert.equal(email, "new@example.com");
+    assert.equal(calls.filter((call) => call.url.pathname === "/api/auth/me" && call.options.method === "PATCH").length, 1);
+});
+
+test("tag selection limits new choices and allows removing inactive tags", () => {
+    const category = { id: "category-1", name: "Nature", color: "#228844", sort_order: 0 };
+    const tags = Array.from({ length: 6 }, (_, index) => ({
+        id: `tag-${index}`, slug: `tag-${index}`, name: `Tag ${index}`, is_active: true, category,
+    }));
+    let selected = [];
+    for (const tag of tags) selected = toggleEventTag(selected, tag);
+    assert.equal(selected.length, MAX_EVENT_TAGS);
+    assert.equal(selected.some((tag) => tag.id === tags[5].id), false);
+    selected = toggleEventTag(selected, tags[0]);
+    selected = toggleEventTag(selected, tags[5]);
+    assert.equal(selected.length, MAX_EVENT_TAGS);
+    assert.equal(selected.some((tag) => tag.id === tags[5].id), true);
+    const inactive = { ...tags[0], is_active: false };
+    assert.deepEqual(toggleEventTag([inactive], inactive), []);
+    assert.deepEqual(toggleEventTag([], inactive), []);
+    const form = { ...emptyForm(), title: "Meeting", startsAt: "2030-01-01T12:00", address: "Street", tags };
+    assert.match(validateForm(form), /пяти тематик/);
+    const body = formToInput({ ...form, tags: [tags[0], tags[0], tags[1]] });
+    assert.deepEqual(body.tag_ids, [tags[0].id, tags[1].id]);
+    assert.equal("tags" in body, false);
+    assert.deepEqual(formFromEvent({ ...body, tags: [inactive] }).tags, [inactive]);
+    assert.deepEqual(tagColorStyle("not a color"), { backgroundColor: "#64748b20", borderColor: "#64748b" });
+});
+
+test("tag catalog and feed filter use stable IDs", async (t) => {
+    const calls = recordFetch(t, () => Response.json([]));
+    const controller = new AbortController();
+    await catalog.listTags(controller.signal);
+    await api.listEvents({ tagId: "tag-id", limit: 20 });
+    assert.equal(calls[0].url.pathname, "/api/tags");
+    assert.equal(calls[0].options.signal, controller.signal);
+    assert.equal(calls[1].url.searchParams.get("tag_id"), "tag-id");
+    assert.equal(calls[1].url.searchParams.has("tag"), false);
 });
 
 test("device geolocation returns map coordinates in longitude-latitude order", async (t) => {
@@ -630,6 +830,110 @@ test("event edits preserve currency and local time in a different zone", () => {
     assert.equal(formToInput(form).starts_at, original.starts_at);
     assert.notEqual(validateForm({ ...form, timezone: "Invalid/Zone" }), null);
     assert.notEqual(validateForm({ ...form, currency: "XX" }), null);
+});
+
+function settingsDocument() {
+    return { schema_version: 2, tabs: [{ id: "catalog", label: "Каталог", cards: [{ id: "catalog.edit", title: "Записи", actions: [
+        { id: "save", type: "button", label: "Сохранить все", action_id: "tag.save", tone: "primary", validate_fields: true, rows: "changed" },
+    ], rows: [{ id: "tag.one", elements: [
+        { id: "title", type: "text", text: "Tag", tone: "normal" },
+        { id: "name", type: "input", label: "Имя", input_type: "text", value: "Original", required: true, max_length: 120 },
+        { id: "category", type: "select", label: "Категория", value: "a", required: true, options: [{ value: "a", label: "A" }, { value: "b", label: "B" }] },
+        { id: "active", type: "toggle", label: "Активен", value: true },
+        { id: "password", type: "input", label: "Пароль", input_type: "password", value: "", required: true, min_length: 8, max_length: 128 },
+        { id: "confirmation", type: "input", label: "Подтверждение", input_type: "password", value: "", required: true, matches: "password" },
+        { id: "delete", type: "button", label: "Удалить", action_id: "tag.delete.one", tone: "danger", validate_fields: false, rows: "all" },
+    ] }] }] }] };
+}
+
+test("settings API validates cards and sends one versioned protected batch command", async (t) => {
+    const document = settingsDocument();
+    const calls = recordFetch(t, (url) => Response.json(url.pathname.includes("/actions/")
+        ? { schema_version: 2, message: "Saved", document, applied_rows: ["tag.one"] } : document));
+    const controller = new AbortController();
+    assert.deepEqual(await settings.getSettingsDocument(controller.signal), document);
+    const rows = { "tag.one": { password: " secret value ", confirmation: " secret value ", active: false } };
+    const result = await settings.executeSettingsAction("tag.save", rows, controller.signal);
+    assert.equal(result.message, "Saved");
+    assert.deepEqual(result.applied_rows, ["tag.one"]);
+    assert.equal(calls[0].url.pathname, "/api/settings");
+    assert.equal(calls[1].url.pathname, "/api/settings/actions/tag.save");
+    assert.equal(calls[1].options.method, "POST");
+    assert.equal(calls[1].options.headers["X-Dvizh-Admin"], "1");
+    assert.equal(calls[1].options.headers["X-Dvizh-Account"], "1");
+    assert.deepEqual(JSON.parse(calls[1].body), { schema_version: 2, rows });
+    assert.equal(calls[1].options.signal, controller.signal);
+    assert.equal(calls[0].options.signal, controller.signal);
+});
+
+test("settings schema fails closed for unknown types, versions, duplicate IDs and leaked secrets", () => {
+    const changes = [
+        (doc) => { doc.schema_version = 1; },
+        (doc) => { doc.schema_version = 3; },
+        (doc) => { doc.tabs[0].cards[0].rows[0].elements[0].type = "html"; },
+        (doc) => { doc.tabs.push(structuredClone(doc.tabs[0])); },
+        (doc) => { doc.tabs[0].cards.push(structuredClone(doc.tabs[0].cards[0])); },
+        (doc) => { doc.tabs[0].cards[0].rows.push(structuredClone(doc.tabs[0].cards[0].rows[0])); },
+        (doc) => { doc.tabs[0].cards[0].rows[0].elements[1].id = "title"; },
+        (doc) => { doc.tabs[0].cards[0].rows[0].elements[2].value = "not-an-option"; },
+        (doc) => { doc.tabs[0].cards[0].rows[0].elements[4].value = "server-secret"; },
+        (doc) => { doc.tabs[0].cards[0].rows[0].elements[5].matches = "missing"; },
+        (doc) => { doc.tabs[0].cards[0].rows[0].elements[1].pattern = "["; },
+        (doc) => { doc.tabs[0].cards[0].rows[0].elements[6].action_id = "https://evil.example"; },
+        (doc) => { doc.tabs[0].cards[0].rows[0].elements[6].action_id = "tag.save"; },
+        (doc) => { doc.tabs[0].cards[0].actions[0].rows = "unknown"; },
+    ];
+    for (const change of changes) {
+        const doc = settingsDocument(); change(doc);
+        assert.throws(() => settings.parseSettingsDocument(doc), settings.SettingsProtocolError);
+    }
+    assert.deepEqual(settings.parseSettingsDocument({ schema_version: 2, tabs: [] }).tabs, []);
+    const emptyCard = settingsDocument(); emptyCard.tabs[0].cards[0].rows = [];
+    assert.equal(settings.parseSettingsDocument(emptyCard).tabs[0].cards[0].rows.length, 0);
+});
+
+test("settings refresh retains unrelated drafts, removes stale selects and never retains password fields", () => {
+    const document = settingsDocument();
+    const row = document.tabs[0].cards[0].rows[0];
+    document.tabs[0].cards[0].rows.push({ ...structuredClone(row), id: "tag.two" });
+    const drafts = {
+        "tag.one": { name: "Unsaved", category: "b", active: false, password: "must-not-retain", confirmation: "must-not-retain" },
+        "tag.two": { name: "Completed" },
+        removed: { name: "Removed" },
+    };
+    assert.deepEqual(settingsState.reconcileSettingsDrafts(document, drafts, ["tag.two"]), {
+        "tag.one": { name: "Unsaved", category: "b", active: false },
+    });
+    row.elements.find((element) => element.id === "category").options.pop();
+    assert.deepEqual(settingsState.reconcileSettingsDrafts(document, drafts, ["tag.two"]), {
+        "tag.one": { name: "Unsaved", active: false },
+    });
+});
+
+test("settings fields validate confirmations and toggle types without trimming passwords", () => {
+    const row = settingsDocument().tabs[0].cards[0].rows[0];
+    const values = { ...settingsState.rowValues(row), password: " secret value ", confirmation: " secret value " };
+    assert.equal(settingsState.validateSettingsValues(row, values), null);
+    assert.ok(settingsState.validateSettingsValues(row, { ...values, confirmation: "secret value" }));
+    assert.ok(settingsState.validateSettingsValues(row, { ...values, active: "false" }));
+    assert.ok(settingsState.validateSettingsValues(row, { ...values, password: "short" }));
+});
+
+test("card actions send only dirty rows, include full field sets and ignore reverted edits", () => {
+    const card = settingsDocument().tabs[0].cards[0];
+    card.rows.push({ ...structuredClone(card.rows[0]), id: "tag.two" });
+    const action = card.actions[0];
+    assert.deepEqual(settingsState.cardActionRows(card, action, {}), {});
+    assert.deepEqual(settingsState.cardActionRows(card, action, { "tag.one": { name: "Original" } }), {});
+    const changed = settingsState.cardActionRows(card, action, { "tag.two": { name: "Changed" }, foreign: { name: "Do not send" } });
+    assert.deepEqual(Object.keys(changed), ["tag.two"]);
+    assert.deepEqual(changed["tag.two"], { ...settingsState.rowValues(card.rows[1]), name: "Changed" });
+    assert.deepEqual(Object.keys(settingsState.cardActionRows(card, { ...action, rows: "all" }, {})), ["tag.one", "tag.two"]);
+});
+
+test("batch response cannot acknowledge or clear unrelated drafts", async (t) => {
+    recordFetch(t, () => Response.json({ schema_version: 2, message: "Saved", document: settingsDocument(), applied_rows: ["foreign"] }));
+    await assert.rejects(settings.executeSettingsAction("tag.save", { "tag.one": { name: "Changed" } }), settings.SettingsProtocolError);
 });
 
 test("draft submit button passes its action to the native button", () => {

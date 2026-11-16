@@ -36,25 +36,36 @@ from .enums import (
 )
 
 
-class Topic(Base, TimestampMixin):
-    __tablename__ = "topics"
+class TagCategory(Base):
+    __tablename__ = "tag_categories"
     __table_args__ = (
-        Index("ix_topics_parent_sort_order", "parent_id", "sort_order"),
-        Index("ix_topics_active_sort_order", "is_active", "sort_order"),
+        CheckConstraint("color ~ '^#[0-9A-Fa-f]{6}$'", name="valid_color"),
     )
 
     id: Mapped[UUID] = mapped_column(
         PGUUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
     )
-    parent_id: Mapped[UUID | None] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("topics.id", ondelete="SET NULL")
+    name: Mapped[str] = mapped_column(String(120), nullable=False, unique=True)
+    color: Mapped[str] = mapped_column(String(7), nullable=False)
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
+
+
+class Tag(Base, TimestampMixin):
+    __tablename__ = "tags"
+    __table_args__ = (
+        Index("ix_tags_active_sort_order", "is_active", "sort_order"),
+        Index("ix_tags_category_sort_order", "category_id", "sort_order"),
+    )
+
+    id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
+    )
+    category_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("tag_categories.id", ondelete="RESTRICT"), nullable=False
     )
     slug: Mapped[str] = mapped_column(String(80), nullable=False, unique=True)
     name: Mapped[str] = mapped_column(String(120), nullable=False)
-    description: Mapped[str | None] = mapped_column(Text)
-    is_active: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, server_default=text("true")
-    )
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
 
 
@@ -200,15 +211,15 @@ class EventManager(Base):
     )
 
 
-class EventTopic(Base):
-    __tablename__ = "event_topics"
-    __table_args__ = (Index("ix_event_topics_topic_event", "topic_id", "event_id"),)
+class EventTag(Base):
+    __tablename__ = "event_tags"
+    __table_args__ = (Index("ix_event_tags_tag_event", "tag_id", "event_id"),)
 
     event_id: Mapped[UUID] = mapped_column(
         PGUUID(as_uuid=True), ForeignKey("events.id", ondelete="CASCADE"), primary_key=True
     )
-    topic_id: Mapped[UUID] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("topics.id", ondelete="RESTRICT"), primary_key=True
+    tag_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("tags.id", ondelete="RESTRICT"), primary_key=True
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()

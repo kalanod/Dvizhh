@@ -7,6 +7,7 @@ interface RequestOptions {
     query?: Record<string, QueryValue>;
     /** Отмена запроса, например когда пользователь ушёл со страницы. */
     signal?: AbortSignal;
+    headers?: Record<string, string>;
 }
 
 export class ApiError extends Error {
@@ -20,7 +21,7 @@ export class ApiError extends Error {
 }
 
 /** Запрос к backend через прокси web-app: все пути начинаются с /api. */
-export async function request<T>(path: string, { method = "GET", body, rawBody, query, signal }: RequestOptions = {}): Promise<T> {
+export async function request<T>(path: string, { method = "GET", body, rawBody, query, signal, headers }: RequestOptions = {}): Promise<T> {
     const url = new URL(`/api${path}`, window.location.origin);
     for (const [key, value] of Object.entries(query ?? {})) {
         if (value !== undefined && value !== null && value !== "" && value !== false) {
@@ -34,9 +35,12 @@ export async function request<T>(path: string, { method = "GET", body, rawBody, 
             method,
             credentials: "same-origin",
             signal,
-            headers: rawBody !== undefined
-                ? { "Content-Type": "application/octet-stream" }
-                : body === undefined ? undefined : { "Content-Type": "application/json" },
+            headers: {
+                ...(rawBody !== undefined
+                    ? { "Content-Type": "application/octet-stream" }
+                    : body === undefined ? {} : { "Content-Type": "application/json" }),
+                ...headers,
+            },
             body: rawBody ?? (body === undefined ? undefined : JSON.stringify(body)),
         });
     } catch (error) {
@@ -66,8 +70,24 @@ function errorMessage(payload: unknown, status: number): string {
     }
 
     if (detail === "Invalid email or password") return "Неверный email или пароль.";
+    if (detail === "Invalid login or password") return "Неверный никнейм, почта или пароль.";
     if (detail === "Email is already registered") return "Этот email уже зарегистрирован. Войдите в аккаунт.";
+    if (detail === "Username is already registered") return "Этот никнейм уже занят. Выберите другой или войдите в аккаунт.";
+    if (detail === "Username or email is already registered") return "Никнейм или почта уже заняты. Выберите другие данные или войдите в аккаунт.";
     if (detail === "Authentication required") return "Войдите в аккаунт, чтобы продолжить.";
+    if (detail === "Invalid current password") return "Текущий пароль указан неверно.";
+    if (detail === "Account write forbidden") return "Не удалось подтвердить запрос. Обновите страницу и попробуйте снова.";
+    if (detail === "Invalid password change request") return "Новый пароль не соответствует требованиям сервера: от 8 до 128 символов, минимум может быть увеличен.";
+    if (detail === "Authentication service unavailable") return "Сервис авторизации недоступен. Попробуйте позже.";
+    if (detail === "Administrator access required") return "Эти настройки доступны только администратору.";
+    if (detail === "Catalog entry conflicts with an existing entry") return "Запись с таким названием или кодом уже существует.";
+    if (detail === "Move or delete the category's tags first") return "Сначала перенесите или удалите тематики этой категории.";
+    if (detail === "Tag is used by events; deactivate it instead") return "Тематика используется в мероприятиях. Отключите её вместо удаления.";
+    if (detail === "Tag not found") return "Тематика не найдена.";
+    if (detail === "Tag category not found") return "Категория тематик не найдена.";
+    if (detail === "Choose at most five unique tags") return "Можно выбрать не больше пяти разных тематик.";
+    if (detail === "One or more tags do not exist") return "Одна или несколько тематик больше не существуют.";
+    if (detail === "Inactive tags cannot be newly assigned") return "Отключённые тематики нельзя выбрать для нового назначения.";
 
     if (typeof detail === "string") {
         return status === 502 ? "Backend недоступен. Попробуйте позже." : detail;
@@ -77,8 +97,9 @@ function errorMessage(payload: unknown, status: number): string {
     if (Array.isArray(detail)) {
         const messages = detail
             .map((item: { msg?: unknown; loc?: unknown }) => {
-                const msg = typeof item?.msg === "string" ? item.msg.replace(/^Value error, /, "") : "";
-                const field = Array.isArray(item?.loc) ? item.loc.filter((part) => part !== "body").join(".") : "";
+                const rawMessage = typeof item?.msg === "string" ? item.msg.replace(/^Value error, /, "") : "";
+                const msg = rawMessage === "Tag IDs must be unique" ? "Тематики не должны повторяться." : rawMessage;
+                const field = Array.isArray(item?.loc) ? item.loc.filter((part) => part !== "body").map((part) => part === "tag_ids" ? "тематики" : part === "tag_id" ? "тематика" : part).join(".") : "";
                 return field && !msg.endsWith(".") ? `${field}: ${msg}` : msg;
             })
             .filter(Boolean);
