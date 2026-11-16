@@ -106,6 +106,8 @@ python3 observability/request_trace.py <request_id>
 Добавить `compose.logs.yaml:compose.logs.prod.yaml` в конец `COMPOSE_FILE`
 в `.env.production`. Задать `GRAFANA_ADMIN_PASSWORD` и
 `OBSERVABILITY_DATA_DIR=/srv/dvizh-observability` на отдельной файловой системе.
+Проверить свободное место через `df -h /srv/dvizh-observability`.
+При заполнении раздела на 90% Loki перестаёт принимать новые записи.
 
 ```shell
 mountpoint -q /srv/dvizh-observability &&
