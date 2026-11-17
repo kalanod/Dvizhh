@@ -40,6 +40,31 @@ export const emptyForm = (): EventFormState => ({
     joinPolicy: "OPEN",
 });
 
+type ScheduleChange = { field: "startsAt" | "endsAt"; value: string }
+    | { field: "isAllDay"; value: boolean };
+
+const isEndOfDay = (value: string) => value.slice(10) === "T23:59";
+
+/** Keep local wall-clock values together; UTC conversion still happens on submit. */
+export const updateEventSchedule = (form: EventFormState, change: ScheduleChange): EventFormState => {
+    if (change.field === "endsAt") {
+        return { ...form, endsAt: change.value, isAllDay: isEndOfDay(change.value) };
+    }
+    if (change.field === "isAllDay" && !change.value) {
+        return { ...form, isAllDay: false, endsAt: isEndOfDay(form.endsAt) ? "" : form.endsAt };
+    }
+    const startsAt = change.field === "startsAt" ? change.value : form.startsAt;
+    const isAllDay = change.field === "isAllDay" ? change.value : form.isAllDay;
+    if (!isAllDay) return { ...form, startsAt };
+    const startDate = startsAt.slice(0, 10);
+    let endDate = form.endsAt.slice(0, 10);
+    // A one-day event follows its start date. An explicitly longer range is retained.
+    if (!endDate || endDate < startDate || (
+        change.field === "startsAt" && endDate === form.startsAt.slice(0, 10)
+    )) endDate = startDate;
+    return { ...form, startsAt, isAllDay, endsAt: endDate ? `${endDate}T23:59` : "" };
+};
+
 export const formFromEvent = (event: DvizhEvent): EventFormState => ({
     title: event.title,
     description: event.description,

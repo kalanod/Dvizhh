@@ -4,7 +4,7 @@ import { errorText } from "../../../api";
 import type { EventFormat, EventInput, EventJoinPolicy, EventVisibility } from "../../../models";
 import { Button, FormField, Input, Notice, Select, Textarea, Toggle } from "../../ui";
 import { FORMAT_LABELS, JOIN_POLICY_LABELS, VISIBILITY_LABELS } from "../../../utils/format";
-import { emptyForm, formToInput, validateForm, type EventFormState } from "./formState";
+import { emptyForm, formToInput, updateEventSchedule, validateForm, type EventFormState } from "./formState";
 import type { EventCoverChange } from "../../../utils/media";
 import { EventCoverField } from "./EventCoverField";
 import { EventLocationField } from "./EventLocationField";
@@ -113,7 +113,7 @@ export const EventForm = ({ title, submitLabel, initial, allowDraft, userId, ini
             <Section title="Когда">
                 <div className="grid gap-4 sm:grid-cols-2">
                     <FormField label="Начало" htmlFor="starts-at" required>
-                        <Input id="starts-at" type="datetime-local" value={form.startsAt} onChange={set("startsAt")} />
+                        <Input id="starts-at" type="datetime-local" value={form.startsAt} onChange={(value) => setForm((previous) => updateEventSchedule(previous, { field: "startsAt", value }))} />
                     </FormField>
                     <FormField label="Окончание" htmlFor="ends-at">
                         <Input
@@ -121,11 +121,11 @@ export const EventForm = ({ title, submitLabel, initial, allowDraft, userId, ini
                             type="datetime-local"
                             min={form.startsAt || undefined}
                             value={form.endsAt}
-                            onChange={set("endsAt")}
+                            onChange={(value) => setForm((previous) => updateEventSchedule(previous, { field: "endsAt", value }))}
                         />
                     </FormField>
                 </div>
-                <Toggle label="Весь день" checked={form.isAllDay} onChange={set("isAllDay")} />
+                <Toggle label="Весь день" checked={form.isAllDay} onChange={(value) => setForm((previous) => updateEventSchedule(previous, { field: "isAllDay", value }))} />
                 <p role="status" className="text-small text-textsecondary">{timezoneHint}</p>
             </Section>
 

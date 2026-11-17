@@ -85,7 +85,7 @@ const { currentCoordinates } = require(join(output, "utils/geolocation.js"));
 const { SortMenu } = require(join(output, "components/widgets/SortMenu/SortMenu.js"));
 const { Input } = require(join(output, "components/ui/Input/Input.js"));
 const { locationCoordinates, loadYandexMaps, reportMapError } = require(join(output, "utils/yandexMaps.js"));
-const { emptyForm, formToInput, formFromEvent, validateForm } = require(join(output, "components/pages/EventFormPage/formState.js"));
+const { emptyForm, formToInput, formFromEvent, updateEventSchedule, validateForm } = require(join(output, "components/pages/EventFormPage/formState.js"));
 const originalWindow = globalThis.window;
 globalThis.window = { location: { origin: "http://localhost:8080" } };
 after(() => {
@@ -1253,4 +1253,38 @@ test("username availability normalizes the value and forwards cancellation witho
         assert.equal(calls[0].options.signal, controller.signal);
         assert.equal(calls[0].options.body, undefined);
     } finally { globalThis.fetch = originalFetch; }
+});
+
+test("all-day scheduling synchronizes the end time and follows one-day date changes", () => {
+    let form = { ...emptyForm(), startsAt: "2030-06-12T10:00", timezone: "Asia/Tokyo" };
+    form = updateEventSchedule(form, { field: "isAllDay", value: true });
+    assert.equal(form.endsAt, "2030-06-12T23:59");
+    assert.equal(form.startsAt, "2030-06-12T10:00");
+    assert.equal(formToInput(form).ends_at, "2030-06-12T14:59:00.000Z");
+    form = updateEventSchedule(form, { field: "startsAt", value: "2030-06-10T12:00" });
+    assert.equal(form.endsAt, "2030-06-10T23:59");
+    form = updateEventSchedule(form, { field: "endsAt", value: "2030-06-10T23:58" });
+    assert.equal(form.isAllDay, false);
+    form = updateEventSchedule(form, { field: "endsAt", value: "2030-06-13T23:59" });
+    assert.equal(form.isAllDay, true);
+    form = updateEventSchedule(form, { field: "startsAt", value: "2030-06-11T12:00" });
+    assert.equal(form.endsAt, "2030-06-13T23:59");
+    form = updateEventSchedule(form, { field: "isAllDay", value: false });
+    assert.equal(form.endsAt, "");
+    assert.equal(form.isAllDay, false);
+});
+
+test("all-day selection before a start date waits for that date and clearing the end disables it", () => {
+    let form = updateEventSchedule(emptyForm(), { field: "isAllDay", value: true });
+    assert.equal(form.endsAt, "");
+    assert.equal(form.isAllDay, true);
+    form = updateEventSchedule(form, { field: "startsAt", value: "2030-12-31T12:00" });
+    assert.equal(form.endsAt, "2030-12-31T23:59");
+    form = updateEventSchedule(form, { field: "startsAt", value: "2031-01-01T12:00" });
+    assert.equal(form.endsAt, "2031-01-01T23:59");
+    form = updateEventSchedule(form, { field: "endsAt", value: "" });
+    assert.equal(form.isAllDay, false);
+    assert.equal(form.endsAt, "");
+    const timed = updateEventSchedule({ ...form, endsAt: "2031-01-01T18:00" }, { field: "startsAt", value: "2031-01-01T14:00" });
+    assert.equal(timed.endsAt, "2031-01-01T18:00");
 });
