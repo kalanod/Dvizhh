@@ -7,7 +7,7 @@ from uuid import UUID
 from sqlalchemy import Date, Select, case, cast, delete, exists, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from dvizh_backend.api.schemas.event import EventPersonalStateDTO
+from dvizh_backend.api.schemas.event import EventPersonalStateDTO, EventSort
 from dvizh_backend.api.schemas.tag import CategoryDTO, EventTagDTO
 
 from ..models import (
@@ -35,6 +35,7 @@ from ..models.enums import (
     OccurrenceStatus,
     ParticipationStatus,
 )
+from .event_sorting import SORTINGS, SortContext
 from .exceptions import InvalidTagSelectionError
 from .tags import TagRepository
 
@@ -133,6 +134,9 @@ class EventQueryService:
         free_only: bool = False,
         available_only: bool = False,
         friends_of: UUID | None = None,
+        sort: EventSort = "novelty",
+        latitude: float | None = None,
+        longitude: float | None = None,
         offset: int = 0,
         limit: int = 20,
         viewer_id: UUID | None = None,
@@ -163,8 +167,12 @@ class EventQueryService:
             )
             statement = statement.order_by(friends_going.desc())
 
+        # ORDER BY ... LIMIT: база держит только лучшие offset + limit строк, а не сортирует всё.
+        sort_keys = await SORTINGS[sort].order_by(
+            SortContext(self.session, viewer_id, latitude, longitude)
+        )
         statement = (
-            statement.order_by(Event.published_at.desc(), EventOccurrence.starts_at, Event.id)
+            statement.order_by(*sort_keys, EventOccurrence.starts_at, Event.id)
             .offset(offset)
             .limit(limit)
         )

@@ -6,6 +6,7 @@ from fastapi.responses import JSONResponse
 from dvizh_backend.database.services.exceptions import (
     CapacityReachedError,
     EntityNotFoundError,
+    EventSortError,
     InvalidStateTransitionError,
     InvalidTagSelectionError,
     JoinUnavailableError,
@@ -41,6 +42,7 @@ STATUS_BY_ERROR: dict[type[Exception], int] = {
     PlaceNotFoundError: 404,
     InvalidPlaceQueryError: 422,
     SettingsInputError: 422,
+    EventSortError: 422,
     SettingsActionNotFoundError: 404,
     InvalidImageError: 415,
     CatalogConflictError: 409,

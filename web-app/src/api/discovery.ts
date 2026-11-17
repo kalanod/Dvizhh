@@ -1,18 +1,19 @@
 import { ApiError, request } from "./client";
-import type { DvizhEvent } from "../models";
+import type { DvizhEvent, EventSort } from "../models";
 
 export interface DiscoveryBounds { west: number; south: number; east: number; north: number }
 export interface DiscoveryViewport extends DiscoveryBounds {
     zoom: number;
     center: { longitude: number; latitude: number };
 }
-export type DiscoverySort = "distance" | "newest" | "start";
+export type DiscoverySort = EventSort;
 export interface DiscoveryRequest {
     filters: {
         q?: string; tag_id?: string | null; date_from?: string | null; date_to?: string | null;
         free_only?: boolean; available_only?: boolean; friends_of?: string | null; viewer_id?: string | null;
     };
     viewport: DiscoveryViewport | null;
+    origin?: { latitude: number; longitude: number } | null;
     sort: DiscoverySort;
     selection_token: string | null;
     cursor: string | null;

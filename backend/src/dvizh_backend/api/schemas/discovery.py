@@ -6,7 +6,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from .event import EventDTO
+from .event import EventDTO, EventSort
 
 
 class DiscoveryModel(BaseModel):
@@ -66,7 +66,8 @@ class DiscoveryFilters(DiscoveryModel):
 class DiscoveryRequest(DiscoveryModel):
     filters: DiscoveryFilters = Field(default_factory=DiscoveryFilters)
     viewport: MapViewport | None = None
-    sort: Literal["distance", "newest", "start"] = "distance"
+    sort: EventSort = "novelty"
+    origin: MapPoint | None = None
     selection_token: str | None = Field(default=None, max_length=12000)
     cursor: str | None = Field(default=None, max_length=16000)
     limit: int = Field(default=20, ge=1, le=50)

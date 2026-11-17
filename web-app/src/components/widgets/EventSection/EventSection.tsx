@@ -1,11 +1,11 @@
 import { useState } from "react";
 import { errorText } from "../../../api";
 import type { EventDiscoveryController } from "../../../hooks/useEventDiscovery";
-import type { DiscoverySort } from "../../../api/discovery";
-import { Button, Input, Select, Tag } from "../../ui";
+import { Button, Input, Notice, Tag } from "../../ui";
 import { CalendarPreview } from "../CalendarPreview";
 import { EventList } from "../EventList";
 import { RightPanel } from "../Filters";
+import { SortMenu } from "../SortMenu";
 
 interface EventSectionProps {
     title: string;
@@ -71,21 +71,14 @@ export const EventSection = ({ title, discovery }: EventSectionProps) => {
                     onKeyDown={handleKeyDown}
                 />
             </div>
+            <SortMenu value={discovery.sort} onChange={(value) => void discovery.setSort(value)}
+                distanceLabel={discovery.viewport ? "Ближе к центру карты" : "Рядом со мной"} />
         </>
     );
 
     return (
         <section className="flex w-full flex-col gap-[10px] lg:flex-row lg:items-start">
             <div className="flex min-w-0 flex-1 flex-col gap-[10px]">
-                <div className="flex flex-wrap items-center gap-2 rounded-lg bg-cards-surface p-3">
-                    <label htmlFor="discovery-sort" className="text-body text-textprimary">Порядок</label>
-                    <div className="min-w-0 flex-1 sm:max-w-xs">
-                        <Select<DiscoverySort> id="discovery-sort" value={discovery.viewport ? discovery.sort : "newest"}
-                            options={{ distance: "Ближе к центру карты", newest: "По новизне", start: "По дате начала" }}
-                            onChange={discovery.setSort} />
-                    </div>
-                    <Button onClick={discovery.reload} disabled={loading}>Обновить</Button>
-                </div>
                 {discovery.selected && <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-cards-surface p-3" role="status">
                     <span className="text-body text-textprimary">Выбрана группа: {discovery.total} мероприятий</span>
                     <Button onClick={discovery.clearSelection}>Сбросить выбор группы</Button>
@@ -105,6 +98,8 @@ export const EventSection = ({ title, discovery }: EventSectionProps) => {
                         </button>
                     </div>
                 )}
+
+                {discovery.sortNotice && <Notice>{discovery.sortNotice}</Notice>}
 
                 <EventList
                     title={title}

@@ -1,8 +1,10 @@
-﻿import { useEffect, useState } from "react";
-import { ApiError } from "../api/client";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { ApiError, errorText } from "../api/client";
 import type { DiscoveryMapItem, DiscoveryRequest, DiscoveryResponse, DiscoverySort, DiscoveryViewport } from "../api/discovery";
 import type { DvizhEvent } from "../models";
 import { discoveryCache, mergeDiscoveryEvents } from "../utils/discovery";
+import { currentCoordinates } from "../utils/geolocation";
+import { locationCoordinates } from "../utils/yandexMaps";
 import { useCurrentUser } from "./useCurrentUser";
 import { useEventFilters } from "./useEventFilters";
 
@@ -18,7 +20,17 @@ export function useEventDiscovery() {
     const filterState = useEventFilters();
     const { filters } = filterState;
     const [viewport, setViewport] = useState<DiscoveryViewport | null>(null);
-    const [sort, changeSort] = useState<DiscoverySort>("distance");
+    const [sortChoice, changeSort] = useState<{ actorId: string | null; value: DiscoverySort } | null>(null);
+    const [point, setPoint] = useState<{ actorId: string | null; latitude: number; longitude: number } | null>(null);
+    const [sortNotice, setSortNotice] = useState<string | null>(null);
+    const sortRequest = useRef(0);
+    const actor = useRef(userId);
+    useLayoutEffect(() => { actor.current = userId; sortRequest.current++; }, [userId]);
+    useEffect(() => () => { sortRequest.current++; }, []);
+    const sort = sortChoice?.actorId === userId ? sortChoice.value : userId ? "relevance" : "novelty";
+    const coordinates = locationCoordinates(user?.latitude ?? "", user?.longitude ?? "");
+    const profileOrigin = coordinates ? { longitude: coordinates[0], latitude: coordinates[1] } : null;
+    const origin = point?.actorId === userId ? { latitude: point.latitude, longitude: point.longitude } : profileOrigin;
     const [selection, setSelection] = useState<{ scope: string; item: DiscoveryMapItem } | null>(null);
     const [page, setPage] = useState<{ key: string; cursor: string } | null>(null);
     const [refresh, setRefresh] = useState({ key: "", version: 0 });
@@ -36,9 +48,11 @@ export function useEventDiscovery() {
         setSelection(null);
         setPage(null);
         setNotice(null);
+        setSortNotice(null);
     }
     const selected = selection?.scope === scope ? selection.item : null;
-    const base = { filters: normalizedFilters, viewport, sort: viewport ? sort : "newest" as DiscoverySort,
+    const base = { filters: normalizedFilters, viewport, sort,
+        origin: sort === "distance" && !viewport ? origin : null,
         selection_token: selected?.selection_token ?? null };
     const key = JSON.stringify(base);
     const cursor = page?.key === key ? page.cursor : null;
@@ -82,15 +96,42 @@ export function useEventDiscovery() {
         discoveryCache.clear(); setPage(null);
         setRefresh((previous) => ({ key, version: previous.version + 1 }));
     };
+    const chooseSort = async (value: DiscoverySort) => {
+        const request = ++sortRequest.current;
+        const actorId = userId;
+        setSortNotice(null);
+        const apply = () => { changeSort({ actorId, value }); setPage(null); };
+        if (value !== "distance" || viewport || selected) { apply(); return; }
+        setSortNotice("Определяем местоположение…");
+        try {
+            const [longitude, latitude] = await currentCoordinates();
+            if (request !== sortRequest.current || actor.current !== actorId) return;
+            setPoint({ actorId, longitude, latitude });
+            apply();
+            setSortNotice(null);
+        } catch (failure) {
+            if (request !== sortRequest.current || actor.current !== actorId) return;
+            if (profileOrigin) {
+                setPoint({ actorId, ...profileOrigin });
+                apply();
+                setSortNotice(`${errorText(failure)} Показываем события рядом с точкой из профиля.`);
+            } else {
+                setSortNotice(errorText(failure));
+            }
+        }
+    };
     return {
-        ...filterState, userId, user, viewport, sort, selected, notice,
+        ...filterState, userId, user, viewport, sort, selected, notice, sortNotice,
         events: visible?.events, map: visible?.map, total: visible?.total ?? 0,
         error: visible?.error, loading, canLoadMore: result?.key === key && Boolean(result.next) && !loading,
         setViewport: (value: DiscoveryViewport) => { setViewport(value); setPage(null); },
-        setSort: (value: DiscoverySort) => { changeSort(value); setPage(null); },
+        setSort: chooseSort,
         selectCluster: (item: DiscoveryMapItem) => { setSelection({ scope, item }); setPage(null); setNotice(null); },
         clearSelection: () => { setSelection(null); setPage(null); },
-        mapUnavailable: () => { setViewport(null); setSelection(null); setPage(null); },
+        mapUnavailable: () => {
+            setViewport(null); setSelection(null); setPage(null);
+            if (sort === "distance" && !origin) changeSort(null);
+        },
         loadMore: () => { if (result?.key === key && result.next && !loading) setPage({ key, cursor: result.next }); },
         reload,
         onPersonalChange: () => reload(),

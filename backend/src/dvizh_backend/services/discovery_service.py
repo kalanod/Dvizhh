@@ -17,6 +17,7 @@ from dvizh_backend.api.schemas.discovery import (
 from dvizh_backend.config import Settings
 from dvizh_backend.database.services.discovery import DiscoveryRepository
 from dvizh_backend.database.services.event_queries import EventQueryService
+from dvizh_backend.database.services.exceptions import EventSortError
 from dvizh_backend.services.discovery_tokens import (
     DiscoveryContextError,
     DiscoveryTokens,
@@ -61,24 +62,29 @@ class EventDiscoveryService:
                 "scope": scope.model_dump(mode="json") if scope else None,
                 "cell": cell,
                 "sort": request.sort,
+                "origin": request.origin.model_dump(mode="json") if request.origin else None,
+                "ordering_version": 2,
             }
         )
         after = None
+        ranking = None
         if request.cursor:
             cursor = self.tokens.decode("cursor", request.cursor)
             if cursor.get("context") != context_key:
                 raise DiscoveryContextError("Порядок или область выдачи изменились.")
             as_of = datetime.fromisoformat(cursor["as_of"])
             after = cursor["after"]
+            ranking = cursor["ranking"]
         feed_repository = DiscoveryRepository(self.session, filters, as_of, scope)
-        center = scope.center if scope else None
-        rows, total, has_more = await feed_repository.feed(
-            request.sort,
-            center,
-            request.limit,
-            after,
-            cell,
-        )
+        center = scope.center if scope else request.origin
+        try:
+            rows, total, has_more = await feed_repository.feed(
+                request.sort, center, request.limit, after, cell, ranking=ranking,
+            )
+        except EventSortError as error:
+            if request.cursor:
+                raise DiscoveryContextError(str(error)) from error
+            raise
         occurrences = [row["occurrence_id"] for row in rows]
         cards = await self.queries.get_occurrences(occurrences)
         by_occurrence = {card.occurrence.id: card for card in cards}
@@ -93,12 +99,8 @@ class EventDiscoveryService:
                 {
                     "context": context_key,
                     "as_of": as_of.isoformat(),
-                    "after": [
-                        int(last["friends_rank"]),
-                        float(last["score"]),
-                        last["starts_at"].isoformat(),
-                        str(last["event_id"]),
-                    ],
+                    "after": last["after"],
+                    "ranking": feed_repository.ranking,
                 },
             )
         map_result = None

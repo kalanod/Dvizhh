@@ -95,6 +95,9 @@ export interface Participant {
     status: ParticipationStatus;
 }
 
+/** Общие сортировки публичной ленты и географической выдачи. */
+export type EventSort = "relevance" | "novelty" | "title" | "distance" | "start";
+
 /** Параметры ленты GET /api/events. */
 export interface EventFilters {
     q?: string;
@@ -104,6 +107,11 @@ export interface EventFilters {
     freeOnly?: boolean;
     availableOnly?: boolean;
     friendsOf?: string;
+    /** Без sort сервер сортирует по новизне. */
+    sort?: EventSort;
+    /** Точка для sort=distance; без неё берётся точка из профиля viewerId. */
+    latitude?: number;
+    longitude?: number;
     viewerId?: string | null;
     offset?: number;
     limit?: number;

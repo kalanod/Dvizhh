@@ -1,14 +1,14 @@
 """Database projections of the shared discovery candidate set; never truncate candidates."""
 
+from dataclasses import replace
 from datetime import datetime
 from math import pi
 from uuid import UUID
 
-from sqlalchemy import Date, Float, String, and_, case, cast, func, literal, or_, select, tuple_
+from sqlalchemy import Date, Float, String, and_, case, cast, func, literal, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from dvizh_backend.api.schemas.discovery import DiscoveryFilters, MapViewport
-from dvizh_backend.database.geo import GeographyPoint
 from dvizh_backend.database.models import (
     Event,
     EventOccurrence,
@@ -18,7 +18,9 @@ from dvizh_backend.database.models import (
 )
 from dvizh_backend.database.models.enums import FriendshipStatus, ParticipationStatus
 
-from .event_queries import EventQueryService
+from .event_queries import EventQueryService, going_count
+from .event_sorting import SORTINGS, DistanceSorting, SortContext, SortKey
+from .exceptions import EventSortError
 
 MAX_LATITUDE = 85.0511287798066
 
@@ -58,6 +60,9 @@ class DiscoveryRepository:
     ):
         self.session = session
         self.viewport = viewport
+        self.filters = filters
+        self.as_of = as_of
+        self.ranking: dict = {}
         query = EventQueryService(session)
         statement = query.public_statement(
             text_query=filters.q or None,
@@ -111,7 +116,10 @@ class DiscoveryRepository:
             Event.id.label("event_id"),
             EventOccurrence.id.label("occurrence_id"),
             EventOccurrence.starts_at.label("starts_at"),
-            func.coalesce(Event.published_at, Event.created_at).label("published_at"),
+            Event.published_at.label("published_at"),
+            Event.created_at.label("created_at"),
+            Event.title.label("title"),
+            going_count.label("going_count"),
             cast(Location.latitude, Float).label("latitude"),
             cast(Location.longitude, Float).label("longitude"),
             Location.position.label("position"),
@@ -167,20 +175,42 @@ class DiscoveryRepository:
         result = await self.session.execute(statement.group_by(x, y).order_by(x, y).limit(31))
         return [dict(row, level=level) for row in result.mappings()]
 
-    async def feed(self, sort: str, center, limit: int, after=None, cell=None):
+    async def feed(self, sort: str, center, limit: int, after=None, cell=None, *, ranking=None):
         c = self.candidates.c
-        if sort == "distance" and center is not None:
-            origin = func.ST_SetSRID(func.ST_MakePoint(center.longitude, center.latitude), 4326)
-            score = func.ST_Distance(
-                cast(c.position, GeographyPoint()), cast(origin, GeographyPoint())
-            )
-        elif sort == "start":
-            score = func.extract("epoch", c.starts_at)
-        else:
-            score = -func.extract("epoch", c.published_at)
-        score = cast(score, Float)
+        context = SortContext(
+            self.session,
+            self.filters.viewer_id,
+            center.latitude if center else None,
+            center.longitude if center else None,
+            as_of=self.as_of,
+            columns=c,
+        )
+        self.ranking = ranking or {}
+        if sort == "distance":
+            if ranking and "origin" in ranking:
+                latitude, longitude = ranking["origin"]
+            else:
+                latitude, longitude = await DistanceSorting._origin(context)
+            context = replace(context, latitude=latitude, longitude=longitude)
+            self.ranking = {"origin": [latitude, longitude]}
+        if sort == "relevance":
+            if ranking is not None:
+                interest = {UUID(tag): weight for tag, weight in ranking["interest"].items()}
+            else:
+                interest = await SORTINGS[sort]._interest(context)
+            context = replace(context, interest=interest)
+            self.ranking = {"interest": {str(tag): weight for tag, weight in interest.items()}}
+        keys = [
+            SortKey(c.friends_rank),
+            *await SORTINGS[sort].keys(context),
+            SortKey(c.starts_at, "datetime"),
+            SortKey(c.event_id, "uuid"),
+        ]
         statement = select(
-            c.occurrence_id, c.event_id, c.starts_at, c.friends_rank, score.label("score")
+            c.occurrence_id,
+            c.event_id,
+            c.starts_at,
+            *(key.expression.label(f"sort_{index}") for index, key in enumerate(keys)),
         )
         where = self.cell_predicate(cell) if cell is not None else None
         count_query = select(func.count()).select_from(self.candidates)
@@ -188,13 +218,29 @@ class DiscoveryRepository:
             statement = statement.where(where)
             count_query = count_query.where(where)
         if after is not None:
-            statement = statement.where(
-                tuple_(c.friends_rank, score, c.starts_at, c.event_id)
-                > tuple_(after[0], after[1], datetime.fromisoformat(after[2]), UUID(after[3]))
-            )
-        statement = statement.order_by(c.friends_rank, score, c.starts_at, c.event_id).limit(
-            limit + 1
-        )
-        rows = list((await self.session.execute(statement)).mappings())
+            try:
+                if len(after) != len(keys):
+                    raise ValueError("Invalid ordering cursor")
+                values = [key.decode(value) for key, value in zip(keys, after, strict=True)]
+                statement = statement.where(
+                    or_(
+                        *(
+                            and_(
+                                *(
+                                    keys[previous].equal_to(values[previous])
+                                    for previous in range(index)
+                                ),
+                                key.after(values[index]),
+                            )
+                            for index, key in enumerate(keys)
+                        )
+                    )
+                )
+            except (ValueError, TypeError, AttributeError):
+                raise EventSortError("Порядок выдачи изменился. Обновите ленту.") from None
+        statement = statement.order_by(*(key.order_by() for key in keys)).limit(limit + 1)
+        rows = [dict(row) for row in (await self.session.execute(statement)).mappings()]
+        for row in rows:
+            row["after"] = [key.encode(row[f"sort_{index}"]) for index, key in enumerate(keys)]
         total = await self.session.scalar(count_query)
         return rows[:limit], int(total or 0), len(rows) > limit

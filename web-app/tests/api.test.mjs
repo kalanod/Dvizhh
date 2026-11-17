@@ -39,6 +39,8 @@ for (const name of [
     "utils/discovery",
     "utils/yandexMaps",
     "utils/geolocation",
+    "components/widgets/SortMenu/SortMenu",
+    "components/ui/Input/Input",
 ]) {
     const extension = name.startsWith("components/") && !name.endsWith("formState") && !name.endsWith("settingsState") ? "tsx" : "ts";
     const source = readFileSync(new URL(`../src/${name}.${extension}`, import.meta.url), "utf8");
@@ -69,6 +71,8 @@ const { EventCoverMicro, EventCoverMain } = require(join(output, "components/wid
 const { ApiError } = require(join(output, "api/client.js"));
 const maps = require(join(output, "api/maps.js"));
 const { currentCoordinates } = require(join(output, "utils/geolocation.js"));
+const { SortMenu } = require(join(output, "components/widgets/SortMenu/SortMenu.js"));
+const { Input } = require(join(output, "components/ui/Input/Input.js"));
 const { locationCoordinates, loadYandexMaps, reportMapError } = require(join(output, "utils/yandexMaps.js"));
 const { emptyForm, formToInput, formFromEvent, validateForm } = require(join(output, "components/pages/EventFormPage/formState.js"));
 const originalWindow = globalThis.window;
@@ -948,7 +952,7 @@ test("draft submit button passes its action to the native button", () => {
 const discoveryApi = require(join(output, "api/discovery.js"));
 const { DiscoveryCache, discoveryViewport, mergeDiscoveryEvents } = require(join(output, "utils/discovery.js"));
 function discoveryQuery(q = "") {
-    return { filters: { q, viewer_id: null }, viewport: null, sort: "newest",
+    return { filters: { q, viewer_id: null }, viewport: null, sort: "novelty",
         selection_token: null, cursor: null, limit: 20, include_map: true };
 }
 function discoveryResult() {
@@ -1050,4 +1054,56 @@ test("clearing discovery cache prevents an older in-flight read from restoring s
     await old;
     assert.equal((await cache.get(discoveryQuery(), new AbortController().signal)).as_of, "fresh");
     assert.equal(entries.length, 2);
+});
+
+test("feed sends the chosen sort and point together with filters", async (t) => {
+    const calls = recordFetch(t, () => Response.json([]));
+    await api.listEvents({ sort: "distance", latitude: 59.93, longitude: 30.31, freeOnly: true, viewerId: "viewer-1", limit: 20 });
+    await api.listEvents({ sort: "title", limit: 20 });
+    await api.listEvents({ limit: 20 });
+    const first = calls[0].url.searchParams;
+    assert.equal(calls[0].url.pathname, "/api/events");
+    assert.equal(first.get("sort"), "distance");
+    assert.equal(first.get("latitude"), "59.93");
+    assert.equal(first.get("longitude"), "30.31");
+    assert.equal(first.get("free_only"), "true");
+    assert.equal(calls[1].url.searchParams.get("sort"), "title");
+    assert.equal(calls[1].url.searchParams.has("latitude"), false);
+    // Without a sort the server keeps its default order.
+    assert.equal(calls[2].url.searchParams.has("sort"), false);
+});
+
+test("sort menu names the current sort", () => {
+    const markup = renderToStaticMarkup(createElement(SortMenu, { value: "distance", onChange: () => undefined }));
+    assert.match(markup, /aria-label="Сортировка: Рядом со мной"/);
+    assert.match(markup, /aria-haspopup="menu"/);
+    assert.match(markup, /aria-expanded="false"/);
+    const mapped = renderToStaticMarkup(createElement(SortMenu, {
+        value: "distance", onChange: () => undefined, distanceLabel: "Ближе к центру карты",
+    }));
+    assert.match(mapped, /aria-label="Сортировка: Ближе к центру карты"/);
+    const starts = renderToStaticMarkup(createElement(SortMenu, { value: "start", onChange: () => undefined }));
+    assert.match(starts, /aria-label="Сортировка: По дате начала"/);
+});
+
+test("discovery shares all feed sorts and sends an explicit distance origin without a viewport", async (t) => {
+    const calls = recordFetch(t, () => Response.json(discoveryResult()));
+    for (const sort of ["relevance", "novelty", "title", "distance", "start"]) {
+        await discoveryApi.discoverEvents({ ...discoveryQuery(), sort,
+            origin: sort === "distance" ? { latitude: 59.93, longitude: 30.31 } : null });
+    }
+    assert.deepEqual(calls.map((call) => JSON.parse(call.body).sort), ["relevance", "novelty", "title", "distance", "start"]);
+    const distance = JSON.parse(calls[3].body);
+    assert.equal(distance.viewport, null);
+    assert.deepEqual(distance.origin, { latitude: 59.93, longitude: 30.31 });
+});
+
+test("password inputs stay hidden and get a hold-to-reveal button; other inputs do not", () => {
+    const password = renderToStaticMarkup(createElement(Input, { type: "password", value: "secret", onChange: () => undefined }));
+    assert.match(password, /type="password"/);
+    assert.match(password, /aria-label="Показать пароль, пока кнопка нажата"/);
+    assert.match(password, /aria-pressed="false"/);
+    const text = renderToStaticMarkup(createElement(Input, { value: "", onChange: () => undefined }));
+    assert.match(text, /type="text"/);
+    assert.doesNotMatch(text, /Показать пароль/);
 });
