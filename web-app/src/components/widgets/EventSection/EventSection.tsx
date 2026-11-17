@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { errorText, listEvents } from "../../../api";
-import { useAsync, useCurrentUser, useEventFilters, useFeed, type FeedCoordinates } from "../../../hooks";
-import type { FeedRanking } from "../../../models";
+import { useAsync, useCurrentUser, useEventFilters } from "../../../hooks";
+import type { EventSort } from "../../../models";
 import { currentCoordinates } from "../../../utils/geolocation";
 import { Button, Input, Notice, Tag } from "../../ui";
 import { CalendarPreview } from "../CalendarPreview";
@@ -15,38 +15,17 @@ interface EventSectionProps {
     title: string;
 }
 
-/**
- * Лента событий: поиск, сортировка, список и панель фильтров (BookSection шаблона).
- * Без фильтров порядок задаёт сервис рекомендаций (GET /api/events/feed);
- * с поиском или фильтрами — прежняя лента по новизне (GET /api/events),
- * потому что сервис рекомендаций фильтры пока не поддерживает.
- */
+/** Лента событий: поиск, список и панель фильтров (BookSection шаблона). */
 export const EventSection = ({ title }: EventSectionProps) => {
-    const { userId } = useCurrentUser();
+    const { userId, user } = useCurrentUser();
     const { filters, setFilters, clearFilters, activeCount } = useEventFilters();
     const [searchValue, setSearchValue] = useState(filters.q);
     const [limit, setLimit] = useState(PAGE_SIZE);
-    // null — сортировку по умолчанию выбирает сервер: «Рекомендуем» для вошедших, «Новые» для гостей.
-    const [ranking, setRanking] = useState<FeedRanking | null>(null);
-    const [coordinates, setCoordinates] = useState<FeedCoordinates | null>(null);
+    // null — сортировка по умолчанию: «Рекомендуем» для вошедших, «Сначала новые» для гостей.
+    const [sort, setSort] = useState<EventSort | null>(null);
+    const [point, setPoint] = useState<{ latitude: number; longitude: number } | null>(null);
     const [locationNotice, setLocationNotice] = useState<string | null>(null);
-
-    const filtered = Boolean(
-        filters.q ||
-            filters.tagId ||
-            filters.from ||
-            filters.to ||
-            filters.freeOnly ||
-            filters.availableOnly ||
-            (filters.withFriends && userId),
-    );
-    const feed = useFeed({
-        enabled: !filtered,
-        ranking,
-        viewerId: userId,
-        coordinates: ranking === "distance" ? coordinates : null,
-        pageSize: PAGE_SIZE,
-    });
+    const selectedSort = sort ?? (userId ? "relevance" : "novelty");
 
     const query = {
         q: filters.q,
@@ -57,36 +36,34 @@ export const EventSection = ({ title }: EventSectionProps) => {
         availableOnly: filters.availableOnly,
         friendsOf: filters.withFriends && userId ? userId : undefined,
         viewerId: userId,
+        sort: selectedSort,
+        latitude: selectedSort === "distance" ? point?.latitude : undefined,
+        longitude: selectedSort === "distance" ? point?.longitude : undefined,
         limit,
     };
-    const filteredFeed = useAsync(
-        (signal) => (filtered ? listEvents(query, signal) : Promise.resolve(undefined)),
-        JSON.stringify({ query, filtered }),
-    );
-    const events = filtered ? filteredFeed.data : feed.events;
-    const error = filtered ? filteredFeed.error : feed.error;
-    const loading = filtered ? filteredFeed.loading : feed.loading;
-    const selectedRanking = ranking ?? feed.ranking ?? (userId ? "relevance" : "novelty");
+    const { data: events, error, loading } = useAsync((signal) => listEvents(query, signal), JSON.stringify(query));
 
-    const chooseRanking = async (next: FeedRanking) => {
+    const chooseSort = async (next: EventSort) => {
         setLocationNotice(null);
-        if (next !== "distance") {
-            setRanking(next);
-            return;
-        }
-        try {
-            const [longitude, latitude] = await currentCoordinates();
-            setCoordinates({ latitude, longitude });
-        } catch (geolocationError) {
-            setCoordinates(null);
-            if (!userId) {
-                // Гостю без геопозиции сортировать «рядом» не с чем.
-                setLocationNotice(errorText(geolocationError));
-                return;
+        if (next === "distance") {
+            try {
+                const [longitude, latitude] = await currentCoordinates();
+                setPoint({ latitude, longitude });
+            } catch {
+                setPoint(null);
+                if (!user?.latitude || !user.longitude) {
+                    // Сортировать «рядом» не с чем: оставляем прежнюю сортировку.
+                    setLocationNotice(
+                        "Не удалось определить местоположение. Разрешите сайту доступ к геопозиции в настройках браузера"
+                            + (userId ? " или укажите широту и долготу в профиле." : "."),
+                    );
+                    return;
+                }
+                setLocationNotice("Не удалось определить местоположение — показываем события рядом с точкой из профиля.");
             }
-            setLocationNotice(`${errorText(geolocationError)} Показываем события рядом с городом из профиля.`);
         }
-        setRanking("distance");
+        setLimit(PAGE_SIZE);
+        setSort(next);
     };
 
     const applyFilters = (patch: Parameters<typeof setFilters>[0]) => {
@@ -118,7 +95,7 @@ export const EventSection = ({ title }: EventSectionProps) => {
         filters.withFriends && userId && "друзья идут",
     ].filter((chip): chip is string => Boolean(chip));
 
-    const hasMore = filtered ? (events?.length ?? 0) >= limit : feed.hasMore;
+    const hasMore = (events?.length ?? 0) >= limit;
 
     const searchButton = (
         <>
@@ -147,11 +124,7 @@ export const EventSection = ({ title }: EventSectionProps) => {
                     onKeyDown={handleKeyDown}
                 />
             </div>
-            <SortMenu
-                value={selectedRanking}
-                onChange={chooseRanking}
-                disabledReason={filtered ? "Сортировка недоступна вместе с поиском и фильтрами" : undefined}
-            />
+            <SortMenu value={selectedSort} onChange={chooseSort} />
         </>
     );
 
@@ -173,7 +146,7 @@ export const EventSection = ({ title }: EventSectionProps) => {
                     </div>
                 )}
 
-                {locationNotice && !filtered && <Notice tone="info">{locationNotice}</Notice>}
+                {locationNotice && <Notice tone="info">{locationNotice}</Notice>}
 
                 <EventList
                     title={title}
@@ -189,7 +162,7 @@ export const EventSection = ({ title }: EventSectionProps) => {
                             <Button
                                 state="hover1"
                                 className="self-center"
-                                onClick={filtered ? () => setLimit((value) => value + PAGE_SIZE) : feed.loadMore}
+                                onClick={() => setLimit((value) => value + PAGE_SIZE)}
                             >
                                 Показать ещё
                             </Button>

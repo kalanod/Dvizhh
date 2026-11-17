@@ -7,14 +7,13 @@ from fastapi import APIRouter, Query, status
 from ..dto.event import (
     CreateEventDTO,
     EventDTO,
-    FeedPageDTO,
-    FeedRanking,
+    EventSort,
     JoinEventDTO,
     ParticipantDTO,
     ReviewParticipationDTO,
     UpdateEventDTO,
 )
-from ..services.dependencies import EventServiceDep, FeedServiceDep
+from ..services.dependencies import EventServiceDep
 
 router = APIRouter(prefix="/api/events", tags=["events"])
 
@@ -23,11 +22,11 @@ router = APIRouter(prefix="/api/events", tags=["events"])
     "",
     summary="Лента публичных событий.",
     description=(
-        "Возвращает только опубликованные события с видимостью PUBLIC, сортировка "
-        "«По новизне» (по времени публикации). Все фильтры необязательны и комбинируются "
-        "между собой. Если указан friends_of, среди подходящих под фильтры событий первыми "
-        "идут те, на которые идёт больше друзей пользователя; события без друзей остаются "
-        "в выдаче и идут после них."
+        "Возвращает только опубликованные события с видимостью PUBLIC. Сортировка задаётся "
+        "параметром sort, по умолчанию «По новизне». Все фильтры необязательны и комбинируются "
+        "между собой и с сортировкой. Если указан friends_of, среди подходящих под фильтры "
+        "событий первыми идут те, на которые идёт больше друзей пользователя; внутри этих "
+        "групп действует выбранная сортировка."
     ),
 )
 async def list_events(
@@ -63,6 +62,22 @@ async def list_events(
             )
         ),
     ] = None,
+    sort: Annotated[
+        EventSort,
+        Query(
+            description=(
+                "relevance — рекомендации по действиям viewer_id, novelty — новые, "
+                "title — по названию, distance — ближе к latitude/longitude "
+                "(без них — к точке из профиля viewer_id)."
+            )
+        ),
+    ] = "novelty",
+    latitude: Annotated[
+        float | None, Query(ge=-90, le=90, description="Широта точки для sort=distance.")
+    ] = None,
+    longitude: Annotated[
+        float | None, Query(ge=-180, le=180, description="Долгота точки для sort=distance.")
+    ] = None,
     offset: Annotated[
         int, Query(ge=0, description="Сколько событий пропустить (для пагинации).")
     ] = 0,
@@ -80,73 +95,14 @@ async def list_events(
         free_only=free_only,
         available_only=available_only,
         friends_of=friends_of,
+        sort=sort,
+        latitude=latitude,
+        longitude=longitude,
         offset=offset,
         limit=limit,
         viewer_id=viewer_id,
     )
 
-@router.get(
-    "/feed",
-    summary="Лента с сортировкой сервиса рекомендаций.",
-    description=(
-        "Порядок событий рассчитывает сервис рекомендаций. Первая страница — без session_id: "
-        "сервер создаёт сессию и возвращает её. Следующие страницы — с тем же session_id, "
-        "next_page_token и параметрами; смена сортировки или координат — новая сессия. "
-        "Ответ 409 значит, что сессия истекла: начните ленту заново. Фильтры не "
-        "поддерживаются — для них используйте GET /api/events."
-    ),
-)
-async def get_feed(
-    feed: FeedServiceDep,
-    ranking: Annotated[
-        FeedRanking | None,
-        Query(
-            description=(
-                "relevance — рекомендации, novelty — новые, title — по названию, "
-                "distance — ближе к точке. По умолчанию relevance для вошедших, "
-                "novelty для гостей."
-            )
-        ),
-    ] = None,
-    session_id: Annotated[
-        str | None, Query(max_length=100, description="Сессия ленты из прошлого ответа.")
-    ] = None,
-    page_token: Annotated[
-        str | None, Query(max_length=200, description="next_page_token из прошлого ответа.")
-    ] = None,
-    limit: Annotated[int, Query(ge=1, le=100, description="Размер страницы.")] = 20,
-    latitude: Annotated[
-        float | None,
-        Query(ge=-90, le=90, description="Широта для distance; иначе точка из профиля."),
-    ] = None,
-    longitude: Annotated[
-        float | None, Query(ge=-180, le=180, description="Долгота для distance.")
-    ] = None,
-    viewer_id: Annotated[
-        uuid.UUID | None, Query(description="Пользователь: персональная лента и состояния.")
-    ] = None,
-) -> FeedPageDTO:
-    return await feed.get_page(
-        viewer_id=viewer_id,
-        ranking=ranking,
-        session_id=session_id,
-        page_token=page_token,
-        page_size=limit,
-        latitude=latitude,
-        longitude=longitude,
-    )
-
-
-@router.post(
-    "/feed/{session_id}/refresh",
-    status_code=status.HTTP_204_NO_CONTENT,
-    summary="Продлить сессию ленты.",
-    description="Вызывайте примерно раз в 10 минут, пока лента открыта; сессия живёт 30 минут.",
-)
-async def refresh_feed(
-    session_id: str, feed: FeedServiceDep, viewer_id: uuid.UUID | None = None
-) -> None:
-    await feed.refresh(viewer_id=viewer_id, session_id=session_id)
 
 @router.post(
     "",

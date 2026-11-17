@@ -6,8 +6,6 @@ import type {
     DvizhEvent,
     EventFilters,
     EventInput,
-    FeedPage,
-    FeedQuery,
     Invitation,
     Participant,
 } from "../models";
@@ -23,33 +21,14 @@ export const listEvents = (filters: EventFilters = {}, signal?: AbortSignal) =>
             free_only: filters.freeOnly,
             available_only: filters.availableOnly,
             friends_of: filters.friendsOf,
+            sort: filters.sort,
+            latitude: filters.latitude,
+            longitude: filters.longitude,
             offset,
             limit,
             viewer_id: filters.viewerId,
         },
     }), filters.limit, filters.offset);
-
-/** Страница ленты, порядок которой рассчитал сервис рекомендаций. */
-export const getFeedPage = (query: FeedQuery = {}, signal?: AbortSignal) =>
-    request<FeedPage>("/events/feed", {
-        signal,
-        query: {
-            ranking: query.ranking,
-            session_id: query.sessionId,
-            page_token: query.pageToken,
-            limit: query.limit,
-            latitude: query.latitude,
-            longitude: query.longitude,
-            viewer_id: query.viewerId,
-        },
-    });
-
-/** Продлевает сессию ленты; сервер хранит её 30 минут с последнего обращения. */
-export const refreshFeedSession = (sessionId: string, viewerId?: string | null) =>
-    request<void>(`/events/feed/${encodeURIComponent(sessionId)}/refresh`, {
-        method: "POST",
-        query: { viewer_id: viewerId },
-    });
 
 export const getEvent = (eventId: string, viewerId?: string | null, signal?: AbortSignal) =>
     request<DvizhEvent>(`/events/${eventId}`, { query: { viewer_id: viewerId }, signal });

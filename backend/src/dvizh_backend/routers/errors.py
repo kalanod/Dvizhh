@@ -6,6 +6,7 @@ from fastapi.responses import JSONResponse
 from ..database.services.exceptions import (
     CapacityReachedError,
     EntityNotFoundError,
+    EventSortError,
     InvalidStateTransitionError,
     InvalidTagSelectionError,
     JoinUnavailableError,
@@ -20,20 +21,18 @@ from ..services.errors import (
     UsernameTakenError,
     UserNotFoundError,
 )
-from ..services.feed_service import FeedInputError
 from ..services.media_errors import (
     InvalidImageError,
     MediaTooLargeError,
     MediaUnavailableError,
     StorageUnavailableError,
 )
-from ..services.recommendation_gateway import RecommendationError
 from ..services.settings_service import SettingsActionNotFoundError, SettingsInputError
 from ..services.tag_service import CatalogConflictError
 
 STATUS_BY_ERROR: dict[type[Exception], int] = {
     SettingsInputError: 422,
-    FeedInputError: 422,
+    EventSortError: 422,
     SettingsActionNotFoundError: 404,
     InvalidImageError: 415,
     CatalogConflictError: 409,
@@ -68,10 +67,6 @@ def register_error_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(AccountCommandError)
     async def account_command_error(request: Request, exc: AccountCommandError) -> JSONResponse:
-        return JSONResponse({"detail": str(exc)}, status_code=exc.status_code)
-
-    @app.exception_handler(RecommendationError)
-    async def recommendation_error(request: Request, exc: RecommendationError) -> JSONResponse:
         return JSONResponse({"detail": str(exc)}, status_code=exc.status_code)
 
     def add(error: type[Exception], status_code: int) -> None:

@@ -4,11 +4,10 @@ from datetime import date
 from typing import Literal
 from uuid import UUID
 
-from sqlalchemy import Date, Select, and_, case, cast, delete, exists, func, or_, select
-from sqlalchemy.dialects.postgresql import distinct_on
+from sqlalchemy import Date, Select, case, cast, delete, exists, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ...dto.event import EventPersonalStateDTO
+from ...dto.event import EventPersonalStateDTO, EventSort
 from ...dto.tag import CategoryDTO, EventTagDTO
 from ..models import (
     Event,
@@ -35,6 +34,7 @@ from ..models.enums import (
     OccurrenceStatus,
     ParticipationStatus,
 )
+from .event_sorting import SORTINGS, SortContext
 from .exceptions import InvalidTagSelectionError
 from .tags import TagRepository
 
@@ -79,36 +79,6 @@ class EventQueryService:
             return []
         return await self._fetch(self._select_rows().where(EventOccurrence.id.in_(occurrence_ids)))
 
-
-
-    async def list_by_ids(self, event_ids: Sequence[UUID]) -> list[EventRow]:
-        """Feed cards for ranked IDs, in the same order; unavailable events are skipped.
-
-        Each event is shown with its nearest current scheduled occurrence.
-        """
-        if not event_ids:
-            return []
-        statement = (
-            self._select_rows()
-            .where(
-                Event.id.in_(event_ids),
-                Event.status == EventStatus.PUBLISHED,
-                Event.visibility == EventVisibility.PUBLIC,
-                EventOccurrence.status == OccurrenceStatus.SCHEDULED,
-                or_(
-                    EventOccurrence.ends_at > func.now(),
-                    and_(
-                        EventOccurrence.ends_at.is_(None),
-                        EventOccurrence.starts_at >= func.now(),
-                    ),
-                ),
-            )
-            .ext(distinct_on(Event.id))
-            .order_by(Event.id, EventOccurrence.starts_at)
-        )
-        rows = {row.event.id: row for row in await self._fetch(statement)}
-        return [rows[event_id] for event_id in event_ids if event_id in rows]
-
     async def list_public(
         self,
         *,
@@ -119,6 +89,9 @@ class EventQueryService:
         free_only: bool = False,
         available_only: bool = False,
         friends_of: UUID | None = None,
+        sort: EventSort = "novelty",
+        latitude: float | None = None,
+        longitude: float | None = None,
         offset: int = 0,
         limit: int = 20,
         viewer_id: UUID | None = None,
@@ -181,8 +154,12 @@ class EventQueryService:
             )
             statement = statement.order_by(friends_going.desc())
 
+        # ORDER BY ... LIMIT: база держит только лучшие offset + limit строк, а не сортирует всё.
+        sort_keys = await SORTINGS[sort].order_by(
+            SortContext(self.session, viewer_id, latitude, longitude)
+        )
         statement = (
-            statement.order_by(Event.published_at.desc(), EventOccurrence.starts_at, Event.id)
+            statement.order_by(*sort_keys, EventOccurrence.starts_at, Event.id)
             .offset(offset)
             .limit(limit)
         )

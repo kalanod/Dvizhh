@@ -9,12 +9,12 @@ import grpc
 from grpc_health.v1 import health, health_pb2, health_pb2_grpc
 from redis.asyncio import Redis
 
+from .candidates import LatestRecommendations
 from .catalog import filter_available_items
 from .config import Settings, get_settings
 from .database import Databases, connect_databases
 from .generated import recommendation_service_pb2_grpc
 from .pagination import Pagination, SessionStore
-from .ranking import build_ranking_layer
 from .redis import connect_redis
 from .service import SERVICE_NAME, RecommendationService
 
@@ -56,10 +56,7 @@ async def running_server(
         connect_redis(settings) as redis,
     ):
         store = SessionStore(redis)
-        provider = build_ranking_layer(databases.source,
-                                        timeout_seconds = settings.database_timeout_seconds,
-                                          default = settings.default_ranking
-                                          )
+        provider = LatestRecommendations(databases.source, settings.database_timeout_seconds)
         availability_filter = partial(
             filter_available_items,
             databases.source,

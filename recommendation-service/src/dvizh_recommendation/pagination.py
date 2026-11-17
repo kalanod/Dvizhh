@@ -156,7 +156,7 @@ class SessionStore:
     ) -> RecommendationPage | _Refill:
         try:
             parameters = json.dumps(
-                {"context": query.context, "filters": query.filters, "ranking": query.ranking},
+                {"context": query.context, "filters": query.filters},
                 sort_keys=True,
                 separators=(",", ":"),
                 allow_nan=False,

@@ -26,7 +26,7 @@ from google.protobuf import struct_pb2 as google_dot_protobuf_dot_struct__pb2
 from google.protobuf import empty_pb2 as google_dot_protobuf_dot_empty__pb2
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n;dvizh_recommendation/generated/recommendation_service.proto\x12\x17\x64vizh.recommendation.v1\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1bgoogle/protobuf/empty.proto\"a\n\x15RefreshSessionRequest\x12\x14\n\x07user_id\x18\x01 \x01(\tH\x00\x88\x01\x01\x12\x17\n\nsession_id\x18\x02 \x01(\tH\x01\x88\x01\x01\x42\n\n\x08_user_idB\r\n\x0b_session_id\"\xb1\x04\n\x19GetRecommendationsRequest\x12\x14\n\x07user_id\x18\x01 \x01(\tH\x00\x88\x01\x01\x12\x17\n\nsession_id\x18\x02 \x01(\tH\x01\x88\x01\x01\x12\x17\n\nrequest_id\x18\x03 \x01(\tH\x02\x88\x01\x01\x12P\n\x07\x63ontext\x18\x04 \x03(\x0b\x32?.dvizh.recommendation.v1.GetRecommendationsRequest.ContextEntry\x12P\n\x07\x66ilters\x18\x06 \x03(\x0b\x32?.dvizh.recommendation.v1.GetRecommendationsRequest.FiltersEntry\x12\x16\n\tpage_size\x18\x07 \x01(\x05H\x03\x88\x01\x01\x12\x17\n\npage_token\x18\x08 \x01(\tH\x04\x88\x01\x01\x12\x14\n\x07ranking\x18\t \x01(\tH\x05\x88\x01\x01\x1a\x46\n\x0c\x43ontextEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12%\n\x05value\x18\x02 \x01(\x0b\x32\x16.google.protobuf.Value:\x02\x38\x01\x1a\x46\n\x0c\x46iltersEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12%\n\x05value\x18\x02 \x01(\x0b\x32\x16.google.protobuf.Value:\x02\x38\x01\x42\n\n\x08_user_idB\r\n\x0b_session_idB\r\n\x0b_request_idB\x0c\n\n_page_sizeB\r\n\x0b_page_tokenB\n\n\x08_ranking\"\x8a\x01\n\x1aGetRecommendationsResponse\x12:\n\x05items\x18\x01 \x03(\x0b\x32+.dvizh.recommendation.v1.RecommendationItem\x12\x1c\n\x0fnext_page_token\x18\x02 \x01(\tH\x00\x88\x01\x01\x42\x12\n\x10_next_page_token\"6\n\x12RecommendationItem\x12\x14\n\x07item_id\x18\x01 \x01(\tH\x00\x88\x01\x01\x42\n\n\x08_item_id2\xf0\x01\n\x15RecommendationService\x12}\n\x12GetRecommendations\x12\x32.dvizh.recommendation.v1.GetRecommendationsRequest\x1a\x33.dvizh.recommendation.v1.GetRecommendationsResponse\x12X\n\x0eRefreshSession\x12..dvizh.recommendation.v1.RefreshSessionRequest\x1a\x16.google.protobuf.Emptyb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n;dvizh_recommendation/generated/recommendation_service.proto\x12\x17\x64vizh.recommendation.v1\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1bgoogle/protobuf/empty.proto\"a\n\x15RefreshSessionRequest\x12\x14\n\x07user_id\x18\x01 \x01(\tH\x00\x88\x01\x01\x12\x17\n\nsession_id\x18\x02 \x01(\tH\x01\x88\x01\x01\x42\n\n\x08_user_idB\r\n\x0b_session_id\"\x8f\x04\n\x19GetRecommendationsRequest\x12\x14\n\x07user_id\x18\x01 \x01(\tH\x00\x88\x01\x01\x12\x17\n\nsession_id\x18\x02 \x01(\tH\x01\x88\x01\x01\x12\x17\n\nrequest_id\x18\x03 \x01(\tH\x02\x88\x01\x01\x12P\n\x07\x63ontext\x18\x04 \x03(\x0b\x32?.dvizh.recommendation.v1.GetRecommendationsRequest.ContextEntry\x12P\n\x07\x66ilters\x18\x06 \x03(\x0b\x32?.dvizh.recommendation.v1.GetRecommendationsRequest.FiltersEntry\x12\x16\n\tpage_size\x18\x07 \x01(\x05H\x03\x88\x01\x01\x12\x17\n\npage_token\x18\x08 \x01(\tH\x04\x88\x01\x01\x1a\x46\n\x0c\x43ontextEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12%\n\x05value\x18\x02 \x01(\x0b\x32\x16.google.protobuf.Value:\x02\x38\x01\x1a\x46\n\x0c\x46iltersEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12%\n\x05value\x18\x02 \x01(\x0b\x32\x16.google.protobuf.Value:\x02\x38\x01\x42\n\n\x08_user_idB\r\n\x0b_session_idB\r\n\x0b_request_idB\x0c\n\n_page_sizeB\r\n\x0b_page_token\"\x8a\x01\n\x1aGetRecommendationsResponse\x12:\n\x05items\x18\x01 \x03(\x0b\x32+.dvizh.recommendation.v1.RecommendationItem\x12\x1c\n\x0fnext_page_token\x18\x02 \x01(\tH\x00\x88\x01\x01\x42\x12\n\x10_next_page_token\"6\n\x12RecommendationItem\x12\x14\n\x07item_id\x18\x01 \x01(\tH\x00\x88\x01\x01\x42\n\n\x08_item_id2\xf0\x01\n\x15RecommendationService\x12}\n\x12GetRecommendations\x12\x32.dvizh.recommendation.v1.GetRecommendationsRequest\x1a\x33.dvizh.recommendation.v1.GetRecommendationsResponse\x12X\n\x0eRefreshSession\x12..dvizh.recommendation.v1.RefreshSessionRequest\x1a\x16.google.protobuf.Emptyb\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -40,15 +40,15 @@ if not _descriptor._USE_C_DESCRIPTORS:
   _globals['_REFRESHSESSIONREQUEST']._serialized_start=147
   _globals['_REFRESHSESSIONREQUEST']._serialized_end=244
   _globals['_GETRECOMMENDATIONSREQUEST']._serialized_start=247
-  _globals['_GETRECOMMENDATIONSREQUEST']._serialized_end=808
-  _globals['_GETRECOMMENDATIONSREQUEST_CONTEXTENTRY']._serialized_start=583
-  _globals['_GETRECOMMENDATIONSREQUEST_CONTEXTENTRY']._serialized_end=653
-  _globals['_GETRECOMMENDATIONSREQUEST_FILTERSENTRY']._serialized_start=655
-  _globals['_GETRECOMMENDATIONSREQUEST_FILTERSENTRY']._serialized_end=725
-  _globals['_GETRECOMMENDATIONSRESPONSE']._serialized_start=811
-  _globals['_GETRECOMMENDATIONSRESPONSE']._serialized_end=949
-  _globals['_RECOMMENDATIONITEM']._serialized_start=951
-  _globals['_RECOMMENDATIONITEM']._serialized_end=1005
-  _globals['_RECOMMENDATIONSERVICE']._serialized_start=1008
-  _globals['_RECOMMENDATIONSERVICE']._serialized_end=1248
+  _globals['_GETRECOMMENDATIONSREQUEST']._serialized_end=774
+  _globals['_GETRECOMMENDATIONSREQUEST_CONTEXTENTRY']._serialized_start=561
+  _globals['_GETRECOMMENDATIONSREQUEST_CONTEXTENTRY']._serialized_end=631
+  _globals['_GETRECOMMENDATIONSREQUEST_FILTERSENTRY']._serialized_start=633
+  _globals['_GETRECOMMENDATIONSREQUEST_FILTERSENTRY']._serialized_end=703
+  _globals['_GETRECOMMENDATIONSRESPONSE']._serialized_start=777
+  _globals['_GETRECOMMENDATIONSRESPONSE']._serialized_end=915
+  _globals['_RECOMMENDATIONITEM']._serialized_start=917
+  _globals['_RECOMMENDATIONITEM']._serialized_end=971
+  _globals['_RECOMMENDATIONSERVICE']._serialized_start=974
+  _globals['_RECOMMENDATIONSERVICE']._serialized_end=1214
 # @@protoc_insertion_point(module_scope)

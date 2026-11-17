@@ -22,6 +22,7 @@ from dvizh_backend.database.services.participation import ParticipationService
 from dvizh_backend.dto.event import (
     CreateEventDTO,
     EventDTO,
+    EventSort,
     LocationDTO,
     ParticipantDTO,
     UpdateEventDTO,
@@ -61,6 +62,9 @@ class EventService:
         free_only: bool = False,
         available_only: bool = False,
         friends_of: UUID | None = None,
+        sort: EventSort = "novelty",
+        latitude: float | None = None,
+        longitude: float | None = None,
         offset: int = 0,
         limit: int = 20,
         viewer_id: UUID | None = None,
@@ -75,18 +79,14 @@ class EventService:
             free_only=free_only,
             available_only=available_only,
             friends_of=friends_of,
+            sort=sort,
+            latitude=latitude,
+            longitude=longitude,
             offset=offset,
             limit=limit,
             viewer_id=viewer_id,
         )
         return await self._to_dtos(rows, viewer_id=viewer_id)
-
-    async def list_by_ids(
-        self, event_ids: list[UUID], *, viewer_id: UUID | None = None
-    ) -> list[EventDTO]:
-        if viewer_id is not None:
-            await self._require_active_profile(viewer_id)
-        return await self._to_dtos(await self.queries.list_by_ids(event_ids), viewer_id=viewer_id)
 
     async def list_calendar(self, user_id: UUID) -> list[EventDTO]:
         await self._require_active_profile(user_id)

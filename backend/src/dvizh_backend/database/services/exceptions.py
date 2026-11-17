@@ -24,3 +24,7 @@ class JoinUnavailableError(DatabaseDomainError):
 
 class InvalidTagSelectionError(Exception):
     pass
+
+
+class EventSortError(Exception):
+    """Ленту нельзя отсортировать выбранным способом (например, нет точки для «рядом»)."""

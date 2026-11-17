@@ -19,7 +19,6 @@ from .pagination import (
     SessionOwnerMismatch,
     SessionParametersMismatch,
 )
-from .ranking import InvalidRankingRequest
 from .recommendations import RecommendationQuery
 
 SERVICE_NAME = pb.DESCRIPTOR.services_by_name["RecommendationService"].full_name
@@ -38,7 +37,7 @@ async def _handle_errors(context: grpc.aio.ServicerContext) -> AsyncIterator[Non
         await context.abort(grpc.StatusCode.FAILED_PRECONDITION, "Session parameters have changed")
     except InvalidPageToken:
         await context.abort(grpc.StatusCode.INVALID_ARGUMENT, "Invalid page_token")
-    except (InvalidRequest, InvalidRankingRequest) as exc:
+    except InvalidRequest as exc:
         await context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(exc))
     except NotImplementedError:
         await context.abort(grpc.StatusCode.UNIMPLEMENTED, "Filters are not implemented")
@@ -82,7 +81,6 @@ class RecommendationService(recommendation_service_pb2_grpc.RecommendationServic
                     request.user_id,
                     parameters.get("context", {}),
                     parameters.get("filters", {}),
-                    request.ranking if request.HasField("ranking") else None,
                 ),
                 request.session_id,
                 page_size=request.page_size if request.HasField("page_size") else 20,

@@ -1,31 +1,27 @@
 import { useEffect, useRef, useState } from "react";
-import type { FeedRanking } from "../../../models";
+import type { EventSort } from "../../../models";
 
-const RANKING_LABELS: Record<FeedRanking, string> = {
+const SORT_LABELS: Record<EventSort, string> = {
     relevance: "Рекомендуем",
     novelty: "Сначала новые",
     title: "По названию",
     distance: "Рядом со мной",
 };
 
-const RANKINGS = Object.keys(RANKING_LABELS) as FeedRanking[];
+const SORTS = Object.keys(SORT_LABELS) as EventSort[];
 
 interface SortMenuProps {
-    value: FeedRanking;
-    onChange: (ranking: FeedRanking) => void;
-    /** Причина, по которой сортировка недоступна; кнопка тогда неактивна. */
-    disabledReason?: string;
+    value: EventSort;
+    onChange: (sort: EventSort) => void;
 }
 
 /** Квадратная кнопка рядом с поиском и выпадающий список сортировок ленты. */
-export const SortMenu = ({ value, onChange, disabledReason }: SortMenuProps) => {
+export const SortMenu = ({ value, onChange }: SortMenuProps) => {
     const [open, setOpen] = useState(false);
     const rootRef = useRef<HTMLDivElement>(null);
-    const disabled = Boolean(disabledReason);
-    const isOpen = open && !disabled;
 
     useEffect(() => {
-        if (!isOpen) return;
+        if (!open) return;
         const closeOnOutsideClick = (event: MouseEvent) => {
             if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
         };
@@ -38,11 +34,11 @@ export const SortMenu = ({ value, onChange, disabledReason }: SortMenuProps) => 
             document.removeEventListener("mousedown", closeOnOutsideClick);
             document.removeEventListener("keydown", closeOnEscape);
         };
-    }, [isOpen]);
+    }, [open]);
 
-    const choose = (ranking: FeedRanking) => {
+    const choose = (sort: EventSort) => {
         setOpen(false);
-        if (ranking !== value) onChange(ranking);
+        if (sort !== value) onChange(sort);
     };
 
     return (
@@ -50,12 +46,11 @@ export const SortMenu = ({ value, onChange, disabledReason }: SortMenuProps) => 
             <button
                 type="button"
                 onClick={() => setOpen((previous) => !previous)}
-                disabled={disabled}
                 aria-haspopup="menu"
-                aria-expanded={isOpen}
-                aria-label={`Сортировка: ${RANKING_LABELS[value]}`}
-                title={disabledReason ?? `Сортировка: ${RANKING_LABELS[value]}`}
-                className="inline-flex h-[41px] w-[41px] cursor-pointer items-center justify-center rounded-lg bg-primary transition-all hover:bg-borderlight disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-primary"
+                aria-expanded={open}
+                aria-label={`Сортировка: ${SORT_LABELS[value]}`}
+                title={`Сортировка: ${SORT_LABELS[value]}`}
+                className="inline-flex h-[41px] w-[41px] cursor-pointer items-center justify-center rounded-lg bg-primary transition-all hover:bg-borderlight"
             >
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                     <path
@@ -68,25 +63,25 @@ export const SortMenu = ({ value, onChange, disabledReason }: SortMenuProps) => 
                 </svg>
             </button>
 
-            {isOpen && (
+            {open && (
                 <ul
                     role="menu"
                     aria-label="Сортировка ленты"
                     className="absolute right-0 top-full z-20 mt-1 flex min-w-[190px] flex-col gap-1 rounded-lg border border-bordermain bg-primary p-1 shadow-hover"
                 >
-                    {RANKINGS.map((ranking) => (
-                        <li key={ranking} role="none">
+                    {SORTS.map((sort) => (
+                        <li key={sort} role="none">
                             <button
                                 type="button"
                                 role="menuitemradio"
-                                aria-checked={ranking === value}
-                                onClick={() => choose(ranking)}
+                                aria-checked={sort === value}
+                                onClick={() => choose(sort)}
                                 className={`flex w-full cursor-pointer items-center justify-between gap-3 rounded-md px-3 py-2 text-left text-textprimary transition hover:bg-cards-surface ${
-                                    ranking === value ? "bg-cards-surface font-medium" : ""
+                                    sort === value ? "bg-cards-surface font-medium" : ""
                                 }`}
                             >
-                                {RANKING_LABELS[ranking]}
-                                {ranking === value && <span aria-hidden="true">✓</span>}
+                                {SORT_LABELS[sort]}
+                                {sort === value && <span aria-hidden="true">✓</span>}
                             </button>
                         </li>
                     ))}

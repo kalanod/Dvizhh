@@ -18,9 +18,7 @@ class Settings(BaseSettings):
     minio_timeout_seconds: float = Field(10, gt=0, le=120)
     media_max_mib: int = Field(10, ge=1, le=128)
     media_max_pixels: int = Field(25_000_000, ge=1, le=100_000_000)
-    # gRPC address of the recommendation service: host:port without a scheme.
-    recommendation_address: str = "recommendation-service:8001"
-    recommendation_timeout_seconds: float = Field(5, gt=0, le=60)
+    recommendation_url: str = "http://recommendation-service:8001"
     auth_url: str = "http://auth-api:8003"
     yandex_maps_api_key: str = ""
     yandex_suggest_api_key: str = ""

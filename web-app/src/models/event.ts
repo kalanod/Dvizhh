@@ -95,27 +95,8 @@ export interface Participant {
     status: ParticipationStatus;
 }
 
-/** Сортировка ленты GET /api/events/feed. */
-export type FeedRanking = "relevance" | "novelty" | "title" | "distance";
-
-/** Страница ленты GET /api/events/feed (FeedPageDTO). */
-export interface FeedPage {
-    items: DvizhEvent[];
-    ranking: FeedRanking;
-    session_id: string;
-    next_page_token: string | null;
-}
-
-/** Параметры GET /api/events/feed. Сортировка и координаты задают сессию ленты. */
-export interface FeedQuery {
-    ranking?: FeedRanking;
-    sessionId?: string;
-    pageToken?: string;
-    limit?: number;
-    latitude?: number;
-    longitude?: number;
-    viewerId?: string | null;
-}
+/** Сортировка ленты GET /api/events (параметр sort). */
+export type EventSort = "relevance" | "novelty" | "title" | "distance";
 
 /** Параметры ленты GET /api/events. */
 export interface EventFilters {
@@ -126,6 +107,11 @@ export interface EventFilters {
     freeOnly?: boolean;
     availableOnly?: boolean;
     friendsOf?: string;
+    /** Без sort сервер сортирует по новизне. */
+    sort?: EventSort;
+    /** Точка для sort=distance; без неё берётся точка из профиля viewerId. */
+    latitude?: number;
+    longitude?: number;
     viewerId?: string | null;
     offset?: number;
     limit?: number;
