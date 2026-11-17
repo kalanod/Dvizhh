@@ -25,7 +25,7 @@ uv run python generate_proto.py --check
 Установка: `uv sync --locked`; проверки: `uv run ruff check .`, `uv run pytest`.
 Запуск: `uv run python -m dvizh_recommendation.main`;
 здоровье: `uv run python -m dvizh_recommendation.healthcheck`.
-Нужны `SOURCE_DATABASE_URL` и `VECTOR_DATABASE_URL`; детали в [README.md](README.md).
+Нужны `SOURCE_DATABASE_URL` и `VECTOR_DATABASE_URL`; детали в [README.md](docs/README.md).
 
 Интеграция: `uv run pytest -m integration` с `TEST_SOURCE_DATABASE_URL`,
 `TEST_SOURCE_ADMIN_DATABASE_URL`, `TEST_VECTOR_DATABASE_URL` для отдельных тестовых БД.

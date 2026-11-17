@@ -12,10 +12,11 @@ from sqlalchemy.engine import make_url
 from starlette.requests import Request
 
 from alembic import command
+from dvizh_auth.api.routers.auth import current_account, login
+from dvizh_auth.api.schemas.account import LoginRequest, RegisterRequest
 from dvizh_auth.database import Database
-from dvizh_auth.main import LoginRequest, RegisterRequest, current_account, login
 from dvizh_auth.models import ADMIN_ROLE_ID, USER_ROLE_ID, Account
-from dvizh_auth.service import hash_password, password_hasher
+from dvizh_auth.services.account_service import hash_password, password_hasher
 
 ADMIN_ID = UUID("d035b112-2cdf-5d23-9361-5db5dc3f162c")
 

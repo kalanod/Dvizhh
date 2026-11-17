@@ -23,6 +23,7 @@ from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ..base import Base
+from ..geo import GeoPoint
 from .common import SoftDeleteMixin, TimestampMixin
 from .enums import (
     EventFormat,
@@ -75,6 +76,7 @@ class Location(Base, TimestampMixin):
         CheckConstraint("latitude BETWEEN -90 AND 90", name="latitude_range"),
         CheckConstraint("longitude BETWEEN -180 AND 180", name="longitude_range"),
         Index("ix_locations_city_region", "city", "region"),
+        Index("ix_locations_position_gist", "position", postgresql_using="gist"),
     )
 
     id: Mapped[UUID] = mapped_column(
@@ -88,6 +90,13 @@ class Location(Base, TimestampMixin):
     postal_code: Mapped[str | None] = mapped_column(String(20))
     latitude: Mapped[Decimal | None] = mapped_column(Numeric(9, 6))
     longitude: Mapped[Decimal | None] = mapped_column(Numeric(9, 6))
+    position: Mapped[object | None] = mapped_column(
+        GeoPoint(), Computed(
+            "CASE WHEN latitude IS NOT NULL AND longitude IS NOT NULL "
+            "THEN ST_SetSRID(ST_MakePoint(longitude::double precision, "
+            "latitude::double precision), 4326) ELSE NULL END", persisted=True
+        ), nullable=True,
+    )
     external_place_id: Mapped[str | None] = mapped_column(String(255), index=True)
 
 

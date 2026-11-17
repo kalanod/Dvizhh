@@ -1,3 +1,4 @@
+import re
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from datetime import date
@@ -7,8 +8,9 @@ from uuid import UUID
 from sqlalchemy import Date, Select, case, cast, delete, exists, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ...dto.event import EventPersonalStateDTO
-from ...dto.tag import CategoryDTO, EventTagDTO
+from dvizh_backend.api.schemas.event import EventPersonalStateDTO, EventSort
+from dvizh_backend.api.schemas.tag import CategoryDTO, EventTagDTO
+
 from ..models import (
     Event,
     EventDismissal,
@@ -34,6 +36,7 @@ from ..models.enums import (
     OccurrenceStatus,
     ParticipationStatus,
 )
+from .event_sorting import SORTINGS, SortContext
 from .exceptions import InvalidTagSelectionError
 from .tags import TagRepository
 
@@ -78,20 +81,12 @@ class EventQueryService:
             return []
         return await self._fetch(self._select_rows().where(EventOccurrence.id.in_(occurrence_ids)))
 
-    async def list_public(
-        self,
-        *,
-        text_query: str | None = None,
-        tag_id: UUID | None = None,
-        date_from: date | None = None,
-        date_to: date | None = None,
-        free_only: bool = False,
-        available_only: bool = False,
-        friends_of: UUID | None = None,
-        offset: int = 0,
-        limit: int = 20,
-        viewer_id: UUID | None = None,
-    ) -> list[EventRow]:
+    def public_statement(
+        self, *, text_query: str | None = None, tag_id: UUID | None = None,
+        date_from: date | None = None, date_to: date | None = None,
+        free_only: bool = False, available_only: bool = False, viewer_id: UUID | None = None,
+    ) -> Select:
+        """Shared access/eligibility predicate for map and legacy feed; no limits or ranking."""
         statement = self._select_rows().where(
             Event.status == EventStatus.PUBLISHED,
             Event.visibility == EventVisibility.PUBLIC,
@@ -105,8 +100,15 @@ class EventQueryService:
             )
 
         if text_query:
-            tsquery = func.websearch_to_tsquery("russian", text_query)
-            statement = statement.where(Event.search_document.op("@@")(tsquery))
+            if re.fullmatch(r"#\w+", text_query.strip()):
+                # Не разбиваем слова по подчёркиваниям и не находим только префикс тега.
+                # После проверки \w+ в теге нет специальных символов regexp.
+                hashtag = text_query.strip()
+                pattern = rf"(^|[^[:alnum:]_#]){hashtag}($|[^[:alnum:]_])"
+                statement = statement.where(Event.title.op("~*")(pattern))
+            else:
+                tsquery = func.websearch_to_tsquery("russian", text_query)
+                statement = statement.where(Event.search_document.op("@@")(tsquery))
         if tag_id is not None:
             statement = statement.where(
                 exists().where(
@@ -128,6 +130,29 @@ class EventQueryService:
             capacity = func.coalesce(EventOccurrence.capacity_override, Event.capacity)
             statement = statement.where(or_(capacity.is_(None), going_count < capacity))
 
+        return statement
+
+    async def list_public(
+        self,
+        *,
+        text_query: str | None = None,
+        tag_id: UUID | None = None,
+        date_from: date | None = None,
+        date_to: date | None = None,
+        free_only: bool = False,
+        available_only: bool = False,
+        friends_of: UUID | None = None,
+        sort: EventSort = "novelty",
+        latitude: float | None = None,
+        longitude: float | None = None,
+        offset: int = 0,
+        limit: int = 20,
+        viewer_id: UUID | None = None,
+    ) -> list[EventRow]:
+        statement = self.public_statement(
+            text_query=text_query, tag_id=tag_id, date_from=date_from, date_to=date_to,
+            free_only=free_only, available_only=available_only, viewer_id=viewer_id,
+        )
         if friends_of is not None:
             friend_ids = select(
                 case(
@@ -150,8 +175,12 @@ class EventQueryService:
             )
             statement = statement.order_by(friends_going.desc())
 
+        # ORDER BY ... LIMIT: база держит только лучшие offset + limit строк, а не сортирует всё.
+        sort_keys = await SORTINGS[sort].order_by(
+            SortContext(self.session, viewer_id, latitude, longitude)
+        )
         statement = (
-            statement.order_by(Event.published_at.desc(), EventOccurrence.starts_at, Event.id)
+            statement.order_by(*sort_keys, EventOccurrence.starts_at, Event.id)
             .offset(offset)
             .limit(limit)
         )

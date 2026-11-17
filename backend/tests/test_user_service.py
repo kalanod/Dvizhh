@@ -7,10 +7,10 @@ from uuid import UUID
 import pytest
 from pydantic import ValidationError
 
+from dvizh_backend.api.schemas.user import CreateProfileDTO, UpdateProfileDTO
 from dvizh_backend.database.models import Friendship, Profile
 from dvizh_backend.database.models.enums import FriendshipStatus, ProfileStatus
 from dvizh_backend.database.services.catalog import ProfileService
-from dvizh_backend.dto.user import CreateProfileDTO, UpdateProfileDTO
 from dvizh_backend.services.errors import (
     AvatarUnavailableError,
     FriendshipStateError,
@@ -51,11 +51,10 @@ def test_profile_dto_rejects_invalid_and_ambiguous_changes() -> None:
     with pytest.raises(ValidationError):
         UpdateProfileDTO(display_name="Valid", unknown_field=True)
 
-    patch = UpdateProfileDTO(bio=None, latitude=None, longitude=None)
+    patch = UpdateProfileDTO(bio=None, city=None)
     assert patch.model_dump(exclude_unset=True) == {
         "bio": None,
-        "latitude": None,
-        "longitude": None,
+        "city": None,
     }
 
 
@@ -161,6 +160,45 @@ def test_friendship_transition_and_actor_check() -> None:
         removed = await service.remove_friend(FIRST_ID, SECOND_ID)
         assert removed.status == FriendshipStatus.REMOVED
         assert not await service.are_friends(FIRST_ID, SECOND_ID)
+
+    asyncio.run(scenario())
+
+
+def test_outgoing_request_cancel_and_new_request_use_the_same_pair() -> None:
+    async def scenario() -> None:
+        service = UserService(AsyncMock())
+        profiles = {
+            FIRST_ID: make_profile(FIRST_ID, "first"),
+            SECOND_ID: make_profile(SECOND_ID, "second"),
+        }
+        service.profiles.get_by_id = AsyncMock(side_effect=profiles.get)
+        service.friendships.get_pair = AsyncMock(return_value=None)
+        service.friendships.flush = AsyncMock()
+        assert await service.get_friendship(FIRST_ID, SECOND_ID) is None
+        friendship = Friendship(
+            user_low_id=FIRST_ID, user_high_id=SECOND_ID,
+            requested_by_user_id=FIRST_ID, status=FriendshipStatus.PENDING,
+            requested_at=datetime.now(UTC),
+        )
+        service.friendships.get_pair.return_value = friendship
+        result = await service.get_friendship(SECOND_ID, FIRST_ID)
+        assert result.status == FriendshipStatus.PENDING
+        assert result.requested_by_user_id == FIRST_ID
+        service.friendships.get_pair.assert_awaited_with(FIRST_ID, SECOND_ID)
+        with pytest.raises(FriendshipStateError):
+            await service.remove_friend(SECOND_ID, FIRST_ID)
+        service.friendships.flush.assert_not_awaited()
+        cancelled = await service.remove_friend(FIRST_ID, SECOND_ID)
+        assert cancelled.status == FriendshipStatus.REMOVED
+        assert cancelled.removed_at is not None
+        with pytest.raises(FriendshipStateError):
+            await service.respond_to_friendship(SECOND_ID, FIRST_ID, accept=True)
+        with pytest.raises(FriendshipStateError):
+            await service.remove_friend(FIRST_ID, SECOND_ID)
+        requested = await service.request_friendship(SECOND_ID, FIRST_ID)
+        assert requested.status == FriendshipStatus.PENDING
+        assert requested.requested_by_user_id == SECOND_ID
+        assert requested.removed_at is None
 
     asyncio.run(scenario())
 

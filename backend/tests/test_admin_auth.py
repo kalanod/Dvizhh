@@ -4,7 +4,7 @@ import pytest
 from fastapi import Depends, FastAPI
 from fastapi.testclient import TestClient
 
-from dvizh_backend.services import admin_auth
+from dvizh_backend.api import security as admin_auth
 
 
 @pytest.fixture
@@ -18,7 +18,7 @@ def client(monkeypatch):
         return {"ok": True}
 
     monkeypatch.setattr(
-        admin_auth, "_fetch_account",
+        admin_auth, "fetch_current_account",
         lambda *_: admin_auth.AdminAccount(id=uuid4(), role="admin"),
     )
     with TestClient(app) as http:
@@ -34,7 +34,7 @@ def test_admin_checks_current_account_privilege(client, monkeypatch):
     client.cookies.set("dvizh_access", "session-token")
     assert client.get("/admin").status_code == 200
     monkeypatch.setattr(
-        admin_auth, "_fetch_account",
+        admin_auth, "fetch_current_account",
         lambda *_: admin_auth.AdminAccount(id=uuid4(), role="user"),
     )
     assert client.get("/admin").status_code == 403
@@ -53,8 +53,8 @@ def test_admin_writes_reject_cross_origin_requests(client):
 
 def test_admin_auth_outage_fails_closed(client, monkeypatch):
     def unavailable(*_):
-        raise admin_auth.HTTPException(503, "Authentication service unavailable")
+        raise admin_auth.AccountCommandError(503, "Authentication service unavailable")
 
-    monkeypatch.setattr(admin_auth, "_fetch_account", unavailable)
+    monkeypatch.setattr(admin_auth, "fetch_current_account", unavailable)
     client.cookies.set("dvizh_access", "session-token")
     assert client.get("/admin").status_code == 503

@@ -8,6 +8,15 @@ import pytest
 from pydantic import ValidationError
 from sqlalchemy.dialects import postgresql
 
+from dvizh_backend.api.errors import STATUS_BY_ERROR
+from dvizh_backend.api.schemas.event import (
+    CreateEventDTO,
+    EventPersonalStateDTO,
+    LocationDTO,
+    UpdateEventDTO,
+)
+from dvizh_backend.api.schemas.tag import CategoryDTO, EventTagDTO
+from dvizh_backend.api.schemas.user import UserCreate
 from dvizh_backend.database.models import Event, EventOccurrence, Profile
 from dvizh_backend.database.models.enums import (
     EventFormat,
@@ -20,16 +29,7 @@ from dvizh_backend.database.models.enums import (
 )
 from dvizh_backend.database.services.event_queries import EventQueryService, EventRow
 from dvizh_backend.database.services.exceptions import EntityNotFoundError
-from dvizh_backend.dto.event import (
-    CreateEventDTO,
-    EventPersonalStateDTO,
-    LocationDTO,
-    UpdateEventDTO,
-)
-from dvizh_backend.dto.tag import CategoryDTO, EventTagDTO
 from dvizh_backend.main import app
-from dvizh_backend.routers.errors import STATUS_BY_ERROR
-from dvizh_backend.routers.users import UserCreate
 from dvizh_backend.services.errors import UserNotFoundError
 from dvizh_backend.services.event_service import EventService
 
@@ -148,6 +148,24 @@ def test_feed_query_compiles_for_postgres_with_all_filters() -> None:
     assert "events.deleted_at IS NULL" in sql
     # Сначала события, на которые идут друзья, затем по новизне.
     assert sql.index("DESC") < sql.index("events.published_at DESC")
+
+
+@pytest.mark.parametrize("hashtag", ["#испанские_слизни", "#Music2026", "#東京_2"])
+def test_hashtag_feed_search_uses_boundaries_in_title_and_keeps_visibility(hashtag: str) -> None:
+    async def scenario():
+        session = AsyncMock()
+        session.execute.return_value = []
+        await EventQueryService(session).list_public(text_query=f"  {hashtag}  ")
+        return session.execute.await_args.args[0].compile(dialect=postgresql.dialect())
+
+    compiled = asyncio.run(scenario())
+    sql = str(compiled)
+    assert "events.title ~*" in sql
+    assert "websearch_to_tsquery" not in sql
+    assert f"(^|[^[:alnum:]_#]){hashtag}($|[^[:alnum:]_])" in compiled.params.values()
+    assert "events.deleted_at IS NULL" in sql
+    assert EventStatus.PUBLISHED in compiled.params.values()
+    assert EventVisibility.PUBLIC in compiled.params.values()
 
 
 def make_event_service() -> EventService:

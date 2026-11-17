@@ -8,9 +8,14 @@ from fastapi import HTTPException
 from pydantic import ValidationError
 from test_credentials import account_request
 
-from dvizh_auth.dto import ChangePasswordRequest
-from dvizh_auth.main import change_password, validation_error
-from dvizh_auth.service import AccountService, InvalidCurrentPasswordError, hash_password
+from dvizh_auth.api.errors import validation_error
+from dvizh_auth.api.routers.auth import change_password
+from dvizh_auth.api.schemas.account import ChangePasswordRequest
+from dvizh_auth.services.account_service import (
+    AccountService,
+    InvalidCurrentPasswordError,
+    hash_password,
+)
 
 
 def test_password_policy_and_secrets() -> None:
@@ -69,9 +74,10 @@ def test_password_route_auth_csrf_and_service_error() -> None:
             await change_password(command, account_request(), session)
         assert error.value.status_code == 401
         account = SimpleNamespace(id=uuid4())
-        with patch("dvizh_auth.main.require_account", AsyncMock(return_value=account)), patch(
-            "dvizh_auth.main.AccountService"
-        ) as factory:
+        with (
+            patch("dvizh_auth.api.routers.auth.require_account", AsyncMock(return_value=account)),
+            patch("dvizh_auth.api.routers.auth.AccountService") as factory,
+        ):
             service = factory.return_value
             service.change_password = AsyncMock()
             for headers in ({"x-dvizh-account": ""}, {"origin": "https://evil.example"}):

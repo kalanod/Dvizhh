@@ -7,3 +7,4 @@ export * from "./Filters";
 export * from "./Header";
 export * from "./LoginRequired";
 export * from "./PeopleList";
+export * from "./SortMenu";

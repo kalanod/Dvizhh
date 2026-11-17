@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from sqlalchemy import exists, func, or_, select
+from sqlalchemy import exists, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import (
@@ -51,13 +51,7 @@ async def can_view_event_media(session: AsyncSession, event: Event, user_id: UUI
             EventInvitation.invitee_user_id == user_id,
             EventInvitation.occurrence_id == EventOccurrence.id,
             EventOccurrence.event_id == event.id,
-            or_(
-                EventInvitation.status == InvitationStatus.ACCEPTED,
-                (EventInvitation.status == InvitationStatus.PENDING)
-                & or_(
-                    EventInvitation.expires_at.is_(None), EventInvitation.expires_at > func.now()
-                ),
-            ),
+            EventInvitation.status.in_([InvitationStatus.ACCEPTED, InvitationStatus.PENDING]),
         )
         attending = exists().where(
             EventParticipation.user_id == user_id,

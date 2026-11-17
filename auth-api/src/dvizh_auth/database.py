@@ -1,9 +1,7 @@
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Annotated
 
 from dvizh_logging.sqlalchemy import trace_sqlalchemy
-from fastapi import Depends, Request
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
@@ -32,17 +30,3 @@ class Database:
 
     async def dispose(self) -> None:
         await self.engine.dispose()
-
-
-def get_database(request: Request) -> Database:
-    return request.app.state.database
-
-
-async def get_session(
-    database: Annotated[Database, Depends(get_database)],
-) -> AsyncIterator[AsyncSession]:
-    async with database.session() as session:
-        yield session
-
-
-SessionDep = Annotated[AsyncSession, Depends(get_session, scope="function")]

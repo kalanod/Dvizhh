@@ -1,10 +1,10 @@
 from uuid import UUID
 
-from sqlalchemy import or_, select
+from sqlalchemy import case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..models import Friendship
-from ..models.enums import FriendshipStatus
+from ..models import Friendship, Profile
+from ..models.enums import FriendshipStatus, ProfileStatus
 
 
 class FriendshipService:
@@ -43,6 +43,28 @@ class FriendshipService:
                 Friendship.responded_at.desc(), Friendship.user_low_id, Friendship.user_high_id
             )
         )
+        return list(result.all())
+
+    async def search_friends(
+        self, user_id: UUID, query: str, *, offset: int, limit: int,
+    ) -> list[Profile]:
+        other_id = case(
+            (Friendship.user_low_id == user_id, Friendship.user_high_id),
+            else_=Friendship.user_low_id,
+        )
+        statement = select(Profile).join(Friendship, Profile.id == other_id).where(
+            Friendship.status == FriendshipStatus.ACCEPTED,
+            or_(Friendship.user_low_id == user_id, Friendship.user_high_id == user_id),
+            Profile.status == ProfileStatus.ACTIVE,
+        )
+        if query:
+            statement = statement.where(or_(
+                func.lower(Profile.display_name).contains(query.lower(), autoescape=True),
+                func.lower(Profile.username).contains(query.lower(), autoescape=True),
+            ))
+        result = await self.session.scalars(statement.order_by(
+            func.lower(Profile.display_name), Profile.id,
+        ).offset(offset).limit(limit))
         return list(result.all())
 
     async def list_pending(

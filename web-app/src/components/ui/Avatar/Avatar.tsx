@@ -10,7 +10,7 @@ interface AvatarProps {
 const sizeClassMap = {
     sm: "h-[28px] w-[28px] text-[13px]",
     md: "h-[37px] w-[37px] text-[16px]",
-    lg: "h-[128px] w-[86px] text-[36px]",
+    lg: "h-[180px] w-[180px] text-[56px] sm:h-[224px] sm:w-[224px] sm:text-[72px]",
 };
 
 /** Shows the profile image, falling back to an initial when absent or unavailable. */

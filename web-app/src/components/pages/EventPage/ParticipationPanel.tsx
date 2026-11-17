@@ -101,7 +101,7 @@ export const ParticipationPanel = ({
             return (
                 <>
                     <span className="text-h3 text-textprimary">
-                        Вас пригласили{invitation.message ? `: «${invitation.message}»` : "!"}
+                        Вас пригласили!
                     </span>
                     <Button state="hover2" disabled={busy || seats === 0} onClick={() => respond(true)}>
                         {seats === 0 ? "Мест нет" : "Принять — иду"}

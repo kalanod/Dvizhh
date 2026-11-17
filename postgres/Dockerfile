@@ -1,3 +1,3 @@
-FROM postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
+FROM postgis/postgis:17-3.7-alpine@sha256:edb61bdfede3dd78074fb1a9e43523510d7fe461817c95f44301be8dfebd04b9
 
 COPY init-recsys-reader.sh /docker-entrypoint-initdb.d/01-recsys-reader.sh

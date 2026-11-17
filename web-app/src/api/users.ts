@@ -11,6 +11,12 @@ export const getCalendar = (userId: string, signal?: AbortSignal) =>
 export const listFriends = (userId: string, signal?: AbortSignal) =>
     request<Profile[]>(`/users/${userId}/friends`, { signal });
 
+export const searchFriends = (userId: string, q: string, offset: number, signal?: AbortSignal) =>
+    request<Profile[]>(`/users/${userId}/friends/search`, { query: { q, offset, limit: 20 }, signal });
+
+export const getFriendship = (userId: string, friendId: string, signal?: AbortSignal) =>
+    request<Friendship | null>(`/users/${userId}/friends/${friendId}`, { signal });
+
 export const requestFriendship = (userId: string, friendId: string) =>
     request<Friendship>(`/users/${userId}/friends/${friendId}`, { method: "PUT" });
 

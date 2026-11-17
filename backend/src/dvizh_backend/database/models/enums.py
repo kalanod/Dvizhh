@@ -1,4 +1,13 @@
-from enum import StrEnum
+from enum import IntEnum, StrEnum
+
+
+class MapMarkerPriority(IntEnum):
+    """Read projection priority; not a persisted PostgreSQL enum."""
+
+    DEFAULT = 0
+    GOING = 1
+    ORGANIZER = 2
+    FAVORITE = 3
 
 
 class ProfileStatus(StrEnum):

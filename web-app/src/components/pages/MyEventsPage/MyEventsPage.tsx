@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { errorText, listDismissed, listDrafts, listFavorites, listMyEvents } from "../../../api";
 import { useAsync, useCurrentUser } from "../../../hooks";
 import type { DvizhEvent } from "../../../models";
@@ -20,7 +20,7 @@ interface Tab {
 const TABS = {
     organized: {
         label: "Организую",
-        empty: "Вы ещё не создали ни одного события — нажмите «+ Движ».",
+        empty: "Вы ещё не создали ни одного события — нажмите «Создать движ».",
         load: (userId, limit, signal) => listMyEvents(userId, "organized", { limit, signal }),
     },
     drafts: {
@@ -86,6 +86,12 @@ const MyEvents = ({ userId }: { userId: string }) => {
                     </Button>
                 ))}
             </nav>
+            {tab === "organized" && (
+                <Link to="/events/new"
+                    className="create-dvizh-banner flex h-[41px] w-full items-center justify-center rounded-lg border border-borderlight text-buttons text-textthird transition-shadow hover:shadow-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-borderfocus">
+                    Создать движ
+                </Link>
+            )}
             {/* key сбрасывает «Показать ещё» при смене вкладки. */}
             <TabEvents key={tab} userId={userId} tab={TABS[tab]} />
         </div>

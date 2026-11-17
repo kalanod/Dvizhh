@@ -5,15 +5,15 @@ import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import httpx
 import pytest
 from sqlalchemy import func, select, update
 from sqlalchemy.engine import make_url
 
+from dvizh_backend.api.dependencies import get_database_service, get_discovery_viewer
 from dvizh_backend.database.database_service import DatabaseService
-from dvizh_backend.database.dependencies import get_database_service
 from dvizh_backend.database.models import (
     EventInteraction,
     EventInvitation,
@@ -58,9 +58,11 @@ async def user(http: httpx.AsyncClient) -> str:
     return response.json()["id"]
 
 
-async def event(http: httpx.AsyncClient, owner: str, **fields: object) -> dict:
+async def event(
+    http: httpx.AsyncClient, owner: str, *, draft: bool = False, **fields: object,
+) -> dict:
     response = await http.post(
-        "/api/events",
+        "/api/events/drafts" if draft else "/api/events",
         json={
             "organizer_id": owner,
             "title": "Test " + uuid4().hex,
@@ -72,6 +74,28 @@ async def event(http: httpx.AsyncClient, owner: str, **fields: object) -> dict:
     )
     assert response.status_code == 201, response.text
     return response.json()
+
+
+def test_feed_searches_whole_title_hashtags_case_insensitively() -> None:
+    async def scenario() -> None:
+        async with client() as (http, _database):
+            owner = await user(http)
+            hashtag = "#испанские_слизни_" + uuid4().hex
+            matching = [
+                await event(http, owner, title=f"Встреча {hashtag}"),
+                await event(http, owner, title=f"({hashtag.upper()}), встреча"),
+            ]
+            for title in (
+                f"{hashtag}_летом", f"слово{hashtag}", f"#{hashtag}", "Другой движ",
+            ):
+                await event(http, owner, title=title, description=hashtag)
+            await event(http, owner, title=hashtag, visibility="PRIVATE")
+            await event(http, owner, title=hashtag, draft=True)
+            response = await http.get("/api/events", params={"q": hashtag})
+            assert response.status_code == 200, response.text
+            assert {item["id"] for item in response.json()} == {item["id"] for item in matching}
+
+    asyncio.run(scenario())
 
 
 @pytest.mark.parametrize("event_format", ["OFFLINE", "HYBRID"])
@@ -130,13 +154,13 @@ def test_profile_patch_and_friend_request_inboxes() -> None:
                 json={
                     "display_name": "Updated",
                     "bio": None,
-                    "latitude": "55.75",
-                    "longitude": "37.61",
+                    "city": "Москва",
                 },
             )
             assert response.status_code == 200, response.text
             assert response.json()["display_name"] == "Updated"
-            assert response.json()["latitude"] == "55.750000"
+            assert response.json()["city"] == "Москва"
+            assert "latitude" not in response.json() and "longitude" not in response.json()
             for patch in ({}, {"display_name": None}, {"latitude": "1"}, {"unknown": True}):
                 assert (await http.patch(f"/api/users/{first}", json=patch)).status_code == 422
             name = (await http.get(f"/api/users/{second}")).json()["username"]
@@ -164,10 +188,14 @@ def test_profile_patch_and_friend_request_inboxes() -> None:
     asyncio.run(scenario())
 
 
-def test_favorites_dismissal_personal_cards_and_retry_logs() -> None:
+def test_favorites_dismissal_personal_cards_and_retry_logs(monkeypatch) -> None:
     async def scenario() -> None:
         async with client() as (http, database):
             owner, viewer, other = await user(http), await user(http), await user(http)
+            # This domain scenario uses a verified viewer; cookie verification is tested separately.
+            monkeypatch.setitem(
+                app.dependency_overrides, get_discovery_viewer, lambda: UUID(viewer),
+            )
             card = await event(http, owner)
             event_id = card["id"]
             favorite = f"/api/users/{viewer}/favorites/{event_id}"
@@ -382,7 +410,7 @@ def test_expired_declined_revoked_and_manager_invitations() -> None:
                 await session.execute(
                     update(EventInvitation)
                     .where(EventInvitation.id == invitation_id)
-                    .values(expires_at=datetime.now(UTC) - timedelta(hours=1))
+                    .values(status="EXPIRED")
                 )
             assert (await http.get(f"/api/users/{recipient}/invitations")).json() == []
             assert (

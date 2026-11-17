@@ -1,0 +1,111 @@
+import uuid
+from datetime import datetime
+from uuid import UUID
+
+from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validator, model_validator
+
+from dvizh_backend.database.models.enums import FriendshipStatus, ProfileStatus
+
+
+class UserDTO(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True, from_attributes=True)
+
+    @field_validator("display_name", "city", check_fields=False)
+    @classmethod
+    def reject_blank_or_padded_text(cls, value: str | None) -> str | None:
+        if value is not None and (not value.strip() or value != value.strip()):
+            raise ValueError("text must be non-blank and have no surrounding whitespace")
+        return value
+
+
+class CreateProfileDTO(UserDTO):
+    id: UUID = Field(description="User ID issued by the auth service")
+    username: str = Field(
+        min_length=3,
+        max_length=50,
+        pattern=r"^[a-z0-9_]+$",
+        description="Уникальное имя пользователя: строчные латинские буквы, цифры и «_».",
+    )
+    display_name: str = Field(min_length=1, max_length=120, description="Отображаемое имя.")
+    bio: str | None = Field(default=None, max_length=2000, description="О себе.")
+    avatar_media_id: UUID | None = Field(
+        default=None, description="Готовый медиафайл пользователя для аватара."
+    )
+    city: str | None = Field(default=None, min_length=1, max_length=120, description="Город.")
+
+
+class UpdateProfileDTO(UserDTO):
+    username: str | None = Field(default=None, min_length=3, max_length=50, pattern=r"^[a-z0-9_]+$")
+    display_name: str | None = Field(default=None, min_length=1, max_length=120)
+    bio: str | None = Field(default=None, max_length=2000)
+    avatar_media_id: UUID | None = None
+    city: str | None = Field(default=None, min_length=1, max_length=120)
+
+    @model_validator(mode="after")
+    def validate_patch(self) -> "UpdateProfileDTO":
+        fields = self.model_fields_set
+        if not fields:
+            raise ValueError("at least one field is required")
+        if "username" in fields and self.username is None:
+            raise ValueError("username cannot be null")
+        if "display_name" in fields and self.display_name is None:
+            raise ValueError("display_name cannot be null")
+        return self
+
+
+class ProfileDTO(UserDTO):
+    id: UUID
+    username: str
+    display_name: str
+    bio: str | None
+    avatar_media_id: UUID | None
+    city: str | None
+    status: ProfileStatus
+    created_at: datetime
+    updated_at: datetime
+
+    @computed_field
+    @property
+    def avatar_url(self) -> str | None:
+        return (
+            f"/api/media/{self.avatar_media_id}/content"
+            if self.avatar_media_id is not None
+            else None
+        )
+
+
+class FriendshipDTO(UserDTO):
+    user_low_id: UUID
+    user_high_id: UUID
+    requested_by_user_id: UUID
+    status: FriendshipStatus
+    requested_at: datetime
+    responded_at: datetime | None
+    removed_at: datetime | None
+
+
+class FriendshipRequestDTO(UserDTO):
+    friendship: FriendshipDTO
+    user: ProfileDTO
+
+
+class UserCreate(CreateProfileDTO):
+    # Тело запроса приходит из JSON, где UUID передаётся строкой.
+    model_config = ConfigDict(strict=False)
+
+    id: uuid.UUID = Field(
+        default_factory=uuid.uuid4,
+        description=(
+            "Идентификатор, выданный auth-сервисом. Пока авторизации нет, "
+            "можно не передавать — он будет сгенерирован."
+        ),
+    )
+
+
+class ProfilePatch(UpdateProfileDTO):
+    # HTTP receives JSON strings; the domain DTO remains strict.
+    model_config = ConfigDict(extra="forbid", from_attributes=True, strict=False)
+
+
+class FriendshipResponse(BaseModel):
+    accept: bool = Field(description="true — принять заявку, false — отклонить.")

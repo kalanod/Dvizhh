@@ -9,14 +9,17 @@ from dvizh_logging.http import RequestLoggingMiddleware
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from dvizh_backend.api.errors import register_error_handlers
+from dvizh_backend.api.routers import maps
 from dvizh_backend.config import Settings, get_settings
-from dvizh_backend.routers import maps
+from dvizh_backend.services import maps_service, yandex_maps_client
 
 
 @pytest.fixture
 def client(monkeypatch):
     app = FastAPI()
     app.include_router(maps.router)
+    register_error_handlers(app)
     settings = Settings(
         _env_file=None,
         yandex_maps_api_key="browser-key",
@@ -28,7 +31,7 @@ def client(monkeypatch):
     def no_network(*args, **kwargs):
         raise AssertionError("Tests must not call Yandex")
 
-    monkeypatch.setattr(maps, "urlopen", no_network)
+    monkeypatch.setattr(yandex_maps_client, "urlopen", no_network)
     with TestClient(RequestLoggingMiddleware(app)) as client:
         yield client, settings
 
@@ -41,7 +44,7 @@ def provider(monkeypatch, data):
         assert timeout == 10
         return BytesIO(json.dumps(data).encode())
 
-    monkeypatch.setattr(maps, "urlopen", respond)
+    monkeypatch.setattr(yandex_maps_client, "urlopen", respond)
     return requests
 
 
@@ -174,8 +177,8 @@ def test_business_permission_error_identifies_product_and_key_source(client, mon
         assert parse_qs(urlparse(request.full_url).query)["apikey"] == ["organization-secret"]
         raise HTTPError(request.full_url, 403, "Forbidden", {}, None)
 
-    monkeypatch.setattr(maps, "urlopen", denied)
-    with caplog.at_level("INFO", logger=maps.__name__):
+    monkeypatch.setattr(yandex_maps_client, "urlopen", denied)
+    with caplog.at_level("INFO", logger=maps_service.__name__):
         response = http.get("/api/maps/geocode", params={"uri": "ymapsbm1://org?oid=123"})
     assert response.status_code == 503
     assert "API Поиска по организациям" in response.json()["detail"]
@@ -188,7 +191,7 @@ def test_business_permission_error_identifies_product_and_key_source(client, mon
 def test_business_without_separate_key_uses_geocoder_key(client, monkeypatch, caplog):
     http, _ = client
     requests = provider(monkeypatch, {"features": []})
-    with caplog.at_level("INFO", logger=maps.__name__):
+    with caplog.at_level("INFO", logger=maps_service.__name__):
         response = http.get("/api/maps/geocode", params={"uri": "ymapsbm1://org?oid=123"})
     assert response.status_code == 404
     assert parse_qs(urlparse(requests[0].full_url).query)["apikey"] == ["geocoder-secret"]
@@ -270,7 +273,7 @@ def test_provider_error_correlates_without_leaking_url(client, monkeypatch, capl
     def error(request, *, timeout):
         raise HTTPError(request.full_url, status, "provider error", {}, None)
 
-    monkeypatch.setattr(maps, "urlopen", error)
+    monkeypatch.setattr(yandex_maps_client, "urlopen", error)
     monkeypatch.setattr(caplog.handler, "formatter", JsonFormatter("backend"))
     response = http.get("/api/maps/geocode", params={"query": "Москва"})
     assert response.status_code == 503
@@ -287,20 +290,22 @@ def test_provider_error_correlates_without_leaking_url(client, monkeypatch, capl
     assert "apikey" not in caplog.text
 
 
-def test_browser_error_reaches_server_log_without_keys(client, caplog):
+@pytest.mark.parametrize("legacy_message", [False, True])
+def test_browser_error_reaches_server_log_without_keys(client, caplog, monkeypatch, legacy_message):
     http, _ = client
+    monkeypatch.setattr(caplog.handler, "formatter", JsonFormatter("backend"))
+    body = {"stage": "sdk_ready", "online": True}
+    if legacy_message:
+        body["message"] = "Failed: apikey=browser-key&key=suggest-secret geocoder-secret"
     response = http.post(
         "/api/maps/client-error",
-        json={
-            "stage": "sdk_ready",
-            "online": True,
-            "message": "Failed: apikey=browser-key&key=suggest-secret geocoder-secret",
-        },
+        json=body,
         headers={"Origin": "http://localhost:8080"},
     )
     assert response.status_code == 204
-    record = next(record for record in caplog.records if record.name == maps.__name__)
-    assert record.stage == "sdk_ready"
-    assert record.online is True
+    records = [json.loads(line) for line in caplog.text.splitlines()]
+    record = next(record for record in records if record.get("stage") == "sdk_ready")
+    assert record["request_id"] == response.headers["X-Request-ID"]
+    assert record["online"] is True
     for secret in ("browser-key", "suggest-secret", "geocoder-secret", "localhost:8080"):
-        assert secret not in str(vars(record))
+        assert secret not in caplog.text

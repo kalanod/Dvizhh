@@ -2,8 +2,12 @@
 
 Действуют [корневые инструкции](../AGENTS.md). Команды - из `auth-api`.
 
-Пакет `src/dvizh_auth/`: `main.py` - HTTP-контракты, `service.py` - регистрация,
-`models.py` и `database.py` - хранение, `config.py` - настройки.
+Пакет `src/dvizh_auth/`: `main.py` - сборка приложения и lifespan,
+`api/routers/` - HTTP-маршруты, `api/schemas/` - схемы запросов и ответов,
+`api/errors.py` - обработчики ошибок, `api/dependencies.py` - сборка зависимостей и HTTP-защита;
+`services/account_service.py` - бизнес-логика аккаунта,
+`services/session_service.py` - JWT и проверка существования аккаунта без HTTP-зависимостей;
+`models.py`, `repository.py` и `database.py` - хранение, `config.py` - настройки.
 Миграции принадлежат этому сервису и находятся в `alembic/`.
 
 Сохраняй хеширование паролей через существующий Argon2-механизм.

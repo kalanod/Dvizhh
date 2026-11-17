@@ -2,21 +2,21 @@ import { useEffect, useId, useRef, useState } from "react";
 import { errorText } from "../../../api/client";
 import { geocodeAddress, getMapsConfig, suggestAddresses, type AddressSuggestion } from "../../../api/maps";
 import { useAsync } from "../../../hooks/useAsync";
-import { locationCoordinates, type Coordinates } from "../../../utils/yandexMaps";
+import type { Coordinates } from "../../../utils/yandexMaps";
 import { currentCoordinates } from "../../../utils/geolocation";
 import { Button, FormField, Input, Notice } from "../../ui";
 import { YandexMap } from "../../widgets/EventLocation/YandexMap";
-import type { EventFormState } from "./formState";
-
-type LocationFields = Pick<EventFormState, "address" | "city" | "latitude" | "longitude" | "placeName">;
+import { placeCoordinates, placeFromGeocode, pointPlace, textPlace, type EventPlaceValue } from "./eventPlace";
 
 interface Props {
-    value: LocationFields;
+    value: EventPlaceValue;
+    profileCity?: string | null;
     disabled: boolean;
-    onChange: (value: Partial<LocationFields>) => void;
+    onChange: (value: EventPlaceValue) => void;
+    onPendingChange: (pending: boolean) => void;
 }
 
-export const EventLocationField = ({ value, disabled, onChange }: Props) => {
+export const EventLocationField = ({ value, profileCity, disabled, onChange, onPendingChange }: Props) => {
     const config = useAsync(getMapsConfig, "yandex-maps-config");
     const [open, setOpen] = useState(false);
     const [active, setActive] = useState(-1);
@@ -25,7 +25,11 @@ export const EventLocationField = ({ value, disabled, onChange }: Props) => {
     const [resolving, setResolving] = useState(false);
     const [locating, setLocating] = useState(false);
     const [userPoint, setUserPoint] = useState<Coordinates | null>(null);
-    const [selectedPoint, setSelectedPoint] = useState(() => locationCoordinates(value.latitude, value.longitude));
+    const point = placeCoordinates(value);
+    const latitude = value.kind === "resolved" ? value.location.latitude ?? "" : "";
+    const longitude = value.kind === "resolved" ? value.location.longitude ?? "" : "";
+    const city = (value.kind === "resolved" ? value.location.city : null) ?? profileCity ?? "";
+    const [selectedPoint, setSelectedPoint] = useState(() => placeCoordinates(value));
     const center = userPoint ?? selectedPoint;
     const centerLongitude = center?.[0];
     const centerLatitude = center?.[1];
@@ -33,8 +37,8 @@ export const EventLocationField = ({ value, disabled, onChange }: Props) => {
     const geocoding = useRef<AbortController | null>(null);
     const listId = useId();
     const searchEnabled = Boolean(config.data?.search_enabled);
-    const searchKey = `${value.city}:${value.address}:${centerLongitude}:${centerLatitude}`;
-    const canSuggest = open && searchEnabled && value.address.trim().length >= 3;
+    const searchKey = `${city}:${value.text}:${centerLongitude}:${centerLatitude}`;
+    const canSuggest = open && searchEnabled && value.text.trim().length >= 3;
     const current = suggestions?.key === searchKey ? suggestions : null;
     const items = canSuggest ? current?.items ?? [] : [];
 
@@ -42,19 +46,22 @@ export const EventLocationField = ({ value, disabled, onChange }: Props) => {
         if (!canSuggest) return;
         const controller = new AbortController();
         const timer = setTimeout(() => {
-            suggestAddresses(value.address, value.city, controller.signal,
+            suggestAddresses(value.text, city, controller.signal,
                 centerLongitude !== undefined && centerLatitude !== undefined ? [centerLongitude, centerLatitude] : null).then(
                 (items) => { if (!controller.signal.aborted) setSuggestions({ key: searchKey, items }); },
                 (err: unknown) => { if (!controller.signal.aborted) setSuggestions({ key: searchKey, items: [], error: errorText(err) }); },
             );
         }, 350);
         return () => { clearTimeout(timer); controller.abort(); };
-    }, [canSuggest, searchKey, value.address, value.city, centerLongitude, centerLatitude]);
+    }, [canSuggest, searchKey, value.text, city, centerLongitude, centerLatitude]);
+
+    useEffect(() => { onPendingChange(resolving || locating); }, [resolving, locating, onPendingChange]);
 
     useEffect(() => () => {
         geocoding.current?.abort();
         locationRequest.current?.abort();
-    }, []);
+        onPendingChange(false);
+    }, [onPendingChange]);
 
     const editAddress = (address: string) => {
         locationRequest.current?.abort();
@@ -64,7 +71,7 @@ export const EventLocationField = ({ value, disabled, onChange }: Props) => {
         setError(null);
         setActive(-1);
         setOpen(true);
-        onChange({ address, latitude: "", longitude: "" });
+        onChange(textPlace(address));
     };
 
     const resolve = async (suggestion?: AddressSuggestion, point?: Coordinates) => {
@@ -78,22 +85,16 @@ export const EventLocationField = ({ value, disabled, onChange }: Props) => {
         setResolving(true);
         if (point) {
             setSelectedPoint(point);
-            onChange({ latitude: point[1].toFixed(6), longitude: point[0].toFixed(6), address: "" });
+            onChange(pointPlace(point));
         } else {
-            onChange({ address: suggestion?.address ?? value.address, latitude: "", longitude: "" });
+            onChange(textPlace(suggestion?.address ?? value.text));
         }
         try {
-            const query = point ? point.join(",") : suggestion?.address ?? [value.city, value.address].filter(Boolean).join(", ");
+            const query = point ? point.join(",") : suggestion?.address ?? value.text;
             const place = await geocodeAddress(query, suggestion?.uri, controller.signal);
             if (controller.signal.aborted) return;
             setSelectedPoint(point ?? [Number(place.longitude), Number(place.latitude)]);
-            onChange({
-                ...(place.name ? { placeName: place.name } : {}),
-                address: place.address_line,
-                city: place.city ?? suggestion?.city ?? value.city,
-                latitude: (point?.[1] ?? Number(place.latitude)).toFixed(6),
-                longitude: (point?.[0] ?? Number(place.longitude)).toFixed(6),
-            });
+            onChange(placeFromGeocode({ ...place, city: place.city ?? suggestion?.city ?? null }, point));
         } catch (err) {
             if (!controller.signal.aborted) setError(errorText(err));
         } finally {
@@ -129,8 +130,9 @@ export const EventLocationField = ({ value, disabled, onChange }: Props) => {
                 if (!event.currentTarget.contains(event.relatedTarget)) setOpen(false);
             }}>
                 <FormField label="Адрес или заведение" htmlFor="event-address" hint="Введите адрес, название или тип места — например, «антикафе»">
-                    <div className="flex items-start gap-2">
+                    <div className="flex w-full min-w-0 items-stretch gap-2">
                         <Input
+                            className="min-w-0 flex-1"
                             id="event-address"
                             disabled={disabled}
                             role="combobox"
@@ -139,10 +141,11 @@ export const EventLocationField = ({ value, disabled, onChange }: Props) => {
                             aria-controls={listId}
                             aria-activedescendant={active >= 0 && active < items.length ? `${listId}-${active}` : undefined}
                             autoComplete="off"
+                            maxLength={500}
                             placeholder="Антикафе, кофейня или Невский проспект, 1"
-                            value={value.address}
+                            value={value.text}
                             onChange={editAddress}
-                            onFocus={() => { if (!value.latitude) setOpen(true); }}
+                            onFocus={() => { if (!point) setOpen(true); }}
                             onKeyDown={(event) => {
                                 if (event.key === "ArrowDown" && items.length) {
                                     event.preventDefault();
@@ -154,15 +157,28 @@ export const EventLocationField = ({ value, disabled, onChange }: Props) => {
                                     setOpen(false);
                                 } else if (event.key === "Enter") {
                                     event.preventDefault();
-                                    if (searchEnabled && value.address.trim()) {
+                                    if (searchEnabled && value.text.trim()) {
                                         if (active >= 0) void resolve(items[active]);
                                         else setOpen(true);
                                     }
                                 }
                             }}
                         />
-                        <Button disabled={disabled || resolving || !searchEnabled || !value.address.trim()} onClick={() => { setOpen(true); setActive(-1); }}>
-                            Найти
+                        <Button className="!h-14 !w-11 !px-0 sm:!w-auto sm:!px-4" ariaLabel="Найти" title="Найти адрес или заведение"
+                            disabled={disabled || resolving || !searchEnabled || !value.text.trim()} onClick={() => { setOpen(true); setActive(-1); }}>
+                            <svg className="sm:hidden" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                                <circle cx="10.5" cy="10.5" r="6.5" /><path d="m16 16 5 5" />
+                            </svg>
+                            <span className="hidden sm:inline">Найти</span>
+                        </Button>
+                        <Button className="!h-14 !w-11 !px-0 sm:!w-auto sm:!px-4"
+                            ariaLabel={locating ? "Определяем местоположение…" : "Моё местоположение"} title="Моё местоположение"
+                            disabled={disabled || locating || resolving || !config.data?.api_key} onClick={() => void locate()}>
+                            <svg className="sm:hidden" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                                <circle cx="12" cy="12" r="7" /><circle cx="12" cy="12" r="2" />
+                                <path d="M12 2v3m0 14v3M2 12h3m14 0h3" />
+                            </svg>
+                            <span className="hidden sm:inline">{locating ? "Определяем…" : "Моё местоположение"}</span>
                         </Button>
                     </div>
                 </FormField>
@@ -188,14 +204,11 @@ export const EventLocationField = ({ value, disabled, onChange }: Props) => {
                     </ul>
                 )}
             </div>
-            <Button disabled={disabled || locating || resolving || !config.data?.api_key} onClick={() => void locate()}>
-                {locating ? "Определяем местоположение…" : "Моё местоположение"}
-            </Button>
             <p className="text-small text-textsecondary">
-                Можно просто указать адрес строкой и сохранить событие. Карта и подсказки необязательны.
+                Можно сохранить адрес или описание места текстом. Без выбранной точки город и координаты не определяются.
             </p>
             <p className="text-small text-textsecondary">
-                {userPoint ? "Приоритет — места рядом с вами." : selectedPoint ? "Приоритет — места рядом с выбранной точкой." : "Для поиска поблизости нажмите «Моё местоположение». Пока поиск учитывает указанный город."}
+                {userPoint ? "Приоритет — места рядом с вами." : selectedPoint ? "Приоритет — места рядом с выбранной точкой." : profileCity ? "Поиск учитывает город профиля. Для поиска рядом нажмите «Моё местоположение»." : "Для поиска поблизости нажмите «Моё местоположение»."}
             </p>
             <div role="status" className="text-small text-textsecondary">
                 {locating ? "Разрешите доступ к местоположению, если браузер запросит его." : resolving ? "Определяем адрес…" : canSuggest && !current ? "Ищем адреса…" : canSuggest && current && !items.length && !current.error ? "Подсказок нет. Уточните адрес или выберите точку на карте." : ""}
@@ -204,8 +217,8 @@ export const EventLocationField = ({ value, disabled, onChange }: Props) => {
             {config.data?.api_key ? (
                 <YandexMap
                     apiKey={config.data.api_key}
-                    latitude={value.latitude}
-                    longitude={value.longitude}
+                    latitude={latitude}
+                    longitude={longitude}
                     onPointChange={disabled ? undefined : (point) => void resolve(undefined, point)}
                 />
             ) : (
@@ -214,7 +227,7 @@ export const EventLocationField = ({ value, disabled, onChange }: Props) => {
                 </p>
             )}
             {config.data?.api_key && !searchEnabled && <p className="text-small text-textsecondary">Подсказки адресов пока недоступны. Место можно выбрать на карте.</p>}
-            {locationCoordinates(value.latitude, value.longitude) && (
+            {point && (
                 <span className="text-small text-textsecondary">Место выбрано. Метку можно переместить, чтобы уточнить вход.</span>
             )}
         </div>

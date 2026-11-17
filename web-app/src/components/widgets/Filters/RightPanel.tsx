@@ -1,10 +1,19 @@
-import { useState, type ReactNode } from "react";
+import { useId, useState, useSyncExternalStore, type ReactNode } from "react";
 import { AccordionFilter } from "./AccordionFilter";
 import { Button, FormField, Input, Notice, Toggle } from "../../ui";
 import type { FeedFilters } from "../../../hooks";
 import { useAsync } from "../../../hooks";
 import { errorText, listTags } from "../../../api";
 import { tagColorStyle } from "../../../utils/tags";
+
+const MOBILE_FILTERS_QUERY = "(width < 64rem)";
+function subscribeMobileFilters(onChange: () => void) {
+    const query = window.matchMedia(MOBILE_FILTERS_QUERY);
+    query.addEventListener("change", onChange);
+    return () => query.removeEventListener("change", onChange);
+}
+const mobileFiltersSnapshot = () => window.matchMedia(MOBILE_FILTERS_QUERY).matches;
+const desktopFiltersSnapshot = () => false;
 
 interface RightPanelProps {
     filters: FeedFilters;
@@ -25,6 +34,10 @@ export const RightPanel = ({
 }: RightPanelProps) => {
     const catalog = useAsync(listTags, "filter-tag-catalog");
     const [tagSearch, setTagSearch] = useState("");
+    const [mobileOpen, setMobileOpen] = useState(false);
+    const mobile = useSyncExternalStore(subscribeMobileFilters, mobileFiltersSnapshot, desktopFiltersSnapshot);
+    const expanded = !mobile || mobileOpen;
+    const contentId = useId();
     const query = tagSearch.trim().toLocaleLowerCase("ru");
     const categories = (catalog.data ?? []).map((category) => ({
         ...category,
@@ -34,22 +47,45 @@ export const RightPanel = ({
     <div className="flex w-full flex-col gap-[10px] max-lg:order-first lg:w-[300px] lg:shrink-0">
         {children}
 
-        <aside className="flex h-fit w-full flex-col gap-[10px] rounded-lg bg-background p-[10px]">
-            <div className="mb-2 flex items-center justify-between px-2">
-                <h3 className="text-h3 text-textthird">Фильтры</h3>
+        <aside className="flex h-fit w-full flex-col rounded-lg bg-background p-0 lg:p-[10px]">
+            {mobile ? (
+                <h3>
+                    <button type="button" onClick={() => setMobileOpen((value) => !value)}
+                        aria-expanded={expanded} aria-controls={contentId}
+                        aria-label={expanded ? "Свернуть фильтры" : "Развернуть фильтры"}
+                        className="flex min-h-10 w-full cursor-pointer items-center justify-between gap-2 rounded-lg px-3 py-2 text-h3 text-textthird focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-borderfocus">
+                        <span>Фильтры{activeCount > 0 && ` (${activeCount})`}</span>
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true"
+                            className={`shrink-0 transition-transform duration-300 ease-in-out motion-reduce:transition-none ${expanded ? "rotate-180" : "rotate-0"}`}>
+                            <path d="m6 9 6 6 6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                    </button>
+                </h3>
+            ) : (
+            <div className="flex flex-wrap items-center justify-between gap-2 px-2">
+                <h3 className="text-h3 text-textthird">Фильтры{activeCount > 0 && ` (${activeCount})`}</h3>
                 {activeCount > 0 && (
                     <button onClick={onClear} className="cursor-pointer text-small text-textsecondary transition hover:text-primary">
                         Сбросить все
                     </button>
                 )}
             </div>
+            )}
 
+            <div id={contentId} aria-hidden={!expanded} inert={!expanded}
+                className={`grid transition-[grid-template-rows,opacity,padding-top] duration-300 ease-in-out motion-reduce:transition-none ${expanded ? "grid-rows-[1fr] pt-3 opacity-100" : "grid-rows-[0fr] pt-0 opacity-0"}`}>
+                <div className="min-h-0 overflow-hidden">
+                <div className="flex flex-col gap-[10px] px-[10px] pb-[10px] lg:px-0 lg:pb-0">
+                    {mobile && activeCount > 0 && <button type="button" onClick={onClear}
+                        className="self-end cursor-pointer text-small text-textsecondary transition hover:text-primary">
+                        Сбросить все
+                    </button>}
             <AccordionFilter title="Даты" activeCount={Number(Boolean(filters.from)) + Number(Boolean(filters.to))}>
                 <FormField label="С" htmlFor="filter-from">
-                    <Input id="filter-from" type="date" value={filters.from} onChange={(from) => onChange({ from })} />
+                    <Input variant="compact" id="filter-from" type="date" value={filters.from} onChange={(from) => onChange({ from })} />
                 </FormField>
                 <FormField label="По" htmlFor="filter-to">
-                    <Input id="filter-to" type="date" value={filters.to} min={filters.from || undefined} onChange={(to) => onChange({ to })} />
+                    <Input variant="compact" id="filter-to" type="date" value={filters.to} min={filters.from || undefined} onChange={(to) => onChange({ to })} />
                 </FormField>
             </AccordionFilter>
 
@@ -110,6 +146,9 @@ export const RightPanel = ({
                     onChange={(withFriends) => onChange({ withFriends })}
                 />
             </AccordionFilter>
+                </div>
+                </div>
+            </div>
         </aside>
     </div>
     );

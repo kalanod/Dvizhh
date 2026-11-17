@@ -7,10 +7,11 @@ from urllib.error import HTTPError, URLError
 import httpx
 import pytest
 
-from dvizh_backend.dto.account import AccountRequestContext, ChangePasswordCommand
+from dvizh_backend.api.dependencies import get_user_service
+from dvizh_backend.api.schemas.account import ChangePasswordCommand
 from dvizh_backend.main import app
+from dvizh_backend.services.account_context import AccountRequestContext
 from dvizh_backend.services.account_gateway import AccountCommandError, AccountGateway
-from dvizh_backend.services.dependencies import get_user_service
 from dvizh_backend.services.user_service import UserService
 
 

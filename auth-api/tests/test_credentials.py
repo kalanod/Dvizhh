@@ -10,19 +10,21 @@ from pydantic import ValidationError
 from sqlalchemy.engine import make_url
 from starlette.requests import Request
 
-from dvizh_auth.database import Database
-from dvizh_auth.dependencies import require_account_write
-from dvizh_auth.main import (
-    ChangePasswordRequest,
-    LoginRequest,
-    RegisterRequest,
-    UpdateAccountRequest,
+from dvizh_auth.api.dependencies import require_account_write
+from dvizh_auth.api.routers.auth import (
     change_password,
     current_account,
     login,
     register,
     update_current_account,
 )
+from dvizh_auth.api.schemas.account import (
+    ChangePasswordRequest,
+    LoginRequest,
+    RegisterRequest,
+    UpdateAccountRequest,
+)
+from dvizh_auth.database import Database
 
 
 def account_request(cookie: str = "", **headers: str) -> Request:

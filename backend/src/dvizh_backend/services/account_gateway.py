@@ -2,10 +2,15 @@
 
 import asyncio
 import json
+from typing import Literal
 from urllib.error import HTTPError, URLError
-from urllib.request import HTTPRedirectHandler, Request, build_opener
+from urllib.request import HTTPRedirectHandler, Request, build_opener, urlopen
+from uuid import UUID
 
-from ..dto.account import AccountRequestContext, ChangePasswordCommand
+from pydantic import BaseModel, ValidationError
+
+from dvizh_backend.api.schemas.account import ChangePasswordCommand
+from dvizh_backend.services.account_context import AccountRequestContext
 
 
 class AccountCommandError(Exception):
@@ -69,3 +74,23 @@ class AccountGateway:
             raise AccountCommandError(503, "Authentication service unavailable") from None
         except (URLError, TimeoutError, OSError):
             raise AccountCommandError(503, "Authentication service unavailable") from None
+
+
+class AdminAccount(BaseModel):
+    id: UUID
+    role: Literal["user", "admin"]
+
+
+def fetch_current_account(auth_url: str, token: str) -> AdminAccount:
+    request = Request(
+        f"{auth_url.rstrip('/')}/api/auth/me", headers={"Cookie": f"dvizh_access={token}"}
+    )
+    try:
+        with urlopen(request, timeout=5) as response:
+            return AdminAccount.model_validate_json(response.read(16384))
+    except HTTPError as exc:
+        if exc.code in (401, 403):
+            raise AccountCommandError(401, "Authentication required") from None
+        raise AccountCommandError(503, "Authentication service unavailable") from None
+    except (URLError, TimeoutError, OSError, ValidationError):
+        raise AccountCommandError(503, "Authentication service unavailable") from None
