@@ -7,6 +7,7 @@ from fastapi import APIRouter, Query, status
 from ..dto.event import (
     CreateEventDTO,
     EventDTO,
+    EventSort,
     JoinEventDTO,
     ParticipantDTO,
     ReviewParticipationDTO,
@@ -21,11 +22,11 @@ router = APIRouter(prefix="/api/events", tags=["events"])
     "",
     summary="Лента публичных событий.",
     description=(
-        "Возвращает только опубликованные события с видимостью PUBLIC, сортировка "
-        "«По новизне» (по времени публикации). Все фильтры необязательны и комбинируются "
-        "между собой. Если указан friends_of, среди подходящих под фильтры событий первыми "
-        "идут те, на которые идёт больше друзей пользователя; события без друзей остаются "
-        "в выдаче и идут после них."
+        "Возвращает только опубликованные события с видимостью PUBLIC. Сортировка задаётся "
+        "параметром sort, по умолчанию «По новизне». Все фильтры необязательны и комбинируются "
+        "между собой и с сортировкой. Если указан friends_of, среди подходящих под фильтры "
+        "событий первыми идут те, на которые идёт больше друзей пользователя; внутри этих "
+        "групп действует выбранная сортировка."
     ),
 )
 async def list_events(
@@ -61,6 +62,22 @@ async def list_events(
             )
         ),
     ] = None,
+    sort: Annotated[
+        EventSort,
+        Query(
+            description=(
+                "relevance — рекомендации по действиям viewer_id, novelty — новые, "
+                "title — по названию, distance — ближе к latitude/longitude "
+                "(без них — к точке из профиля viewer_id)."
+            )
+        ),
+    ] = "novelty",
+    latitude: Annotated[
+        float | None, Query(ge=-90, le=90, description="Широта точки для sort=distance.")
+    ] = None,
+    longitude: Annotated[
+        float | None, Query(ge=-180, le=180, description="Долгота точки для sort=distance.")
+    ] = None,
     offset: Annotated[
         int, Query(ge=0, description="Сколько событий пропустить (для пагинации).")
     ] = 0,
@@ -78,6 +95,9 @@ async def list_events(
         free_only=free_only,
         available_only=available_only,
         friends_of=friends_of,
+        sort=sort,
+        latitude=latitude,
+        longitude=longitude,
         offset=offset,
         limit=limit,
         viewer_id=viewer_id,

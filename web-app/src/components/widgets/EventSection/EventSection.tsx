@@ -1,10 +1,13 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { errorText, listEvents } from "../../../api";
 import { useAsync, useCurrentUser, useEventFilters } from "../../../hooks";
-import { Button, Input, Tag } from "../../ui";
+import type { EventSort } from "../../../models";
+import { currentCoordinates } from "../../../utils/geolocation";
+import { Button, Input, Notice, Tag } from "../../ui";
 import { CalendarPreview } from "../CalendarPreview";
 import { EventList } from "../EventList";
 import { RightPanel } from "../Filters";
+import { SortMenu } from "../SortMenu";
 
 const PAGE_SIZE = 20;
 
@@ -14,10 +17,15 @@ interface EventSectionProps {
 
 /** Лента событий: поиск, список и панель фильтров (BookSection шаблона). */
 export const EventSection = ({ title }: EventSectionProps) => {
-    const { userId } = useCurrentUser();
+    const { userId, user } = useCurrentUser();
     const { filters, setFilters, clearFilters, activeCount } = useEventFilters();
     const [searchValue, setSearchValue] = useState(filters.q);
     const [limit, setLimit] = useState(PAGE_SIZE);
+    // null — сортировка по умолчанию: «Рекомендуем» для вошедших, «Сначала новые» для гостей.
+    const [sort, setSort] = useState<EventSort | null>(null);
+    const [point, setPoint] = useState<{ latitude: number; longitude: number } | null>(null);
+    const [locationNotice, setLocationNotice] = useState<string | null>(null);
+    const selectedSort = sort ?? (userId ? "relevance" : "novelty");
 
     const query = {
         q: filters.q,
@@ -28,9 +36,51 @@ export const EventSection = ({ title }: EventSectionProps) => {
         availableOnly: filters.availableOnly,
         friendsOf: filters.withFriends && userId ? userId : undefined,
         viewerId: userId,
+        sort: selectedSort,
+        latitude: selectedSort === "distance" ? point?.latitude : undefined,
+        longitude: selectedSort === "distance" ? point?.longitude : undefined,
         limit,
     };
     const { data: events, error, loading } = useAsync((signal) => listEvents(query, signal), JSON.stringify(query));
+
+    const sortRequest = useRef(0);
+    const chooseSort = async (next: EventSort) => {
+        const request = ++sortRequest.current;
+        setLocationNotice(null);
+        if (next !== "distance") {
+            setLimit(PAGE_SIZE);
+            setSort(next);
+            return;
+        }
+        const hasProfilePoint = Boolean(user?.latitude && user.longitude);
+        if (hasProfilePoint) {
+            // Сразу сортируем от точки профиля, а геопозицию браузера ждём в фоне.
+            setPoint(null);
+            setLimit(PAGE_SIZE);
+            setSort("distance");
+            setLocationNotice("Показываем события рядом с точкой из профиля и уточняем геопозицию…");
+        } else {
+            setLocationNotice("Определяем местоположение…");
+        }
+        try {
+            const [longitude, latitude] = await currentCoordinates();
+            if (request !== sortRequest.current) return; // пока ждали, выбрали другую сортировку
+            setPoint({ latitude, longitude });
+            setLimit(PAGE_SIZE);
+            setSort("distance");
+            setLocationNotice(null);
+        } catch (error) {
+            if (request !== sortRequest.current) return;
+            // Причина от браузера: запрещён доступ, нет сигнала или истекло время.
+            const reason = error instanceof Error ? error.message : "Не удалось определить местоположение.";
+            setLocationNotice(
+                hasProfilePoint
+                    ? reason + " Показываем события рядом с точкой из профиля."
+                    // Сортировать «рядом» не с чем: оставляем прежнюю сортировку.
+                    : reason + (userId ? " Или укажите широту и долготу в профиле." : ""),
+            );
+        }
+    };
 
     const applyFilters = (patch: Parameters<typeof setFilters>[0]) => {
         setLimit(PAGE_SIZE);
@@ -90,6 +140,7 @@ export const EventSection = ({ title }: EventSectionProps) => {
                     onKeyDown={handleKeyDown}
                 />
             </div>
+            <SortMenu value={selectedSort} onChange={chooseSort} />
         </>
     );
 
@@ -110,6 +161,8 @@ export const EventSection = ({ title }: EventSectionProps) => {
                         </button>
                     </div>
                 )}
+
+                {locationNotice && <Notice tone="info">{locationNotice}</Notice>}
 
                 <EventList
                     title={title}

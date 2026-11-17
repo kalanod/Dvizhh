@@ -6,6 +6,7 @@ from fastapi.responses import JSONResponse
 from ..database.services.exceptions import (
     CapacityReachedError,
     EntityNotFoundError,
+    EventSortError,
     InvalidStateTransitionError,
     InvalidTagSelectionError,
     JoinUnavailableError,
@@ -31,6 +32,7 @@ from ..services.tag_service import CatalogConflictError
 
 STATUS_BY_ERROR: dict[type[Exception], int] = {
     SettingsInputError: 422,
+    EventSortError: 422,
     SettingsActionNotFoundError: 404,
     InvalidImageError: 415,
     CatalogConflictError: 409,

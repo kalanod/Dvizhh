@@ -1,6 +1,6 @@
 from datetime import datetime
 from decimal import Decimal
-from typing import Any, Self
+from typing import Any, Literal, Self
 from uuid import UUID
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -259,3 +259,7 @@ class ReviewParticipationDTO(BaseModel):
 class ParticipantDTO(BaseModel):
     user: UserSummaryDTO
     status: ParticipationStatus
+
+
+# Способ сортировки ленты GET /api/events.
+EventSort = Literal["relevance", "novelty", "title", "distance"]
