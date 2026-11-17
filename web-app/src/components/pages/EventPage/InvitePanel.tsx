@@ -36,7 +36,7 @@ export const InvitePanel = ({ event, userId, participants }: InvitePanelProps) =
             setFriend(null);
         }, "Приглашение отправлено.");
     };
-    const labels = { PENDING: "Ожидает ответа", ACCEPTED: "Принято", DECLINED: "Отклонено", REVOKED: "Отозвано", EXPIRED: "Срок истёк" };
+    const labels = { PENDING: "Ожидает ответа", ACCEPTED: "Принято", DECLINED: "Отклонено", REVOKED: "Отозвано", EXPIRED: "Закрыто" };
     return <div className="flex w-full flex-col gap-4 rounded-lg bg-cards-surface p-4">
         <h2 className="text-h2 text-textprimary">Пригласить друга</h2>
         <form onSubmit={(event) => { event.preventDefault(); invite(); }} className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-start">

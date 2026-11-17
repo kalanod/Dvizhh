@@ -47,7 +47,8 @@ export function FriendPicker({ userId, value, disabled, unavailable, onChange }:
                 } }} />}
             sx={{ fontFamily: "inherit", "& .MuiFilledInput-root": { backgroundColor: "white", borderRadius: "8px", border: `2px solid ${value ? "#25834b" : "var(--color-secondary)"}`, minHeight: 56, fontFamily: "inherit" },
                 "& .MuiFilledInput-root:hover, & .MuiFilledInput-root.Mui-focused": { backgroundColor: "white" },
-                "& .MuiInputLabel-root": { fontFamily: "inherit", color: "var(--color-textprimary)" } }}
+                "& .MuiFilledInput-root.Mui-focused": { borderColor: value ? "#25834b" : "var(--color-borderfocus)" },
+                "& .MuiInputLabel-root, & .MuiInputLabel-root.Mui-focused": { fontFamily: "inherit", color: "var(--color-textprimary)" } }}
         />
         {friends.error !== undefined && <Notice tone="error">{errorText(friends.error)} <Button onClick={() => { if (!open) setOpen(true); else friends.loadMore(true); }}>Повторить загрузку</Button></Notice>}
     </div>;

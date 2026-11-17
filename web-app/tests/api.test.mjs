@@ -917,13 +917,13 @@ test("lists cross the 100 record boundary with bounded pages", async (t) => {
     assert.deepEqual(calls.map(({ url }) => [url.searchParams.get("offset"), url.searchParams.get("limit")]), [["0", "100"], ["100", "40"], ["0", "100"], ["100", "40"]]);
 });
 
-test("invitation expiry, revocation, sent list and rejection reason follow the API contract", async (t) => {
+test("invitations without expiry, revocation, sent list and rejection reason follow the API contract", async (t) => {
     const calls = recordFetch(t, () => Response.json([]));
-    await api.inviteToEvent("event-1", { actor_id: "owner-1", invitee_id: "stranger-1", message: "Hello", expires_at: "2030-01-01T00:00:00Z" });
+    await api.inviteToEvent("event-1", { actor_id: "owner-1", invitee_id: "stranger-1", message: "Hello" });
     await personal.listEventInvitations("event-1", "owner-1", { offset: 100, limit: 20 });
     await personal.revokeInvitation("inv-1", "owner-1");
     await api.reviewParticipation("event-1", "user-1", "owner-1", false, "No places");
-    assert.equal(JSON.parse(calls[0].body).expires_at, "2030-01-01T00:00:00Z");
+    assert.equal(JSON.parse(calls[0].body).expires_at, undefined);
     assert.equal(calls[1].url.searchParams.get("actor_id"), "owner-1");
     assert.equal(calls[1].url.searchParams.get("offset"), "100");
     assert.equal(calls[2].options.method, "DELETE");
