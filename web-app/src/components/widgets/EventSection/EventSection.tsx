@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { errorText, listEvents } from "../../../api";
 import { useAsync, useCurrentUser, useEventFilters } from "../../../hooks";
 import type { EventSort } from "../../../models";
@@ -43,27 +43,43 @@ export const EventSection = ({ title }: EventSectionProps) => {
     };
     const { data: events, error, loading } = useAsync((signal) => listEvents(query, signal), JSON.stringify(query));
 
+    const sortRequest = useRef(0);
     const chooseSort = async (next: EventSort) => {
+        const request = ++sortRequest.current;
         setLocationNotice(null);
-        if (next === "distance") {
-            try {
-                const [longitude, latitude] = await currentCoordinates();
-                setPoint({ latitude, longitude });
-            } catch {
-                setPoint(null);
-                if (!user?.latitude || !user.longitude) {
-                    // Сортировать «рядом» не с чем: оставляем прежнюю сортировку.
-                    setLocationNotice(
-                        "Не удалось определить местоположение. Разрешите сайту доступ к геопозиции в настройках браузера"
-                            + (userId ? " или укажите широту и долготу в профиле." : "."),
-                    );
-                    return;
-                }
-                setLocationNotice("Не удалось определить местоположение — показываем события рядом с точкой из профиля.");
-            }
+        if (next !== "distance") {
+            setLimit(PAGE_SIZE);
+            setSort(next);
+            return;
         }
-        setLimit(PAGE_SIZE);
-        setSort(next);
+        const hasProfilePoint = Boolean(user?.latitude && user.longitude);
+        if (hasProfilePoint) {
+            // Сразу сортируем от точки профиля, а геопозицию браузера ждём в фоне.
+            setPoint(null);
+            setLimit(PAGE_SIZE);
+            setSort("distance");
+            setLocationNotice("Показываем события рядом с точкой из профиля и уточняем геопозицию…");
+        } else {
+            setLocationNotice("Определяем местоположение…");
+        }
+        try {
+            const [longitude, latitude] = await currentCoordinates();
+            if (request !== sortRequest.current) return; // пока ждали, выбрали другую сортировку
+            setPoint({ latitude, longitude });
+            setLimit(PAGE_SIZE);
+            setSort("distance");
+            setLocationNotice(null);
+        } catch (error) {
+            if (request !== sortRequest.current) return;
+            // Причина от браузера: запрещён доступ, нет сигнала или истекло время.
+            const reason = error instanceof Error ? error.message : "Не удалось определить местоположение.";
+            setLocationNotice(
+                hasProfilePoint
+                    ? reason + " Показываем события рядом с точкой из профиля."
+                    // Сортировать «рядом» не с чем: оставляем прежнюю сортировку.
+                    : reason + (userId ? " Или укажите широту и долготу в профиле." : ""),
+            );
+        }
     };
 
     const applyFilters = (patch: Parameters<typeof setFilters>[0]) => {
