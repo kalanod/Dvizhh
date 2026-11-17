@@ -1,46 +1,112 @@
-import { useState, type InputHTMLAttributes, type SelectHTMLAttributes, type TextareaHTMLAttributes } from "react";
+import { useContext, useId, useState, type DOMAttributes, type InputHTMLAttributes, type SelectHTMLAttributes, type TextareaHTMLAttributes } from "react";
+import TextField from "@mui/material/TextField";
+import Tooltip from "@mui/material/Tooltip";
+import { FieldContext } from "../FormField/context";
+import { useFieldValidation, type AsyncFieldValidator } from "../../../hooks/useFieldValidation";
 
-export type InputState = "default" | "error";
-
-const stateClassMap: Record<InputState, string> = {
-    default: "border-secondary bg-primary text-textprimary focus:border-borderfocus",
-    error: "border-bordererror bg-primary text-texterror",
-};
-
+export type InputState = "default" | "error" | "success";
+const stateClassMap = { default: "border-secondary bg-primary text-textprimary" };
 const baseClass = "w-full rounded-lg border-2 px-4 text-body outline-none transition-all disabled:opacity-50";
 
-interface InputProps extends Omit<InputHTMLAttributes<HTMLInputElement>, "onChange" | "value"> {
+type ValidationProps = {
     state?: InputState;
+    errorMessage?: string;
+    validate?: (value: string) => string | null;
+    validateAsync?: AsyncFieldValidator;
+    successMessage?: string;
+    variant?: "floating" | "compact";
+};
+interface InputProps extends Omit<InputHTMLAttributes<HTMLInputElement>, "onChange" | "value">, ValidationProps {
     value: string;
     onChange: (value: string) => void;
-    errorMessage?: string;
 }
 
-export const Input = ({ state = "default", value, onChange, className = "", errorMessage, type = "text", ...rest }: InputProps) => {
-    const [revealed, setRevealed] = useState(false);
-    const isPassword = type === "password";
+export const Input = (props: InputProps) => <TextControl {...props} />;
 
-    return (
-        <div className="flex w-full flex-col gap-1">
-            <div className="relative w-full">
-                <input
-                    {...rest}
-                    type={isPassword && revealed ? "text" : type}
-                    value={value}
-                    onChange={(e) => onChange(e.target.value)}
-                    onBlur={(e) => {
-                        setRevealed(false);
-                        rest.onBlur?.(e);
-                    }}
-                    aria-invalid={state === "error"}
-                    className={`h-[41px] py-2 ${baseClass} ${stateClassMap[state]} ${isPassword ? "pr-11" : ""} ${className}`}
-                />
-                {isPassword && <PasswordPeek revealed={revealed} onReveal={setRevealed} disabled={rest.disabled} />}
-            </div>
-            {state === "error" && errorMessage && <span className="text-small text-texterror">{errorMessage}</span>}
-        </div>
-    );
+interface TextareaProps extends Omit<TextareaHTMLAttributes<HTMLTextAreaElement>, "onChange" | "value">, ValidationProps {
+    value: string;
+    onChange: (value: string) => void;
+}
+export const Textarea = (props: TextareaProps) => <TextControl {...props} multiline />;
+
+type ControlProps = Omit<InputProps, keyof DOMAttributes<HTMLInputElement>> & Omit<DOMAttributes<HTMLInputElement | HTMLTextAreaElement>, "onChange"> & {
+    onChange: (value: string) => void;
+    multiline?: boolean;
+    rows?: number;
 };
+function TextControl({ state = "default", value, onChange, className = "", errorMessage,
+    type = "text", variant, validate, validateAsync, successMessage, multiline, rows = 4, onFocus, onBlur, ...rest }: ControlProps) {
+    const field = useContext(FieldContext);
+    const context = field && (!field.htmlFor || rest.id === field.htmlFor) ? field : null;
+    const floating = (variant ?? (context ? "floating" : "compact")) === "floating";
+    const [revealed, setRevealed] = useState(false);
+    const [focused, setFocused] = useState(false);
+    const [touched, setTouched] = useState(false);
+    const statusId = useId();
+    const required = rest.required ?? context?.required;
+    const isPassword = type === "password";
+    const localError = fieldError(value, { ...rest, type, required }, validate);
+    const remote = useFieldValidation(value, !!value && !localError && !rest.disabled && !rest.readOnly, validateAsync);
+    const error = state === "error" ? errorMessage || "Проверьте значение." : (value || touched) ? localError || remote.error : null;
+    const success = !error && !!value && !remote.pending && !remote.unavailable && state !== "error" && (floating || state === "success");
+    const status = error ? "error" : remote.pending ? "pending" : remote.unavailable ? "unavailable" : success ? "success" : "default";
+    const message = error || (remote.pending ? "Проверяем…" : remote.unavailable ? "Не удалось проверить. Проверим при сохранении." : successMessage && success ? successMessage : context?.hint);
+    const temporal = ["date", "datetime-local", "time", "month", "week"].includes(type);
+    const color = error ? "var(--color-bordererror)" : success ? "#25834b" : remote.pending ? "var(--color-borderfocus)" : "var(--color-secondary)";
+    const label = context?.label ?? rest["aria-label"] ?? rest.placeholder;
+    return <Tooltip title={message || ""} placement="top-start" arrow open={focused && !!message} onClose={() => setFocused(false)} disableHoverListener disableTouchListener>
+        <div className={`dvizh-text-control relative w-full ${floating ? "dvizh-floating" : ""} ${className}`} data-validation={status}>
+            <TextField
+                id={rest.id} name={rest.name} type={isPassword && revealed ? "text" : type}
+                value={value} onChange={(event) => onChange(event.target.value)}
+                onFocus={(event) => { setFocused(true); onFocus?.(event); }}
+                onBlur={(event) => { setFocused(false); setTouched(true); setRevealed(false); onBlur?.(event); }}
+                label={floating ? label : undefined} placeholder={floating ? undefined : rest.placeholder ?? label}
+                variant="filled" fullWidth hiddenLabel={!floating} size={floating ? "medium" : "small"}
+                multiline={multiline} rows={multiline ? rows : undefined} required={required} disabled={rest.disabled}
+                error={!!error}
+                inputRef={(node: HTMLInputElement | HTMLTextAreaElement | null) => node?.setCustomValidity(error || "")}
+                slotProps={{
+                    htmlInput: { ...rest, required, "aria-label": rest["aria-label"] ?? label, "aria-invalid": !!error, "aria-describedby": [rest["aria-describedby"], statusId].filter(Boolean).join(" ") },
+                    inputLabel: { shrink: floating && temporal ? true : undefined },
+                    input: { disableUnderline: true },
+                }}
+                sx={{
+                    fontFamily: "inherit",
+                    "& .MuiFilledInput-root": { fontFamily: "inherit", fontSize: "16px", color: "var(--color-textprimary)", backgroundColor: "var(--color-primary)", border: `2px solid ${color}`, borderRadius: "8px", transition: "border-color 180ms, box-shadow 180ms", overflow: "hidden", minHeight: floating ? "56px" : "41px", paddingRight: isPassword ? "36px" : undefined },
+                    "& .MuiFilledInput-root:hover": { backgroundColor: "var(--color-primary)" },
+                    "& .MuiFilledInput-root.Mui-focused": { backgroundColor: "var(--color-primary)", borderColor: error || success ? color : "var(--color-borderfocus)", boxShadow: `0 0 0 2px color-mix(in srgb, ${color} 12%, transparent)` },
+                    "& .MuiInputLabel-root": { fontFamily: "inherit", color: error ? "var(--color-texterror)" : "var(--color-textprimary)", maxWidth: isPassword ? "calc(100% - 52px)" : "calc(100% - 24px)" },
+                    "& .MuiInputLabel-root.Mui-focused": { color: error ? "var(--color-texterror)" : "var(--color-textprimary)" },
+                    "& .MuiInputBase-input": { minWidth: 0 },
+                    "& .MuiInputBase-input::placeholder": { color: "var(--color-textsecondary)", opacity: 1 },
+                    "& .MuiFilledInput-root:not(.MuiInputBase-multiline)": { height: floating ? "56px" : "41px" },
+                    "& .MuiInputBase-input:not(textarea)": { boxSizing: "border-box", height: "100%", padding: floating ? "23px 12px 6px" : "8px 12px" },
+                }}
+            />
+            {isPassword && <PasswordPeek revealed={revealed} onReveal={setRevealed} disabled={rest.disabled} />}
+            <span id={statusId} className="sr-only" role="status" aria-live="polite">{message}</span>
+        </div>
+    </Tooltip>;
+}
+
+function fieldError(value: string, props: Pick<InputProps, "type" | "required" | "minLength" | "maxLength" | "pattern" | "min" | "max" | "step">, validate?: (value: string) => string | null): string | null {
+    if (!value) return props.required ? "Заполните поле." : null;
+    if (props.required && props.type !== "password" && !value.trim()) return "Заполните поле.";
+    if (props.minLength && value.length < props.minLength) return `Минимум ${props.minLength} символов.`;
+    if (props.maxLength && value.length > props.maxLength) return `Максимум ${props.maxLength} символов.`;
+    if (props.pattern && !new RegExp(`^(?:${props.pattern})$`, "v").test(value)) return "Проверьте формат значения.";
+    // The browser remains the source of truth for native email, URL and number constraints.
+    if (typeof document !== "undefined") {
+        const input = document.createElement("input");
+        for (const key of ["type", "min", "max", "step"] as const) {
+            if (props[key] !== undefined) input.setAttribute(key, String(props[key]));
+        }
+        input.value = value;
+        if (!input.validity.valid) return input.validationMessage || "Проверьте формат значения.";
+    }
+    return validate?.(value) ?? null;
+}
 
 interface PasswordPeekProps {
     revealed: boolean;
@@ -92,21 +158,6 @@ const PasswordPeek = ({ revealed, onReveal, disabled }: PasswordPeekProps) => {
         </button>
     );
 };
-
-interface TextareaProps extends Omit<TextareaHTMLAttributes<HTMLTextAreaElement>, "onChange" | "value"> {
-    value: string;
-    onChange: (value: string) => void;
-}
-
-export const Textarea = ({ value, onChange, className = "", rows = 4, ...rest }: TextareaProps) => (
-    <textarea
-        {...rest}
-        rows={rows}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className={`resize-y py-2 ${baseClass} ${stateClassMap.default} ${className}`}
-    />
-);
 
 interface SelectProps<T extends string> extends Omit<SelectHTMLAttributes<HTMLSelectElement>, "onChange" | "value"> {
     value: T;

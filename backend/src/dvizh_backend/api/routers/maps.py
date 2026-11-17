@@ -1,11 +1,31 @@
 from typing import Annotated
+from uuid import UUID
 
-from fastapi import APIRouter, Query, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 
-from dvizh_backend.api.dependencies import MapsServiceDep
+from dvizh_backend.api.dependencies import (
+    MapsServiceDep,
+    get_discovery_viewer,
+    get_timezone_service,
+)
 from dvizh_backend.api.schemas.maps import MapClientError
+from dvizh_backend.api.schemas.timezone import EventTimezoneRequest, EventTimezoneResponse
+from dvizh_backend.services.event_timezone_service import EventTimezoneService
 
 router = APIRouter(prefix="/api/maps", tags=["maps"])
+
+
+@router.post("/timezone", summary="Определить часовой пояс мероприятия.")
+async def event_timezone(
+    body: EventTimezoneRequest,
+    response: Response,
+    viewer_id: Annotated[UUID | None, Depends(get_discovery_viewer)],
+    service: Annotated[EventTimezoneService, Depends(get_timezone_service)],
+) -> EventTimezoneResponse:
+    if body.user_id is not None and body.user_id != viewer_id:
+        raise HTTPException(403, "Viewer must match the authenticated account")
+    response.headers["Cache-Control"] = "no-store"
+    return await service.resolve(body.model_copy(update={"user_id": viewer_id}))
 
 
 @router.post("/client-error", status_code=204, summary="Ошибка карты из браузера в логи backend.")

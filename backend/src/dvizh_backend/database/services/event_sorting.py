@@ -30,7 +30,6 @@ from ..models import (
     EventParticipation,
     EventTag,
     Location,
-    Profile,
 )
 from ..models.enums import InteractionType, ParticipationStatus
 from .exceptions import EventSortError
@@ -171,17 +170,10 @@ class DistanceSorting(EventSorting):
             return context.latitude, context.longitude
         if context.latitude is not None or context.longitude is not None:
             raise EventSortError("Передайте latitude и longitude вместе.")
-        profile = (
-            await context.session.get(Profile, context.viewer_id)
-            if context.viewer_id is not None
-            else None
+        raise EventSortError(
+            "Чтобы показать события рядом, разрешите доступ к геопозиции "
+            "или укажите определяемый город в профиле."
         )
-        if profile is None or profile.latitude is None or profile.longitude is None:
-            raise EventSortError(
-                "Чтобы показать события рядом, разрешите доступ к геопозиции "
-                "или укажите широту и долготу в профиле."
-            )
-        return float(profile.latitude), float(profile.longitude)
 
 
 class RelevanceSorting(EventSorting):

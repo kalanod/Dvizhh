@@ -17,8 +17,6 @@ export interface Profile {
     avatar_media_id: string | null;
     avatar_url: string | null;
     city: string | null;
-    latitude: string | null;
-    longitude: string | null;
     status: ProfileStatus;
     created_at: string;
     updated_at: string;
@@ -29,14 +27,12 @@ export interface CreateUserInput {
     id?: string;
     username: string;
     display_name: string;
-    bio: string | null;
-    city: string | null;
+    bio?: string | null;
+    city?: string | null;
 }
 
 /** Тело PATCH /api/users/{id}: пропущенные поля не меняются, null очищает необязательное поле. */
 export interface UpdateProfileInput {
-    latitude?: string | null;
-    longitude?: string | null;
     username?: string;
     display_name?: string;
     bio?: string | null;

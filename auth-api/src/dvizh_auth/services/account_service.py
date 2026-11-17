@@ -41,6 +41,9 @@ class AccountService:
     def __init__(self, session: AsyncSession) -> None:
         self.accounts = AccountRepository(session)
 
+    async def username_available(self, username: str) -> bool:
+        return not await self.accounts.username_exists(username)
+
     async def authenticate(self, login: str, password: str) -> Account | None:
         account = await self.accounts.find(login.strip().lower())
         stored_hash = account.password_hash if account is not None else dummy_password_hash

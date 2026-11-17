@@ -74,12 +74,28 @@ class DiscoveryRequest(DiscoveryModel):
     include_map: bool = True
 
 
+class DiscoveryBootstrapRequest(DiscoveryModel):
+    filters: DiscoveryFilters = Field(default_factory=DiscoveryFilters)
+    origin: MapPoint
+
+
+class DiscoveryAnchor(DiscoveryModel):
+    event_id: UUID
+    point: MapPoint
+
+
+class DiscoveryBootstrapResponse(DiscoveryModel):
+    nearest: DiscoveryAnchor | None
+
+
 class MapItem(DiscoveryModel):
     id: str
     type: Literal["event", "cluster"]
     longitude: float
     latitude: float
     count: int = Field(ge=1)
+    state: Literal["default", "going", "organizer", "favorite"] = "default"
+    title: str | None = None
     event_id: UUID | None = None
     selection_token: str | None = None
     bounds: MapBounds

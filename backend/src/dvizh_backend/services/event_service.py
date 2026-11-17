@@ -20,6 +20,7 @@ from dvizh_backend.api.schemas.invitation import (
     InvitationCardDTO,
     InvitationDTO,
 )
+from dvizh_backend.config import get_settings
 from dvizh_backend.database.models import Event, EventInvitation, EventOccurrence, Profile
 from dvizh_backend.database.models.enums import EventOrigin, EventStatus, ProfileStatus
 from dvizh_backend.database.services.access import can_manage_event
@@ -34,6 +35,7 @@ from dvizh_backend.database.services.exceptions import (
 )
 from dvizh_backend.database.services.participation import ParticipationService
 from dvizh_backend.services.event_presenter import EventPresenter
+from dvizh_backend.services.place_geocoding import ProfileCityGeocoder
 
 from .errors import UserInactiveError, UserNotFoundError
 from .notification_service import NotificationService
@@ -46,7 +48,8 @@ class EventService:
     occurrence, and participation is addressed through the earliest occurrence.
     """
 
-    def __init__(self, session: AsyncSession) -> None:
+    def __init__(self, session: AsyncSession, cities: ProfileCityGeocoder | None = None) -> None:
+        self.cities = cities or ProfileCityGeocoder.from_settings(get_settings())
         self.events = EventCRUDService(session)
         self.queries = EventQueryService(session)
         self.presenter = EventPresenter(self.queries)
@@ -77,6 +80,11 @@ class EventService:
     ) -> list[EventDTO]:
         if viewer_id is not None:
             await self._require_active_profile(viewer_id)
+        if sort == "distance" and latitude is None and longitude is None and viewer_id:
+            profile = await self.profiles.get(viewer_id)
+            city = await self.cities.coordinates(profile.city) if profile and profile.city else None
+            if city:
+                latitude, longitude = city[0].latitude, city[0].longitude
         rows = await self.queries.list_public(
             text_query=text_query.strip() if text_query and text_query.strip() else None,
             tag_id=tag_id,
@@ -149,7 +157,6 @@ class EventService:
             inviter_user_id=data.actor_id,
             invitee_user_id=data.invitee_id,
             message=data.message,
-            expires_at=data.expires_at,
         )
         return InvitationDTO.model_validate(invitation)
 
@@ -184,7 +191,14 @@ class EventService:
             .offset(offset)
             .limit(limit)
         )
-        return [InvitationDTO.model_validate(item) for item in items]
+        invitations = list(items)
+        profiles = await self.profiles.list_active_by_ids(
+            [item.invitee_user_id for item in invitations]
+        )
+        names = {profile.id: profile.display_name for profile in profiles}
+        return [InvitationDTO.model_validate(item).model_copy(update={
+            "invitee_name": names.get(item.invitee_user_id),
+        }) for item in invitations]
 
     async def respond_to_invitation(
         self, invitation_id: UUID, user_id: UUID, *, accept: bool

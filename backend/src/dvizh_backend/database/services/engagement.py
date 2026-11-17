@@ -2,7 +2,7 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import delete, func, or_, select
+from sqlalchemy import delete, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -131,12 +131,9 @@ class InvitationService:
         inviter_user_id: UUID,
         invitee_user_id: UUID,
         message: str | None = None,
-        expires_at: datetime | None = None,
     ) -> EventInvitation:
         if inviter_user_id == invitee_user_id:
             raise InvalidStateTransitionError("Cannot invite yourself")
-        if expires_at is not None and expires_at <= datetime.now(UTC):
-            raise InvalidStateTransitionError("Invitation expiry must be in the future")
         row = (
             await self.session.execute(
                 select(EventOccurrence).where(EventOccurrence.id == occurrence_id).with_for_update()
@@ -171,20 +168,16 @@ class InvitationService:
                 inviter_user_id=inviter_user_id,
                 invitee_user_id=invitee_user_id,
                 message=message,
-                expires_at=expires_at,
             )
             self.session.add(invitation)
         else:
             if invitation.status == InvitationStatus.ACCEPTED:
                 raise InvalidStateTransitionError("Invitation has already been accepted")
-            if invitation.status == InvitationStatus.PENDING and (
-                invitation.expires_at is None or invitation.expires_at > datetime.now(UTC)
-            ):
+            if invitation.status == InvitationStatus.PENDING:
                 return invitation
             invitation.inviter_user_id = inviter_user_id
             invitation.status = InvitationStatus.PENDING
             invitation.message = message
-            invitation.expires_at = expires_at
             invitation.responded_at = None
 
         await self.session.flush()
@@ -201,9 +194,7 @@ class InvitationService:
             raise PermissionDeniedError("Invitation belongs to another user")
         if invitation.status == InvitationStatus.DECLINED:
             return invitation
-        if invitation.status != InvitationStatus.PENDING or (
-            invitation.expires_at is not None and invitation.expires_at <= datetime.now(UTC)
-        ):
+        if invitation.status != InvitationStatus.PENDING:
             raise InvalidStateTransitionError("Invitation is no longer pending")
 
         invitation.status = InvitationStatus.DECLINED
@@ -222,7 +213,6 @@ class InvitationService:
             .where(
                 EventInvitation.invitee_user_id == user_id,
                 EventInvitation.status == InvitationStatus.PENDING,
-                or_(EventInvitation.expires_at.is_(None), EventInvitation.expires_at > func.now()),
                 Event.deleted_at.is_(None),
                 Event.status == EventStatus.PUBLISHED,
                 EventOccurrence.status == OccurrenceStatus.SCHEDULED,

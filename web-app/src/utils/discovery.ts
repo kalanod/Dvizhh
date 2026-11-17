@@ -65,6 +65,18 @@ export class DiscoveryCache {
 
 export const discoveryCache = new DiscoveryCache();
 
+export function discoveryEmptyText(inArea: boolean, selectedGroup: boolean, filtered: boolean): string {
+    if (selectedGroup) return filtered
+        ? "В выбранной группе нет событий, подходящих под выбранные фильтры."
+        : "В выбранной группе больше нет доступных событий.";
+    if (inArea) return filtered
+        ? "В этой области нет событий, подходящих под выбранные фильтры."
+        : "В этой области событий нет!";
+    return filtered
+        ? "Нет событий, подходящих под выбранные фильтры."
+        : "Сейчас нет доступных событий.";
+}
+
 export function mergeDiscoveryEvents(previous: DvizhEvent[], incoming: DvizhEvent[]) {
     const events = new Map(previous.map((event) => [event.id, event]));
     for (const event of incoming) events.set(event.id, event);

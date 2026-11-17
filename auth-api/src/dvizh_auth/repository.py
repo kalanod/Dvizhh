@@ -2,7 +2,7 @@
 
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import exists, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -19,6 +19,9 @@ class AccountRepository:
     async def find(self, identifier: str) -> Account | None:
         column = Account.email if "@" in identifier else Account.username
         return await self.session.scalar(select(Account).where(column == identifier))
+
+    async def username_exists(self, username: str) -> bool:
+        return bool(await self.session.scalar(select(exists().where(Account.username == username))))
 
     async def create(self, **fields: object) -> Account | None:
         statement = insert(Account).values(**fields).on_conflict_do_nothing().returning(Account)

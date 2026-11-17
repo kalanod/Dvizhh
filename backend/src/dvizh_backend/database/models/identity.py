@@ -1,5 +1,4 @@
 from datetime import datetime
-from decimal import Decimal
 from uuid import UUID
 
 from sqlalchemy import (
@@ -9,7 +8,6 @@ from sqlalchemy import (
     Enum,
     ForeignKey,
     Index,
-    Numeric,
     String,
     Text,
     func,
@@ -26,14 +24,6 @@ from .enums import FriendshipStatus, OrganizationRole, ProfileStatus
 class Profile(Base, TimestampMixin, SoftDeleteMixin):
     __tablename__ = "profiles"
     __table_args__ = (
-        CheckConstraint(
-            "latitude IS NULL OR latitude BETWEEN -90 AND 90",
-            name="latitude_range",
-        ),
-        CheckConstraint(
-            "longitude IS NULL OR longitude BETWEEN -180 AND 180",
-            name="longitude_range",
-        ),
         Index("ix_profiles_status_created_at", "status", "created_at"),
     )
 
@@ -51,8 +41,6 @@ class Profile(Base, TimestampMixin, SoftDeleteMixin):
         ),
     )
     city: Mapped[str | None] = mapped_column(String(120))
-    latitude: Mapped[Decimal | None] = mapped_column(Numeric(9, 6))
-    longitude: Mapped[Decimal | None] = mapped_column(Numeric(9, 6))
     status: Mapped[ProfileStatus] = mapped_column(
         Enum(ProfileStatus, name="profile_status"),
         nullable=False,

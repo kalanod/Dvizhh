@@ -1,9 +1,9 @@
 import { useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { errorText, normalizeUsername, registerProfile } from "../../../api";
+import { errorText, normalizeUsername, registerProfile, validateUsernameAvailability } from "../../../api";
 import { useCurrentUser } from "../../../hooks";
 import { AuthLayout } from "../../layouts";
-import { Button, FormField, Input, Notice, Textarea } from "../../ui";
+import { Button, FormField, Input, Notice } from "../../ui";
 
 const USERNAME_RE = /^[a-z0-9_]{3,50}$/;
 
@@ -11,8 +11,7 @@ export const RegistrationPage = () => {
     const navigate = useNavigate();
     const [searchParams] = useSearchParams();
     const { signIn } = useCurrentUser();
-    const [formData, setFormData] = useState({ username: "", displayName: "", city: "", bio: "" });
-    const [email, setEmail] = useState("");
+    const [formData, setFormData] = useState({ username: "", displayName: "" });
     const [password, setPassword] = useState("");
     const [confirmation, setConfirmation] = useState("");
     const [error, setError] = useState<string | null>(null);
@@ -38,10 +37,8 @@ export const RegistrationPage = () => {
         setSubmitting(true);
         setError(null);
         try {
-            const profile = await registerProfile({ username, email, password }, {
+            const profile = await registerProfile({ username, password }, {
                 display_name: formData.displayName.trim(),
-                city: formData.city.trim() || null,
-                bio: formData.bio.trim() || null,
             });
             signIn(profile);
             navigate(next && next !== "/" ? next : "/profile", { replace: true });
@@ -55,33 +52,6 @@ export const RegistrationPage = () => {
     return (
         <AuthLayout title="Регистрация">
             <form className="flex w-full flex-col items-start gap-2.5" onSubmit={handleSubmit}>
-                <FormField label="Почта" htmlFor="email" hint="Необязательно">
-                    <Input id="email" name="email" type="email" autoComplete="email"
-                        maxLength={254} placeholder="you@example.com" value={email} onChange={setEmail} />
-                </FormField>
-                <FormField label="Пароль" htmlFor="password" hint="От 8 до 128 символов" required>
-                    <Input id="password" name="password" type="password" autoComplete="new-password"
-                        required minLength={8} maxLength={128} value={password} onChange={setPassword} />
-                </FormField>
-                <FormField label="Повторите пароль" htmlFor="password-confirmation" required>
-                    <Input id="password-confirmation" name="password-confirmation" type="password"
-                        autoComplete="new-password" required minLength={8} maxLength={128}
-                        value={confirmation} onChange={setConfirmation} />
-                </FormField>
-                <FormField label="Никнейм" htmlFor="username" hint="Строчные латинские буквы, цифры и «_», от 3 символов" required>
-                    <Input
-                        id="username"
-                        name="username"
-                        required
-                        minLength={3}
-                        maxLength={50}
-                        placeholder="example"
-                        autoComplete="username"
-                        value={formData.username}
-                        state={usernameInvalid ? "error" : "default"}
-                        onChange={(value) => handleChange("username")(value.toLowerCase())}
-                    />
-                </FormField>
                 <FormField label="Имя" htmlFor="display-name" required>
                     <Input
                         id="display-name"
@@ -93,18 +63,32 @@ export const RegistrationPage = () => {
                         onChange={handleChange("displayName")}
                     />
                 </FormField>
-                <FormField label="Город" htmlFor="city">
+                <FormField label="Никнейм" htmlFor="username" hint="Строчные латинские буквы, цифры и «_», от 3 символов" required>
                     <Input
-                        id="city"
-                        placeholder="Санкт-Петербург"
-                        autoComplete="address-level2"
-                        maxLength={120}
-                        value={formData.city}
-                        onChange={handleChange("city")}
+                        id="username"
+                        name="username"
+                        required
+                        minLength={3}
+                        maxLength={50}
+                        pattern="[a-z0-9_]{3,50}"
+                        validateAsync={validateUsernameAvailability}
+                        successMessage="Никнейм свободен."
+                        placeholder="example"
+                        autoComplete="username"
+                        value={formData.username}
+                        state={usernameInvalid ? "error" : "default"}
+                        onChange={(value) => handleChange("username")(value.toLowerCase())}
                     />
                 </FormField>
-                <FormField label="О себе" htmlFor="bio">
-                    <Textarea id="bio" rows={3} maxLength={2000} value={formData.bio} onChange={handleChange("bio")} />
+                <FormField label="Пароль" htmlFor="password" hint="От 8 до 128 символов" required>
+                    <Input id="password" name="password" type="password" autoComplete="new-password"
+                        required minLength={8} maxLength={128} value={password} onChange={setPassword} />
+                </FormField>
+                <FormField label="Повторите пароль" htmlFor="password-confirmation" required>
+                    <Input id="password-confirmation" name="password-confirmation" type="password"
+                        autoComplete="new-password" required minLength={8} maxLength={128}
+                        validate={(value) => value === password ? null : "Пароли не совпадают."}
+                        value={confirmation} onChange={setConfirmation} />
                 </FormField>
 
                 {error && <Notice tone="error">{error}</Notice>}

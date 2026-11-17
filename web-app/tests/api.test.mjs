@@ -16,6 +16,7 @@ writeFileSync(join(output, "package.json"), '{"type":"commonjs"}');
 for (const name of [
     "components/ui/Button/Button",
     "components/pages/EventFormPage/formState",
+    "components/pages/EventFormPage/eventPlace",
     "api/paging",
     "api/client",
     "api/auth",
@@ -40,12 +41,17 @@ for (const name of [
     "api/maps",
     "api/discovery",
     "utils/discovery",
+    "utils/discoveryCamera",
+    "utils/mapMarkers",
     "utils/yandexMaps",
     "utils/geolocation",
     "components/widgets/SortMenu/SortMenu",
     "components/ui/Input/Input",
+    "components/ui/ImageViewer/ImageViewer",
+    "components/ui/FormField/context",
+    "hooks/useFieldValidation",
 ]) {
-    const extension = name.startsWith("components/") && !name.endsWith("formState") && !name.endsWith("settingsState") ? "tsx" : "ts";
+    const extension = name.startsWith("components/") && !["formState", "settingsState", "eventPlace", "context"].some((suffix) => name.endsWith(suffix)) ? "tsx" : "ts";
     const source = readFileSync(new URL(`../src/${name}.${extension}`, import.meta.url), "utf8");
     const { outputText } = ts.transpileModule(source, {
         fileName: `${name}.${extension}`,
@@ -76,11 +82,12 @@ const { mediaContentUrl, validateCoverFile } = require(join(output, "utils/media
 const { EventCoverMicro, EventCoverMain } = require(join(output, "components/widgets/EventCard/EventCoverMicro.js"));
 const { ApiError } = require(join(output, "api/client.js"));
 const maps = require(join(output, "api/maps.js"));
+const places = require(join(output, "components/pages/EventFormPage/eventPlace.js"));
 const { currentCoordinates } = require(join(output, "utils/geolocation.js"));
 const { SortMenu } = require(join(output, "components/widgets/SortMenu/SortMenu.js"));
 const { Input } = require(join(output, "components/ui/Input/Input.js"));
 const { locationCoordinates, loadYandexMaps, reportMapError } = require(join(output, "utils/yandexMaps.js"));
-const { emptyForm, formToInput, formFromEvent, validateForm } = require(join(output, "components/pages/EventFormPage/formState.js"));
+const { emptyForm, formToInput, formFromEvent, updateEventSchedule, validateForm } = require(join(output, "components/pages/EventFormPage/formState.js"));
 const originalWindow = globalThis.window;
 globalThis.window = { location: { origin: "http://localhost:8080" } };
 after(() => {
@@ -301,7 +308,7 @@ test("tag selection limits new choices and allows removing inactive tags", () =>
     const inactive = { ...tags[0], is_active: false };
     assert.deepEqual(toggleEventTag([inactive], inactive), []);
     assert.deepEqual(toggleEventTag([], inactive), []);
-    const form = { ...emptyForm(), title: "Meeting", startsAt: "2030-01-01T12:00", address: "Street", tags };
+    const form = { ...emptyForm(), title: "Meeting", startsAt: "2030-01-01T12:00", place: places.textPlace("Street"), tags };
     assert.match(validateForm(form), /пяти тематик/);
     const body = formToInput({ ...form, tags: [tags[0], tags[0], tags[1]] });
     assert.deepEqual(body.tag_ids, [tags[0].id, tags[1].id]);
@@ -353,12 +360,11 @@ test("geolocation denial, unavailable position and timeout produce readable erro
 
 test("venue selection preserves latitude and longitude across API, form and map", () => {
     const form = { ...emptyForm(), title: "Встреча", startsAt: "2026-12-01T18:00" };
-    assert.equal(form.latitude, "");
-    assert.equal(form.longitude, "");
+    assert.equal(places.placeCoordinates(form.place), null);
     assert.match(validateForm(form), /Укажите адрес/);
-    Object.assign(form, {
+    form.place = places.placeFromGeocode({
         latitude: "59.9390954", longitude: "30.3158682",
-        city: "Санкт-Петербург", address: "Невский проспект, 1", placeName: "Вход со двора",
+        city: "Санкт-Петербург", address_line: "Невский проспект, 1", name: "Вход со двора",
     });
     assert.equal(validateForm(form), null);
     const body = formToInput(form);
@@ -368,12 +374,12 @@ test("venue selection preserves latitude and longitude across API, form and map"
     });
     assert.deepEqual(locationCoordinates(body.location.latitude, body.location.longitude), [30.315868, 59.939095]);
     const restored = formFromEvent(body);
-    assert.equal(restored.address, form.address);
-    assert.equal(restored.latitude, body.location.latitude);
+    assert.deepEqual(places.placeToLocation(restored.place), body.location);
+    assert.equal(restored.place.text, "Вход со двора, Невский проспект, 1, Санкт-Петербург");
     form.format = "ONLINE";
     form.onlineUrl = "https://example.org/meet";
     assert.equal(formToInput(form).location, null);
-    assert.equal(formFromEvent(formToInput(form)).latitude, "");
+    assert.equal(places.placeCoordinates(formFromEvent(formToInput(form)).place), null);
     assert.equal(locationCoordinates("", ""), null);
     assert.equal(locationCoordinates("0", "0")[0], 0);
 });
@@ -381,7 +387,7 @@ test("venue selection preserves latitude and longitude across API, form and map"
 test("manual addresses remain valid without keys or when Yandex requests fail", async (t) => {
     const form = {
         ...emptyForm(), title: "Meeting", startsAt: "2026-12-01T18:00",
-        address: "  Main street, 10  ", city: "Test city",
+        place: places.textPlace("  Main street, 10  "),
     };
     const assertAddressOnly = () => {
         assert.equal(validateForm(form), null);
@@ -390,21 +396,22 @@ test("manual addresses remain valid without keys or when Yandex requests fail", 
         assert.equal(body.location.latitude, null);
         assert.equal(body.location.longitude, null);
         const restored = formFromEvent(body);
-        assert.equal(restored.address, "Main street, 10");
-        assert.equal(restored.latitude, "");
-        assert.equal(restored.longitude, "");
+        assert.equal(restored.place.text, "Main street, 10");
+        assert.equal(places.placeCoordinates(restored.place), null);
+        assert.equal(body.location.name, null);
+        assert.equal(body.location.city, null);
     };
     t.mock.method(globalThis, "fetch", async () => Response.json({ api_key: "", search_enabled: false }));
     assert.equal((await maps.getMapsConfig()).api_key, "");
     assertAddressOnly();
     t.mock.method(globalThis, "fetch", async () => Response.json({ detail: "Provider unavailable" }, { status: 503 }));
-    await assert.rejects(maps.suggestAddresses(form.address, form.city));
-    await assert.rejects(maps.geocodeAddress(form.address));
+    await assert.rejects(maps.suggestAddresses(form.place.text, "Test city"));
+    await assert.rejects(maps.geocodeAddress(form.place.text));
     assertAddressOnly();
     form.format = "HYBRID";
     form.onlineUrl = "https://example.org/live";
     assertAddressOnly();
-    form.address = "   ";
+    form.place = places.textPlace("   ");
     assert.notEqual(validateForm(form), null);
 });
 
@@ -425,6 +432,63 @@ test("address lookup sends the selected Yandex uri and abort signal", async (t) 
     assert.equal(urls[0].searchParams.get("latitude"), "59.93");
     assert.equal(urls[1].pathname, "/api/maps/geocode");
     assert.equal(urls[1].searchParams.get("uri"), "ymapsbm1://geo?data=a&b=c");
+});
+
+test("free-form venue descriptions never invent city, name or coordinates", () => {
+    const selected = places.placeFromGeocode({
+        name: "Cafe", address_line: "Tokyo, Shibuya 1", city: "Tokyo",
+        latitude: "35.6591", longitude: "139.7006",
+    });
+    assert.equal(selected.text, "Cafe, Tokyo, Shibuya 1");
+    const changed = places.textPlace("  У входа в парк, рядом с кафе  ");
+    assert.deepEqual(places.placeToLocation(changed), {
+        name: null, city: null, address_line: "У входа в парк, рядом с кафе",
+        latitude: null, longitude: null,
+    });
+    assert.equal(places.placeCoordinates(changed), null);
+    assert.equal(places.placeContextUnchanged(changed, selected), false);
+    assert.equal(places.placeToLocation(places.textPlace("59.9, 30.3")).latitude, null);
+    assert.deepEqual(places.placeToLocation(places.pointPlace([30.315868, 59.939095])), {
+        name: null, city: null, address_line: null, latitude: "59.939095", longitude: "30.315868",
+    });
+});
+
+test("unchanged stored venue keeps metadata and instant; resolved timezone changes wall-clock conversion only on edit", () => {
+    const form = { ...emptyForm(), title: "Meet", startsAt: "2030-01-01T10:00", endsAt: "2030-01-01T11:00",
+        timezone: "Asia/Tokyo", place: places.placeFromGeocode({ name: "Cafe", city: "Tokyo",
+            address_line: "Tokyo, Shibuya 1", latitude: "35.6591", longitude: "139.7006" }) };
+    const original = formToInput(form);
+    const restored = formFromEvent(original);
+    assert.equal(places.placeContextUnchanged(restored.place, places.placeFromLocation(original.location)), true);
+    assert.deepEqual(formToInput(restored).location, original.location);
+    assert.equal(formToInput(restored).starts_at, "2030-01-01T01:00:00.000Z");
+    assert.equal(formToInput(restored).timezone, "Asia/Tokyo");
+    const moved = formToInput(restored, "Europe/Moscow");
+    assert.equal(restored.startsAt, "2030-01-01T10:00");
+    assert.equal(moved.starts_at, "2030-01-01T07:00:00.000Z");
+    assert.equal(moved.timezone, "Europe/Moscow");
+    assert.equal(moved.ends_at, "2030-01-01T08:00:00.000Z");
+});
+
+test("legacy timezone lookup sends actual device zone", async (t) => {
+    const calls = recordFetch(t, () => Response.json({ timezone: "America/New_York", source: "device", city: null }));
+    const signal = new AbortController().signal;
+    const body = { place: { latitude: 35.6591, longitude: 139.7006 }, user_id: "actor", device_timezone: "America/New_York" };
+    const result = await maps.resolveEventTimezone(body, signal);
+    assert.equal(result.timezone, "America/New_York");
+    assert.equal(calls[0].url.pathname, "/api/maps/timezone");
+    assert.equal(calls[0].options.method, "POST");
+    assert.deepEqual(JSON.parse(calls[0].body), body);
+    assert.equal(calls[0].options.signal, signal);
+    await maps.resolveEventTimezone({ place: null, user_id: null, device_timezone: "Pacific/Auckland" });
+    assert.equal(JSON.parse(calls[1].body).device_timezone, "Pacific/Auckland");
+});
+
+test("malformed provider coordinates and overlong manual text cannot become a selected place", () => {
+    assert.throws(() => places.placeFromGeocode({ city: null, address_line: "Street", latitude: "bad", longitude: "30" }), /точку/);
+    const form = { ...emptyForm(), title: "Meet", startsAt: "2030-01-01T10:00", place: places.textPlace("x".repeat(501)) };
+    assert.match(validateForm(form), /500/);
+    assert.match(validateForm({ ...form, place: places.textPlace(" ") }), /Укажите адрес/);
 });
 
 test("Yandex SDK loads once and waits for API readiness", async (t) => {
@@ -853,13 +917,13 @@ test("lists cross the 100 record boundary with bounded pages", async (t) => {
     assert.deepEqual(calls.map(({ url }) => [url.searchParams.get("offset"), url.searchParams.get("limit")]), [["0", "100"], ["100", "40"], ["0", "100"], ["100", "40"]]);
 });
 
-test("invitation expiry, revocation, sent list and rejection reason follow the API contract", async (t) => {
+test("invitations without expiry, revocation, sent list and rejection reason follow the API contract", async (t) => {
     const calls = recordFetch(t, () => Response.json([]));
-    await api.inviteToEvent("event-1", { actor_id: "owner-1", invitee_id: "stranger-1", message: "Hello", expires_at: "2030-01-01T00:00:00Z" });
+    await api.inviteToEvent("event-1", { actor_id: "owner-1", invitee_id: "stranger-1", message: "Hello" });
     await personal.listEventInvitations("event-1", "owner-1", { offset: 100, limit: 20 });
     await personal.revokeInvitation("inv-1", "owner-1");
     await api.reviewParticipation("event-1", "user-1", "owner-1", false, "No places");
-    assert.equal(JSON.parse(calls[0].body).expires_at, "2030-01-01T00:00:00Z");
+    assert.equal(JSON.parse(calls[0].body).expires_at, undefined);
     assert.equal(calls[1].url.searchParams.get("actor_id"), "owner-1");
     assert.equal(calls[1].url.searchParams.get("offset"), "100");
     assert.equal(calls[2].options.method, "DELETE");
@@ -876,17 +940,22 @@ test("event wall times use the selected zone and reject DST gaps", () => {
 });
 
 
-test("event edits preserve currency and local time in a different zone", () => {
+test("event edits use rubles and preserve local time in a different zone", () => {
     const { emptyForm, formToInput, formFromEvent, validateForm } = require(join(output, "components/pages/EventFormPage/formState.js"));
-    const original = { ...formToInput({ ...emptyForm(), title: "Tokyo", address: "Tokyo, Shibuya", startsAt: "2030-01-01T12:00", timezone: "Asia/Tokyo", currency: "JPY", priceMin: "500" }), price_type: "PAID" };
+    const original = { ...formToInput({ ...emptyForm(), title: "Tokyo", place: places.textPlace("Tokyo, Shibuya"), startsAt: "2030-01-01T12:00", timezone: "Asia/Tokyo", price: "500" }), price_type: "PAID" };
     const form = formFromEvent(original);
     assert.equal(form.startsAt, "2030-01-01T12:00");
-    assert.equal(form.currency, "JPY");
     assert.equal(validateForm(form), null);
-    assert.equal(formToInput(form).currency, "JPY");
+    assert.equal(formToInput(form).currency, "RUB");
+    assert.equal(formToInput(emptyForm()).currency, "RUB");
+    assert.equal(form.price, "500");
+    assert.equal(formToInput(form).price_min, "500");
+    assert.equal(formToInput(form).price_max, null);
+    const legacyRange = formFromEvent({ ...original, price_max: "900" });
+    assert.equal(formToInput(legacyRange).price_min, "500");
+    assert.equal(formToInput(legacyRange).price_max, null);
     assert.equal(formToInput(form).starts_at, original.starts_at);
     assert.notEqual(validateForm({ ...form, timezone: "Invalid/Zone" }), null);
-    assert.notEqual(validateForm({ ...form, currency: "XX" }), null);
 });
 
 function settingsDocument() {
@@ -1001,7 +1070,7 @@ test("draft submit button passes its action to the native button", () => {
 });
 
 const discoveryApi = require(join(output, "api/discovery.js"));
-const { DiscoveryCache, discoveryViewport, mergeDiscoveryEvents } = require(join(output, "utils/discovery.js"));
+const { DiscoveryCache, discoveryViewport, mergeDiscoveryEvents, discoveryEmptyText } = require(join(output, "utils/discovery.js"));
 function discoveryQuery(q = "") {
     return { filters: { q, viewer_id: null }, viewport: null, sort: "novelty",
         selection_token: null, cursor: null, limit: 20, include_map: true };
@@ -1126,7 +1195,7 @@ test("feed sends the chosen sort and point together with filters", async (t) => 
 
 test("sort menu names the current sort", () => {
     const markup = renderToStaticMarkup(createElement(SortMenu, { value: "distance", onChange: () => undefined }));
-    assert.match(markup, /aria-label="Сортировка: Рядом со мной"/);
+    assert.match(markup, /aria-label="Сортировка: По удалённости"/);
     assert.match(markup, /aria-haspopup="menu"/);
     assert.match(markup, /aria-expanded="false"/);
     const mapped = renderToStaticMarkup(createElement(SortMenu, {
@@ -1157,4 +1226,140 @@ test("password inputs stay hidden and get a hold-to-reveal button; other inputs 
     const text = renderToStaticMarkup(createElement(Input, { value: "", onChange: () => undefined }));
     assert.match(text, /type="text"/);
     assert.doesNotMatch(text, /Показать пароль/);
+});
+
+test("empty discovery distinguishes area, group and filters without claiming the global catalog is empty", () => {
+    assert.equal(discoveryEmptyText(true, false, false), "В этой области событий нет!");
+    assert.equal(discoveryEmptyText(true, false, true), "В этой области нет событий, подходящих под выбранные фильтры.");
+    assert.equal(discoveryEmptyText(false, false, false), "Сейчас нет доступных событий.");
+    assert.equal(discoveryEmptyText(false, false, true), "Нет событий, подходящих под выбранные фильтры.");
+    assert.equal(discoveryEmptyText(true, true, false), "В выбранной группе больше нет доступных событий.");
+    assert.equal(discoveryEmptyText(true, true, true), "В выбранной группе нет событий, подходящих под выбранные фильтры.");
+});
+
+test("username availability normalizes the value and forwards cancellation without credentials", async () => {
+    const originalFetch = globalThis.fetch;
+    const controller = new AbortController();
+    const calls = [];
+    globalThis.fetch = async (url, options) => {
+        calls.push({ url: String(url), options });
+        return new Response(JSON.stringify({ username: "member", available: calls.length === 1 }), {
+            headers: { "Content-Type": "application/json" },
+        });
+    };
+    try {
+        assert.equal(await auth.validateUsernameAvailability(" MEMBER ", controller.signal), null);
+        assert.equal(await auth.validateUsernameAvailability("member", controller.signal), "Этот никнейм уже занят.");
+        assert.equal(new URL(calls[0].url).searchParams.get("username"), "member");
+        assert.equal(calls[0].options.method, "GET");
+        assert.equal(calls[0].options.signal, controller.signal);
+        assert.equal(calls[0].options.body, undefined);
+    } finally { globalThis.fetch = originalFetch; }
+});
+
+test("all-day scheduling synchronizes the end time and follows one-day date changes", () => {
+    let form = { ...emptyForm(), startsAt: "2030-06-12T10:00", timezone: "Asia/Tokyo" };
+    form = updateEventSchedule(form, { field: "isAllDay", value: true });
+    assert.equal(form.endsAt, "2030-06-12T23:59");
+    assert.equal(form.startsAt, "2030-06-12T10:00");
+    assert.equal(formToInput(form).ends_at, "2030-06-12T14:59:00.000Z");
+    form = updateEventSchedule(form, { field: "startsAt", value: "2030-06-10T12:00" });
+    assert.equal(form.endsAt, "2030-06-10T23:59");
+    form = updateEventSchedule(form, { field: "endsAt", value: "2030-06-10T23:58" });
+    assert.equal(form.isAllDay, false);
+    form = updateEventSchedule(form, { field: "endsAt", value: "2030-06-13T23:59" });
+    assert.equal(form.isAllDay, true);
+    form = updateEventSchedule(form, { field: "startsAt", value: "2030-06-11T12:00" });
+    assert.equal(form.endsAt, "2030-06-13T23:59");
+    form = updateEventSchedule(form, { field: "isAllDay", value: false });
+    assert.equal(form.endsAt, "");
+    assert.equal(form.isAllDay, false);
+});
+
+test("all-day selection before a start date waits for that date and clearing the end disables it", () => {
+    let form = updateEventSchedule(emptyForm(), { field: "isAllDay", value: true });
+    assert.equal(form.endsAt, "");
+    assert.equal(form.isAllDay, true);
+    form = updateEventSchedule(form, { field: "startsAt", value: "2030-12-31T12:00" });
+    assert.equal(form.endsAt, "2030-12-31T23:59");
+    form = updateEventSchedule(form, { field: "startsAt", value: "2031-01-01T12:00" });
+    assert.equal(form.endsAt, "2031-01-01T23:59");
+    form = updateEventSchedule(form, { field: "endsAt", value: "" });
+    assert.equal(form.isAllDay, false);
+    assert.equal(form.endsAt, "");
+    const timed = updateEventSchedule({ ...form, endsAt: "2031-01-01T18:00" }, { field: "startsAt", value: "2031-01-01T14:00" });
+    assert.equal(timed.endsAt, "2031-01-01T18:00");
+});
+
+const { initialDiscoveryCamera } = require(join(output, "utils/discoveryCamera.js"));
+test("initial camera keeps nearby users centered and fits distant anchors on desktop/mobile", () => {
+    const project = ([lon, lat]) => [(lon + 180) / 360, (1 - Math.log(Math.tan(Math.PI / 4 + lat * Math.PI / 360)) / Math.PI) / 2];
+    const wrap = (x) => ((x + 1.5) % 1) - 0.5;
+    for (const [width, height] of [[390, 330], [1100, 400]]) {
+        for (const [user, event] of [
+            [[30, 60], [30, 60]], [[30, 60], [30.00001, 60.00001]],
+            [[30, 60], [50, 40]], [[179.8, 65], [-179.8, 66]], [[-120, -45], [140, 50]],
+        ]) {
+            const camera = initialDiscoveryCamera(user, event, width, height);
+            assert.ok(Number.isFinite(camera.zoom) && camera.zoom >= 0 && camera.zoom <= 12);
+            const center = project(camera.center);
+            const scale = 256 * 2 ** camera.zoom;
+            for (const point of [user, event]) {
+                const world = project(point);
+                assert.ok(Math.abs(wrap(world[0] - center[0])) * scale <= (width - 96) / 2 + 0.001);
+                assert.ok(Math.abs(world[1] - center[1]) * scale <= (height - 96) / 2 + 0.001);
+            }
+        }
+        const near = initialDiscoveryCamera([30, 60], [30.00001, 60.00001], width, height);
+        assert.ok(Math.abs(near.center[0] - 30) < 1e-8 && Math.abs(near.center[1] - 60) < 1e-8);
+        assert.equal(near.zoom, 12);
+        const distant = initialDiscoveryCamera([30, 60], [50, 40], width, height);
+        assert.ok(distant.zoom < near.zoom);
+        assert.ok(Math.abs(distant.center[0] - 30) > 1);
+    }
+    const empty = initialDiscoveryCamera([30, 60], null, 390, 330);
+    assert.equal(empty.zoom, 12);
+    assert.ok(Math.abs(empty.center[0] - 30) < 1e-8);
+});
+
+test("bootstrap sends filters and origin without changing the feed sort or viewport", async (t) => {
+    const calls = recordFetch(t, () => Response.json({ nearest: null }));
+    const filters = { q: "#поход", free_only: true };
+    const origin = { latitude: 60, longitude: 30 };
+    const controller = new AbortController();
+    const discovery = require(join(output, "api/discovery.js"));
+    assert.deepEqual(await discovery.bootstrapDiscovery(filters, origin, controller.signal), { nearest: null });
+    assert.equal(calls[0].url.pathname, "/api/events/discovery/bootstrap");
+    assert.deepEqual(JSON.parse(calls[0].body), { filters, origin });
+    assert.equal(calls[0].options.signal, controller.signal);
+});
+
+const { mapMarkerPresentation } = require(join(output, "utils/mapMarkers.js"));
+test("map marker colors and two-line tooltips follow the server personal state", () => {
+    const item = { type: "event", count: 1, title: "Поход <script>" };
+    for (const [state, color, label] of [
+        ["default", "bg-bordermain", "Открыто"], ["going", "bg-pink-600", "Иду"],
+        ["organizer", "bg-red-600", "Организую"], ["favorite", "bg-yellow-300", "В избранном"],
+    ]) {
+        const result = mapMarkerPresentation({ ...item, state });
+        assert.ok(result.classes.includes(color));
+        assert.equal(result.tooltip, `Поход <script>\n${label}`);
+    }
+    for (const [count, text] of [[2, "2 движа рядом"], [5, "5 движей рядом"], [21, "21 движ рядом"]]) {
+        const result = mapMarkerPresentation({ type: "cluster", count, state: "favorite" });
+        assert.equal(result.tooltip, text);
+        assert.ok(result.classes.includes("bg-yellow-300"));
+    }
+    assert.ok(mapMarkerPresentation(item).classes.includes("bg-bordermain"));
+});
+test("friend picker requests bounded searchable pages without loading the whole friends list", async (t) => {
+    const calls = recordFetch(t, () => Response.json([]));
+    const controller = new AbortController();
+    const { searchFriends } = require(join(output, "api/users.js"));
+    await searchFriends("me", "Имя & ник", 20, controller.signal);
+    assert.equal(calls[0].url.pathname, "/api/users/me/friends/search");
+    assert.equal(calls[0].url.searchParams.get("q"), "Имя & ник");
+    assert.equal(calls[0].url.searchParams.get("offset"), "20");
+    assert.equal(calls[0].url.searchParams.get("limit"), "20");
+    assert.equal(calls[0].options.signal, controller.signal);
 });

@@ -58,9 +58,11 @@ async def user(http: httpx.AsyncClient) -> str:
     return response.json()["id"]
 
 
-async def event(http: httpx.AsyncClient, owner: str, **fields: object) -> dict:
+async def event(
+    http: httpx.AsyncClient, owner: str, *, draft: bool = False, **fields: object,
+) -> dict:
     response = await http.post(
-        "/api/events",
+        "/api/events/drafts" if draft else "/api/events",
         json={
             "organizer_id": owner,
             "title": "Test " + uuid4().hex,
@@ -152,13 +154,13 @@ def test_profile_patch_and_friend_request_inboxes() -> None:
                 json={
                     "display_name": "Updated",
                     "bio": None,
-                    "latitude": "55.75",
-                    "longitude": "37.61",
+                    "city": "Москва",
                 },
             )
             assert response.status_code == 200, response.text
             assert response.json()["display_name"] == "Updated"
-            assert response.json()["latitude"] == "55.750000"
+            assert response.json()["city"] == "Москва"
+            assert "latitude" not in response.json() and "longitude" not in response.json()
             for patch in ({}, {"display_name": None}, {"latitude": "1"}, {"unknown": True}):
                 assert (await http.patch(f"/api/users/{first}", json=patch)).status_code == 422
             name = (await http.get(f"/api/users/{second}")).json()["username"]
@@ -408,7 +410,7 @@ def test_expired_declined_revoked_and_manager_invitations() -> None:
                 await session.execute(
                     update(EventInvitation)
                     .where(EventInvitation.id == invitation_id)
-                    .values(expires_at=datetime.now(UTC) - timedelta(hours=1))
+                    .values(status="EXPIRED")
                 )
             assert (await http.get(f"/api/users/{recipient}/invitations")).json() == []
             assert (

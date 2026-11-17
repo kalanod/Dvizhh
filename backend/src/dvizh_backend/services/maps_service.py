@@ -166,4 +166,3 @@ class MapsService:
             "latitude": latitude,
             "longitude": longitude,
         }
-

@@ -38,8 +38,13 @@ def get_user_service(
     return UserService(session, AccountGateway(settings.auth_url))
 
 
-def get_event_service(session: DatabaseSession) -> EventService:
-    return EventService(session)
+def get_event_service(session: DatabaseSession, request: Request) -> EventService:
+    from dvizh_backend.services.place_geocoding import ProfileCityGeocoder
+
+    cities = ProfileCityGeocoder.from_settings(
+        get_settings(), request.headers.get("referer", str(request.base_url)),
+    )
+    return EventService(session, cities)
 
 
 UserServiceDep = Annotated[UserService, Depends(get_user_service)]
@@ -89,6 +94,12 @@ def get_maps_service(settings: SettingsDep) -> MapsService:
 MapsServiceDep = Annotated[MapsService, Depends(get_maps_service)]
 
 
+def get_timezone_service():
+    from dvizh_backend.services.event_timezone_service import EventTimezoneService
+
+    return EventTimezoneService()
+
+
 def get_account_context(request: Request) -> AccountRequestContext:
     return AccountRequestContext(
         token=request.cookies.get("dvizh_access", ""),
@@ -113,8 +124,13 @@ async def get_discovery_viewer(request: Request):
     return account.id
 
 
-async def get_discovery_service(session: DatabaseSession, settings: SettingsDep):
+async def get_discovery_service(session: DatabaseSession, settings: SettingsDep, request: Request):
     from dvizh_backend.database.services.discovery import DiscoveryRepository
     from dvizh_backend.services.discovery_service import EventDiscoveryService
     await DiscoveryRepository.begin_snapshot(session)
-    return EventDiscoveryService(session, settings)
+    from dvizh_backend.services.place_geocoding import ProfileCityGeocoder
+
+    cities = ProfileCityGeocoder.from_settings(
+        settings, request.headers.get("referer", str(request.base_url)),
+    )
+    return EventDiscoveryService(session, settings, cities)

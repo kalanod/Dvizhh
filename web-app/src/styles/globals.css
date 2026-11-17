@@ -1,5 +1,16 @@
 @import "tailwindcss";
 
+/* MUI owns the floating label and focus hint for text controls. Other controls
+   keep their ordinary FormField label (selects, uploads, composed widgets). */
+.dvizh-form-field:has(.dvizh-floating) > .dvizh-field-label,
+.dvizh-form-field:has(.dvizh-floating) > .dvizh-field-hint { display: none; }
+
+@media (prefers-reduced-motion: reduce) {
+    .dvizh-text-control *, .dvizh-text-control *::before, .dvizh-text-control *::after {
+        transition: none !important;
+    }
+}
+
 /*
  * Дизайн-токены шаблона Alexandria (pattern_front). Цвета доступны как утилиты Tailwind:
  * bg-background, bg-cards-surface, text-textprimary, border-bordermain и т. д.
@@ -140,6 +151,25 @@ body {
     background-attachment: fixed;
     color: var(--color-textsecondary);
     font-family: var(--font-body);
+}
+
+.create-dvizh-banner {
+    background: linear-gradient(110deg,
+        var(--color-background),
+        color-mix(in srgb, var(--color-background) 85%, var(--color-borderfocus)),
+        var(--color-bordermain),
+        color-mix(in srgb, var(--color-background) 90%, var(--color-cards-surface)));
+    background-size: 240% 100%;
+    animation: create-dvizh-shimmer 12s ease-in-out infinite alternate;
+}
+
+@keyframes create-dvizh-shimmer {
+    from { background-position: 0% 50%; }
+    to { background-position: 100% 50%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .create-dvizh-banner { animation: none; }
 }
 
 #root {

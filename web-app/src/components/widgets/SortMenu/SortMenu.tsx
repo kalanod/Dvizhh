@@ -1,11 +1,11 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { EventSort } from "../../../models";
 
 const SORT_LABELS: Record<EventSort, string> = {
     relevance: "Рекомендуем",
-    novelty: "Сначала новые",
+    novelty: "По новизне",
     title: "По названию",
-    distance: "Рядом со мной",
+    distance: "По удалённости",
     start: "По дате начала",
 };
 
@@ -20,8 +20,20 @@ interface SortMenuProps {
 /** Квадратная кнопка рядом с поиском и выпадающий список сортировок ленты. */
 export const SortMenu = ({ value, onChange, distanceLabel = SORT_LABELS.distance }: SortMenuProps) => {
     const [open, setOpen] = useState(false);
+    const [placement, setPlacement] = useState<{ above: boolean; maxHeight?: number }>({ above: false });
     const rootRef = useRef<HTMLDivElement>(null);
     const labels = { ...SORT_LABELS, distance: distanceLabel };
+
+    const updatePlacement = useCallback(() => {
+        const bounds = rootRef.current?.getBoundingClientRect();
+        if (!bounds) return;
+        const viewport = window.visualViewport;
+        const top = viewport?.offsetTop ?? 0;
+        const bottom = top + (viewport?.height ?? window.innerHeight);
+        const above = Math.max(0, bounds.top - top);
+        const below = Math.max(0, bottom - bounds.bottom);
+        setPlacement({ above: above > below, maxHeight: Math.max(0, Math.max(above, below) - 8) });
+    }, []);
 
     useEffect(() => {
         if (!open) return;
@@ -33,11 +45,19 @@ export const SortMenu = ({ value, onChange, distanceLabel = SORT_LABELS.distance
         };
         document.addEventListener("mousedown", closeOnOutsideClick);
         document.addEventListener("keydown", closeOnEscape);
+        window.addEventListener("resize", updatePlacement);
+        window.addEventListener("scroll", updatePlacement, { capture: true, passive: true });
+        window.visualViewport?.addEventListener("resize", updatePlacement);
+        window.visualViewport?.addEventListener("scroll", updatePlacement);
         return () => {
             document.removeEventListener("mousedown", closeOnOutsideClick);
             document.removeEventListener("keydown", closeOnEscape);
+            window.removeEventListener("resize", updatePlacement);
+            window.removeEventListener("scroll", updatePlacement, true);
+            window.visualViewport?.removeEventListener("resize", updatePlacement);
+            window.visualViewport?.removeEventListener("scroll", updatePlacement);
         };
-    }, [open]);
+    }, [open, updatePlacement]);
 
     const choose = (sort: EventSort) => {
         setOpen(false);
@@ -48,7 +68,10 @@ export const SortMenu = ({ value, onChange, distanceLabel = SORT_LABELS.distance
         <div ref={rootRef} className="relative shrink-0">
             <button
                 type="button"
-                onClick={() => setOpen((previous) => !previous)}
+                onClick={() => {
+                    if (!open) updatePlacement();
+                    setOpen((previous) => !previous);
+                }}
                 aria-haspopup="menu"
                 aria-expanded={open}
                 aria-label={`Сортировка: ${labels[value]}`}
@@ -70,7 +93,8 @@ export const SortMenu = ({ value, onChange, distanceLabel = SORT_LABELS.distance
                 <ul
                     role="menu"
                     aria-label="Сортировка ленты"
-                    className="absolute right-0 top-full z-20 mt-1 flex min-w-[190px] flex-col gap-1 rounded-lg border border-bordermain bg-primary p-1 shadow-hover"
+                    style={{ maxHeight: placement.maxHeight }}
+                    className={`absolute right-0 z-20 flex min-w-[190px] flex-col gap-1 overflow-y-auto rounded-lg border border-bordermain bg-primary p-1 shadow-hover ${placement.above ? "bottom-full mb-1" : "top-full mt-1"}`}
                 >
                     {SORTS.map((sort) => (
                         <li key={sort} role="none">

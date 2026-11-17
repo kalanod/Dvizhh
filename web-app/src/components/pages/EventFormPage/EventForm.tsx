@@ -4,11 +4,14 @@ import { errorText } from "../../../api";
 import type { EventFormat, EventInput, EventJoinPolicy, EventVisibility } from "../../../models";
 import { Button, FormField, Input, Notice, Select, Textarea, Toggle } from "../../ui";
 import { FORMAT_LABELS, JOIN_POLICY_LABELS, VISIBILITY_LABELS } from "../../../utils/format";
-import { emptyForm, formToInput, validateForm, type EventFormState } from "./formState";
+import { emptyForm, formToInput, updateEventSchedule, validateForm, type EventFormState } from "./formState";
 import type { EventCoverChange } from "../../../utils/media";
 import { EventCoverField } from "./EventCoverField";
 import { EventLocationField } from "./EventLocationField";
 import { EventTagField } from "./EventTagField";
+import { browserTimeZone } from "../../../utils/format";
+import { useCurrentUser } from "../../../hooks";
+
 
 interface EventFormProps {
     title: string;
@@ -34,6 +37,13 @@ export const EventForm = ({ title, submitLabel, initial, allowDraft, userId, ini
     const [submitting, setSubmitting] = useState(false);
     const [cover, setCover] = useState<EventCoverChange>({ kind: "keep" });
     const [coverError, setCoverError] = useState<string | null>(null);
+    const [locationPending, setLocationPending] = useState(false);
+    const [deviceTimezone] = useState(browserTimeZone);
+    const { user } = useCurrentUser();
+    const timezone = initial?.timezone ?? deviceTimezone;
+    const timezoneHint = initial
+        ? "Время в часовом поясе сохранённого события."
+        : "Время указано по часовому поясу вашего браузера.";
 
     const set =
         <K extends keyof EventFormState>(key: K) =>
@@ -43,7 +53,8 @@ export const EventForm = ({ title, submitLabel, initial, allowDraft, userId, ini
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         if (submitting || coverError) return;
-        const problem = validateForm(form);
+        if (locationPending) { setError("Дождитесь определения места."); return; }
+        const problem = validateForm(form, timezone);
         if (problem) {
             setError(problem);
             return;
@@ -52,7 +63,7 @@ export const EventForm = ({ title, submitLabel, initial, allowDraft, userId, ini
         setError(null);
         try {
             const publish = (e.nativeEvent as SubmitEvent).submitter?.getAttribute("data-action") !== "draft";
-            await onSubmit(formToInput(form), cover, publish);
+            await onSubmit(formToInput(form, timezone), cover, publish);
         } catch (err) {
             setError(errorText(err));
             setSubmitting(false);
@@ -102,7 +113,7 @@ export const EventForm = ({ title, submitLabel, initial, allowDraft, userId, ini
             <Section title="Когда">
                 <div className="grid gap-4 sm:grid-cols-2">
                     <FormField label="Начало" htmlFor="starts-at" required>
-                        <Input id="starts-at" type="datetime-local" value={form.startsAt} onChange={set("startsAt")} />
+                        <Input id="starts-at" type="datetime-local" value={form.startsAt} onChange={(value) => setForm((previous) => updateEventSchedule(previous, { field: "startsAt", value }))} />
                     </FormField>
                     <FormField label="Окончание" htmlFor="ends-at">
                         <Input
@@ -110,14 +121,12 @@ export const EventForm = ({ title, submitLabel, initial, allowDraft, userId, ini
                             type="datetime-local"
                             min={form.startsAt || undefined}
                             value={form.endsAt}
-                            onChange={set("endsAt")}
+                            onChange={(value) => setForm((previous) => updateEventSchedule(previous, { field: "endsAt", value }))}
                         />
                     </FormField>
                 </div>
-                <Toggle label="Весь день" checked={form.isAllDay} onChange={set("isAllDay")} />
-                <FormField label="Часовой пояс IANA" htmlFor="timezone" hint="Например, Europe/Moscow или Asia/Tokyo">
-                    <Input id="timezone" value={form.timezone} onChange={set("timezone")} />
-                </FormField>
+                <Toggle label="Весь день" checked={form.isAllDay} onChange={(value) => setForm((previous) => updateEventSchedule(previous, { field: "isAllDay", value }))} />
+                <p role="status" className="text-small text-textsecondary">{timezoneHint}</p>
             </Section>
 
             <Section title="Где">
@@ -126,21 +135,13 @@ export const EventForm = ({ title, submitLabel, initial, allowDraft, userId, ini
                 </FormField>
 
                 {form.format !== "ONLINE" && (
-                    <>
-                        <div className="grid gap-4 sm:grid-cols-2">
-                            <FormField label="Место" htmlFor="place-name">
-                                <Input id="place-name" maxLength={200} placeholder="Антикафе «Ход конём»" value={form.placeName} onChange={set("placeName")} />
-                            </FormField>
-                            <FormField label="Город" htmlFor="city">
-                                <Input id="city" maxLength={120} placeholder="Санкт-Петербург" value={form.city} onChange={set("city")} />
-                            </FormField>
-                        </div>
                         <EventLocationField
-                            value={form}
+                            value={form.place}
+                            profileCity={user?.id === userId ? user.city : null}
                             disabled={submitting}
-                            onChange={(location) => setForm((previous) => ({ ...previous, ...location }))}
+                            onChange={set("place")}
+                            onPendingChange={setLocationPending}
                         />
-                    </>
                 )}
 
                 {form.format !== "OFFLINE" && (
@@ -151,23 +152,9 @@ export const EventForm = ({ title, submitLabel, initial, allowDraft, userId, ini
             </Section>
 
             <Section title="Участие">
-                <FormField label="Валюта" htmlFor="currency" hint="Трёхбуквенный код: RUB, USD, EUR">
-                    <Input id="currency" maxLength={3} value={form.currency} onChange={(value) => set("currency")(value.toUpperCase())} />
-                </FormField>
-                <div className="grid gap-4 sm:grid-cols-3">
-                    <FormField label="Цена от" htmlFor="price-min" hint="Пусто или 0 — бесплатно">
-                        <Input id="price-min" type="number" min={0} inputMode="decimal" value={form.priceMin} onChange={set("priceMin")} />
-                    </FormField>
-                    <FormField label="Цена до" htmlFor="price-max">
-                        <Input
-                            id="price-max"
-                            type="number"
-                            min={0}
-                            inputMode="decimal"
-                            disabled={!form.priceMin}
-                            value={form.priceMax}
-                            onChange={set("priceMax")}
-                        />
+                <div className="grid gap-4 sm:grid-cols-2">
+                    <FormField label="Цена, ₽" htmlFor="price" hint="Пусто или 0 — бесплатно">
+                        <Input id="price" type="number" min={0} step="0.01" inputMode="decimal" value={form.price} onChange={set("price")} />
                     </FormField>
                     <FormField label="Мест" htmlFor="capacity" hint="Пусто — без лимита">
                         <Input id="capacity" type="number" min={1} inputMode="numeric" value={form.capacity} onChange={set("capacity")} />
@@ -191,15 +178,6 @@ export const EventForm = ({ title, submitLabel, initial, allowDraft, userId, ini
                         />
                     </FormField>
                 </div>
-                <FormField label="Внешняя регистрация или билеты" htmlFor="registration-url">
-                    <Input
-                        id="registration-url"
-                        type="url"
-                        placeholder="https://"
-                        value={form.registrationUrl}
-                        onChange={set("registrationUrl")}
-                    />
-                </FormField>
             </Section>
 
             {error && <Notice tone="error">{error}</Notice>}

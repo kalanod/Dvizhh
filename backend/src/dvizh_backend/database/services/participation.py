@@ -149,8 +149,6 @@ class ParticipationService:
             raise InvalidStateTransitionError("Invitation is no longer pending")
 
         now = datetime.now(UTC)
-        if invitation.expires_at is not None and invitation.expires_at <= now:
-            raise InvalidStateTransitionError("Invitation has expired")
 
         self._require_joinable(occurrence, event)
         if event.join_policy == EventJoinPolicy.EXTERNAL:

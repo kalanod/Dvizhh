@@ -52,7 +52,7 @@ class YandexMapsClient:
             else:
                 message = "Поиск Яндекс Карт временно недоступен. Попробуйте ещё раз."
             raise MapsUnavailableError(message) from None
-        except (URLError, TimeoutError, ValueError) as exc:
+        except (URLError, TimeoutError, OSError, ValueError) as exc:
             logger.warning(
                 "Yandex Maps request failed: service=%s error_type=%s detail=%r",
                 urlsplit(url).netloc,
