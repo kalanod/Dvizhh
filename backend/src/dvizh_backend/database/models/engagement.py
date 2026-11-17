@@ -142,5 +142,4 @@ class EventInvitation(Base, TimestampMixin):
         server_default=InvitationStatus.PENDING.value,
     )
     message: Mapped[str | None] = mapped_column(String(500))
-    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     responded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

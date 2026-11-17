@@ -11,6 +11,7 @@ export const FeedPage = () => {
     return <MainLayout>
         <div className="flex w-full min-w-0 flex-col gap-5">
             <EventDiscoveryMap key={discovery.userId ?? "guest"}
+                initialFilters={discovery.initialFilters} queryFailed={discovery.error !== undefined}
                 items={discovery.map?.items ?? EMPTY_MARKERS} total={discovery.map?.total_events ?? 0}
                 loading={discovery.loading}
                 mapViewport={discovery.mapViewport}

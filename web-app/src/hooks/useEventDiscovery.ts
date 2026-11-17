@@ -124,6 +124,7 @@ export function useEventDiscovery() {
         }
     };
     return {
+        initialFilters: userLoading ? null : normalizedFilters,
         ...filterState, userId, user, viewport, mapCollapsed, sort, selected, notice, sortNotice,
         events: visible?.events, map: visible?.map, total: visible?.total ?? 0,
         mapViewport: visible?.mapViewport ?? null,

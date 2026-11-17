@@ -130,8 +130,9 @@ export const EventLocationField = ({ value, profileCity, disabled, onChange, onP
                 if (!event.currentTarget.contains(event.relatedTarget)) setOpen(false);
             }}>
                 <FormField label="Адрес или заведение" htmlFor="event-address" hint="Введите адрес, название или тип места — например, «антикафе»">
-                    <div className="flex items-start gap-2">
+                    <div className="flex w-full min-w-0 items-stretch gap-2">
                         <Input
+                            className="min-w-0 flex-1"
                             id="event-address"
                             disabled={disabled}
                             role="combobox"
@@ -163,8 +164,21 @@ export const EventLocationField = ({ value, profileCity, disabled, onChange, onP
                                 }
                             }}
                         />
-                        <Button disabled={disabled || resolving || !searchEnabled || !value.text.trim()} onClick={() => { setOpen(true); setActive(-1); }}>
-                            Найти
+                        <Button className="!h-14 !w-11 !px-0 sm:!w-auto sm:!px-4" ariaLabel="Найти" title="Найти адрес или заведение"
+                            disabled={disabled || resolving || !searchEnabled || !value.text.trim()} onClick={() => { setOpen(true); setActive(-1); }}>
+                            <svg className="sm:hidden" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                                <circle cx="10.5" cy="10.5" r="6.5" /><path d="m16 16 5 5" />
+                            </svg>
+                            <span className="hidden sm:inline">Найти</span>
+                        </Button>
+                        <Button className="!h-14 !w-11 !px-0 sm:!w-auto sm:!px-4"
+                            ariaLabel={locating ? "Определяем местоположение…" : "Моё местоположение"} title="Моё местоположение"
+                            disabled={disabled || locating || resolving || !config.data?.api_key} onClick={() => void locate()}>
+                            <svg className="sm:hidden" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                                <circle cx="12" cy="12" r="7" /><circle cx="12" cy="12" r="2" />
+                                <path d="M12 2v3m0 14v3M2 12h3m14 0h3" />
+                            </svg>
+                            <span className="hidden sm:inline">{locating ? "Определяем…" : "Моё местоположение"}</span>
                         </Button>
                     </div>
                 </FormField>
@@ -190,9 +204,6 @@ export const EventLocationField = ({ value, profileCity, disabled, onChange, onP
                     </ul>
                 )}
             </div>
-            <Button disabled={disabled || locating || resolving || !config.data?.api_key} onClick={() => void locate()}>
-                {locating ? "Определяем местоположение…" : "Моё местоположение"}
-            </Button>
             <p className="text-small text-textsecondary">
                 Можно сохранить адрес или описание места текстом. Без выбранной точки город и координаты не определяются.
             </p>

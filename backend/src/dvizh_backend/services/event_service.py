@@ -157,7 +157,6 @@ class EventService:
             inviter_user_id=data.actor_id,
             invitee_user_id=data.invitee_id,
             message=data.message,
-            expires_at=data.expires_at,
         )
         return InvitationDTO.model_validate(invitation)
 
@@ -192,7 +191,14 @@ class EventService:
             .offset(offset)
             .limit(limit)
         )
-        return [InvitationDTO.model_validate(item) for item in items]
+        invitations = list(items)
+        profiles = await self.profiles.list_active_by_ids(
+            [item.invitee_user_id for item in invitations]
+        )
+        names = {profile.id: profile.display_name for profile in profiles}
+        return [InvitationDTO.model_validate(item).model_copy(update={
+            "invitee_name": names.get(item.invitee_user_id),
+        }) for item in invitations]
 
     async def respond_to_invitation(
         self, invitation_id: UUID, user_id: UUID, *, accept: bool

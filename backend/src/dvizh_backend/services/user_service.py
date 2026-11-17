@@ -168,6 +168,15 @@ class UserService:
         await self.friendships.flush()
         return FriendshipDTO.model_validate(friendship)
 
+    async def search_friends(
+        self, user_id: UUID, query: str, *, offset: int = 0, limit: int = 20,
+    ) -> list[ProfileDTO]:
+        await self._require_active_profile(user_id)
+        profiles = await self.friendships.search_friends(
+            user_id, query.strip(), offset=offset, limit=limit,
+        )
+        return [ProfileDTO.model_validate(profile) for profile in profiles]
+
     async def list_friends(self, user_id: UUID) -> list[ProfileDTO]:
         await self._require_active_profile(user_id)
         friendships = await self.friendships.list_accepted_for_user(user_id)

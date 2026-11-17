@@ -6,6 +6,9 @@ from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from dvizh_backend.api.schemas.discovery import (
+    DiscoveryAnchor,
+    DiscoveryBootstrapRequest,
+    DiscoveryBootstrapResponse,
     DiscoveryFeed,
     DiscoveryMap,
     DiscoveryRequest,
@@ -16,6 +19,7 @@ from dvizh_backend.api.schemas.discovery import (
     MapViewport,
 )
 from dvizh_backend.config import Settings
+from dvizh_backend.database.models.enums import MapMarkerPriority
 from dvizh_backend.database.services.discovery import DiscoveryRepository
 from dvizh_backend.database.services.event_queries import EventQueryService
 from dvizh_backend.database.services.exceptions import EventSortError
@@ -41,6 +45,22 @@ class EventDiscoveryService:
         )
         self.queries = EventQueryService(session)
         self.presenter = EventPresenter(self.queries)
+
+    async def bootstrap(
+        self, request: DiscoveryBootstrapRequest, viewer_id: UUID | None,
+    ) -> DiscoveryBootstrapResponse:
+        if viewer_id:
+            await UserService(self.session).get_profile(viewer_id)
+        filters = request.filters.model_copy(
+            update={"q": request.filters.q.strip(), "viewer_id": viewer_id}
+        )
+        repository = DiscoveryRepository(self.session, filters, datetime.now(UTC), None)
+        nearest = await repository.nearest(request.origin)
+        anchor = DiscoveryAnchor(
+            event_id=nearest["event_id"],
+            point=MapPoint(latitude=nearest["latitude"], longitude=nearest["longitude"]),
+        ) if nearest else None
+        return DiscoveryBootstrapResponse(nearest=anchor)
 
     async def discover(
         self,
@@ -148,6 +168,8 @@ class EventDiscoveryService:
                         id=f"cell:{node[0]}:{node[1]}:{node[2]}",
                         type="event" if count == 1 else "cluster",
                         count=count,
+                        state=MapMarkerPriority(group.get("marker_priority", 0)).name.lower(),
+                        title=group.get("title") if count == 1 else None,
                         latitude=float(group["latitude"]),
                         longitude=float(group["longitude"]),
                         event_id=UUID(group["event_id"]) if count == 1 else None,

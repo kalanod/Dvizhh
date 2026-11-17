@@ -21,9 +21,9 @@ export interface Invitation {
     occurrence_id: string;
     inviter_user_id: string;
     invitee_user_id: string;
+    invitee_name?: string | null;
     status: InvitationStatus;
     message: string | null;
-    expires_at: string | null;
     responded_at: string | null;
     created_at: string;
     updated_at: string;
@@ -37,10 +37,9 @@ export interface InvitationCard {
 
 /** Тело POST /api/events/{id}/invitations. */
 export interface CreateInvitationInput {
-    expires_at?: string | null;
     actor_id: string;
     invitee_id: string;
-    message: string | null;
+    message?: string | null;
 }
 
 /** Заявка в друзья вместе с профилем второй стороны. */

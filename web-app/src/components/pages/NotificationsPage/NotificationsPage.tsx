@@ -16,7 +16,7 @@ import type { DvizhNotification, InvitationCard } from "../../../models";
 import { MainLayout } from "../../layouts";
 import { Avatar, Button, Loader, Notice } from "../../ui";
 import { EventCard, LoginRequired } from "../../widgets";
-import { formatAgo, formatChangedFields, formatEventDate } from "../../../utils/format";
+import { formatAgo, formatChangedFields } from "../../../utils/format";
 
 const PAGE_SIZE = 20;
 
@@ -105,12 +105,6 @@ const InvitationRow = ({ card, busy, onRespond }: { card: InvitationCard; busy: 
 
     return (
         <div className="flex w-full flex-col gap-2 rounded-lg border-2 border-borderlight p-2 sm:p-3">
-            {invitation.message && (
-                <p className="text-body whitespace-pre-line text-textprimary">
-                    <span className="text-textsecondary">Сообщение: </span>
-                    {invitation.message}
-                </p>
-            )}
             <EventCard event={event} />
             <div className="flex flex-wrap items-center gap-2">
                 <Button state="hover2" className="!h-[30px] !px-4" disabled={busy} onClick={() => onRespond(true)}>
@@ -121,7 +115,6 @@ const InvitationRow = ({ card, busy, onRespond }: { card: InvitationCard; busy: 
                 </Button>
                 <span className="text-small text-textsecondary">
                     {formatAgo(invitation.created_at)}
-                    {invitation.expires_at && ` · действует до ${formatEventDate({ starts_at: invitation.expires_at, ends_at: null, is_all_day: false, timezone: event.timezone })}`}
                 </span>
             </div>
         </div>

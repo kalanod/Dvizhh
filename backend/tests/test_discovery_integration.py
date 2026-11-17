@@ -12,11 +12,147 @@ from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from test_event_sorting import Catalog, run_in_rollback
 
-from dvizh_backend.api.schemas.discovery import DiscoveryRequest
+from dvizh_backend.api.schemas.discovery import DiscoveryBootstrapRequest, DiscoveryRequest
 from dvizh_backend.config import Settings
-from dvizh_backend.database.models import Event, EventFavorite, EventOccurrence, Location, Profile
+from dvizh_backend.database.models import (
+    Event,
+    EventFavorite,
+    EventOccurrence,
+    EventParticipation,
+    Location,
+    Profile,
+)
 from dvizh_backend.database.services.discovery import DiscoveryRepository
 from dvizh_backend.services.discovery_service import EventDiscoveryService
+from dvizh_backend.services.event_service import EventService
+
+
+@pytest.mark.skipif(not os.getenv("TEST_DATABASE_URL"), reason="Requires disposable PostGIS")
+def test_marker_priority_aggregates_the_whole_group_and_updates_after_personal_changes():
+    async def scenario(catalog: Catalog, _queries):
+        viewer, other = await catalog.profile(), await catalog.profile()
+        scope, solo = await catalog.tag(), await catalog.tag()
+        regular, _ = await catalog.event(other, (scope,), title="A regular", point=(60, 30))
+        _, going_occurrence = await catalog.event(
+            other, (scope,), title="B going", point=(60, 30),
+        )
+        owned, _ = await catalog.event(viewer, (scope,), title="C organizer", point=(60, 30))
+        favorite, favorite_occurrence = await catalog.event(
+            viewer, (scope, solo), title="Z favorite", point=(60, 30),
+        )
+        catalog.session.add(EventFavorite(user_id=viewer, event_id=favorite))
+        participations = [EventParticipation(
+            user_id=viewer, occurrence_id=occurrence, status="GOING",
+        ) for occurrence in (going_occurrence, favorite_occurrence)]
+        catalog.session.add_all(participations)
+        await catalog.session.flush()
+        service = EventDiscoveryService(catalog.session, Settings(
+            _env_file=None, discovery_token_secret="marker-priority-test-" * 2,
+        ))
+        request = DiscoveryRequest(
+            filters={"tag_id": scope}, sort="title", limit=1,
+            viewport=dict(west=29, east=31, south=59, north=61, zoom=24,
+                          center={"longitude": 30, "latitude": 60}),
+        )
+        result = await service.discover(request, viewer)
+        assert result.feed.items[0].id == regular  # Favorite is outside this feed page.
+        assert len(result.map.items) == 1
+        assert result.map.items[0].count == 4
+        assert result.map.items[0].state == "favorite"
+        assert result.map.items[0].title is None
+        single = await service.discover(request.model_copy(update={
+            "filters": request.filters.model_copy(update={"tag_id": solo}),
+        }), viewer)
+        assert single.map.items[0].state == "favorite"
+        assert single.map.items[0].title == "Z favorite"
+        assert single.map.items[0].event_id == favorite
+        assert (await service.discover(request, None)).map.items[0].state == "default"
+        await catalog.session.execute(delete(EventFavorite).where(EventFavorite.user_id == viewer))
+        assert (await service.discover(request, viewer)).map.items[0].state == "organizer"
+        for event_id in (owned, favorite):
+            (await catalog.session.get(Event, event_id)).organizer_user_id = other
+        await catalog.session.flush()
+        assert (await service.discover(request, viewer)).map.items[0].state == "going"
+        for participation in participations:
+            participation.status = "CANCELLED"
+        await catalog.session.flush()
+        assert (await service.discover(request, viewer)).map.items[0].state == "default"
+
+    run_in_rollback(scenario)
+
+
+@pytest.mark.skipif(not os.getenv("TEST_DATABASE_URL"), reason="Requires disposable PostGIS")
+def test_recurring_marker_uses_participation_in_any_eligible_occurrence_without_double_count():
+    async def scenario(catalog: Catalog, _queries):
+        viewer, other = await catalog.profile(), await catalog.profile()
+        scope = await catalog.tag()
+        event_id, first = await catalog.event(other, (scope,), point=(60, 30))
+        later = EventOccurrence(
+            event_id=event_id, starts_at=catalog.now + timedelta(days=6),
+            ends_at=catalog.now + timedelta(days=6, hours=2), timezone="UTC", status="SCHEDULED",
+        )
+        catalog.session.add(later)
+        await catalog.session.flush()
+        catalog.session.add(EventParticipation(
+            user_id=viewer, occurrence_id=later.id, status="GOING",
+        ))
+        await catalog.session.flush()
+        service = EventDiscoveryService(catalog.session, Settings(
+            _env_file=None, discovery_token_secret="recurring-marker-test-" * 2,
+        ))
+        request = DiscoveryRequest(
+            filters={"tag_id": scope},
+            viewport=dict(west=29, east=31, south=59, north=61, zoom=12,
+                          center={"longitude": 30, "latitude": 60}),
+        )
+        result = await service.discover(request, viewer)
+        assert result.map.total_events == result.map.items[0].count == 1
+        assert result.map.items[0].state == "going"
+        assert result.feed.items[0].occurrence_id == first
+        request.filters.date_to = (catalog.now + timedelta(days=4)).date()
+        assert (await service.discover(request, viewer)).map.items[0].state == "default"
+
+    run_in_rollback(scenario)
+
+
+@pytest.mark.skipif(not os.getenv("TEST_DATABASE_URL"), reason="Requires disposable PostGIS")
+def test_bootstrap_nearest_uses_shared_visibility_filters_and_personal_exclusions():
+    async def scenario(catalog: Catalog, _queries):
+        organizer = await catalog.profile()
+        topic, other_topic = await catalog.tag(), await catalog.tag()
+        matching, _ = await catalog.event(organizer, (topic,), title="#поход", point=(61, 31))
+        await catalog.event(organizer, (topic,), title="#поход")  # No exact location.
+        await catalog.event(organizer, (other_topic,), title="#поход", point=(60, 30))
+        for status in ("DRAFT", "CANCELLED"):
+            hidden, _ = await catalog.event(organizer, (topic,), title="#поход", point=(60, 30))
+            (await catalog.session.get(Event, hidden)).status = status
+        private, _ = await catalog.event(organizer, (topic,), title="#поход", point=(60, 30))
+        (await catalog.session.get(Event, private)).visibility = "PRIVATE"
+        expired, occurrence_id = await catalog.event(
+            organizer, (topic,), title="#поход", point=(60, 30),
+        )
+        occurrence = await catalog.session.get(EventOccurrence, occurrence_id)
+        occurrence.starts_at = catalog.now - timedelta(days=2)
+        occurrence.ends_at = catalog.now - timedelta(days=1)
+        await catalog.session.flush()
+        service = EventDiscoveryService(catalog.session, Settings(
+            _env_file=None, discovery_token_secret="bootstrap-integration-test-" * 2,
+        ))
+        request = DiscoveryBootstrapRequest(
+            filters={"q": "#поход", "tag_id": topic}, origin={"latitude": 60, "longitude": 30},
+        )
+        result = await service.bootstrap(request, None)
+        assert result.nearest.event_id == matching
+        assert result.nearest.point.latitude == 61
+        assert result.nearest.point.longitude == 31
+        # Distance is exact, with stable ties, and excludes personally dismissed events.
+        await EventService(catalog.session).set_dismissed(matching, organizer, enabled=True)
+        assert (await service.bootstrap(request, organizer)).nearest is None
+        assert (await service.bootstrap(request.model_copy(update={
+            "filters": request.filters.model_copy(update={"q": "#нет_такого"}),
+        }), None)).nearest is None
+
+    run_in_rollback(scenario)
 
 
 @pytest.mark.skipif(not os.getenv("TEST_DATABASE_URL"), reason="Requires disposable PostGIS")

@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 from uuid import UUID
 
-from sqlalchemy import exists, func, or_, select
+from sqlalchemy import exists, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from dvizh_backend.database.models import (
@@ -42,7 +42,6 @@ class NotificationService:
             EventInvitation.occurrence_id == EventOccurrence.id,
             EventOccurrence.event_id == event.id,
             EventInvitation.status == InvitationStatus.PENDING,
-            or_(EventInvitation.expires_at.is_(None), EventInvitation.expires_at > func.now()),
         )
         recipients = (
             await self.session.scalars(

@@ -410,7 +410,7 @@ def test_expired_declined_revoked_and_manager_invitations() -> None:
                 await session.execute(
                     update(EventInvitation)
                     .where(EventInvitation.id == invitation_id)
-                    .values(expires_at=datetime.now(UTC) - timedelta(hours=1))
+                    .values(status="EXPIRED")
                 )
             assert (await http.get(f"/api/users/{recipient}/invitations")).json() == []
             assert (

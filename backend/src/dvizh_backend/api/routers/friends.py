@@ -1,11 +1,22 @@
 import uuid
+from typing import Annotated
 
-from fastapi import APIRouter, status
+from fastapi import APIRouter, Query, status
 
 from dvizh_backend.api.dependencies import UserServiceDep
 from dvizh_backend.api.schemas.user import FriendshipDTO, FriendshipResponse, ProfileDTO
 
 router = APIRouter(prefix="/api/users/{user_id}/friends", tags=["friends"])
+
+
+@router.get("/search", summary="Поиск друзей по имени или никнейму с пагинацией.")
+async def search_friends(
+    user_id: uuid.UUID, users: UserServiceDep,
+    q: Annotated[str, Query(max_length=120)] = "",
+    offset: Annotated[int, Query(ge=0)] = 0,
+    limit: Annotated[int, Query(ge=1, le=100)] = 20,
+) -> list[ProfileDTO]:
+    return await users.search_friends(user_id, q, offset=offset, limit=limit)
 
 
 @router.get("", summary="Список друзей пользователя.")

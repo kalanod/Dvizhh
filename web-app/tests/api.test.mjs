@@ -41,6 +41,8 @@ for (const name of [
     "api/maps",
     "api/discovery",
     "utils/discovery",
+    "utils/discoveryCamera",
+    "utils/mapMarkers",
     "utils/yandexMaps",
     "utils/geolocation",
     "components/widgets/SortMenu/SortMenu",
@@ -1287,4 +1289,77 @@ test("all-day selection before a start date waits for that date and clearing the
     assert.equal(form.endsAt, "");
     const timed = updateEventSchedule({ ...form, endsAt: "2031-01-01T18:00" }, { field: "startsAt", value: "2031-01-01T14:00" });
     assert.equal(timed.endsAt, "2031-01-01T18:00");
+});
+
+const { initialDiscoveryCamera } = require(join(output, "utils/discoveryCamera.js"));
+test("initial camera keeps nearby users centered and fits distant anchors on desktop/mobile", () => {
+    const project = ([lon, lat]) => [(lon + 180) / 360, (1 - Math.log(Math.tan(Math.PI / 4 + lat * Math.PI / 360)) / Math.PI) / 2];
+    const wrap = (x) => ((x + 1.5) % 1) - 0.5;
+    for (const [width, height] of [[390, 330], [1100, 400]]) {
+        for (const [user, event] of [
+            [[30, 60], [30, 60]], [[30, 60], [30.00001, 60.00001]],
+            [[30, 60], [50, 40]], [[179.8, 65], [-179.8, 66]], [[-120, -45], [140, 50]],
+        ]) {
+            const camera = initialDiscoveryCamera(user, event, width, height);
+            assert.ok(Number.isFinite(camera.zoom) && camera.zoom >= 0 && camera.zoom <= 12);
+            const center = project(camera.center);
+            const scale = 256 * 2 ** camera.zoom;
+            for (const point of [user, event]) {
+                const world = project(point);
+                assert.ok(Math.abs(wrap(world[0] - center[0])) * scale <= (width - 96) / 2 + 0.001);
+                assert.ok(Math.abs(world[1] - center[1]) * scale <= (height - 96) / 2 + 0.001);
+            }
+        }
+        const near = initialDiscoveryCamera([30, 60], [30.00001, 60.00001], width, height);
+        assert.ok(Math.abs(near.center[0] - 30) < 1e-8 && Math.abs(near.center[1] - 60) < 1e-8);
+        assert.equal(near.zoom, 12);
+        const distant = initialDiscoveryCamera([30, 60], [50, 40], width, height);
+        assert.ok(distant.zoom < near.zoom);
+        assert.ok(Math.abs(distant.center[0] - 30) > 1);
+    }
+    const empty = initialDiscoveryCamera([30, 60], null, 390, 330);
+    assert.equal(empty.zoom, 12);
+    assert.ok(Math.abs(empty.center[0] - 30) < 1e-8);
+});
+
+test("bootstrap sends filters and origin without changing the feed sort or viewport", async (t) => {
+    const calls = recordFetch(t, () => Response.json({ nearest: null }));
+    const filters = { q: "#поход", free_only: true };
+    const origin = { latitude: 60, longitude: 30 };
+    const controller = new AbortController();
+    const discovery = require(join(output, "api/discovery.js"));
+    assert.deepEqual(await discovery.bootstrapDiscovery(filters, origin, controller.signal), { nearest: null });
+    assert.equal(calls[0].url.pathname, "/api/events/discovery/bootstrap");
+    assert.deepEqual(JSON.parse(calls[0].body), { filters, origin });
+    assert.equal(calls[0].options.signal, controller.signal);
+});
+
+const { mapMarkerPresentation } = require(join(output, "utils/mapMarkers.js"));
+test("map marker colors and two-line tooltips follow the server personal state", () => {
+    const item = { type: "event", count: 1, title: "Поход <script>" };
+    for (const [state, color, label] of [
+        ["default", "bg-bordermain", "Открыто"], ["going", "bg-pink-600", "Иду"],
+        ["organizer", "bg-red-600", "Организую"], ["favorite", "bg-yellow-300", "В избранном"],
+    ]) {
+        const result = mapMarkerPresentation({ ...item, state });
+        assert.ok(result.classes.includes(color));
+        assert.equal(result.tooltip, `Поход <script>\n${label}`);
+    }
+    for (const [count, text] of [[2, "2 движа рядом"], [5, "5 движей рядом"], [21, "21 движ рядом"]]) {
+        const result = mapMarkerPresentation({ type: "cluster", count, state: "favorite" });
+        assert.equal(result.tooltip, text);
+        assert.ok(result.classes.includes("bg-yellow-300"));
+    }
+    assert.ok(mapMarkerPresentation(item).classes.includes("bg-bordermain"));
+});
+test("friend picker requests bounded searchable pages without loading the whole friends list", async (t) => {
+    const calls = recordFetch(t, () => Response.json([]));
+    const controller = new AbortController();
+    const { searchFriends } = require(join(output, "api/users.js"));
+    await searchFriends("me", "Имя & ник", 20, controller.signal);
+    assert.equal(calls[0].url.pathname, "/api/users/me/friends/search");
+    assert.equal(calls[0].url.searchParams.get("q"), "Имя & ник");
+    assert.equal(calls[0].url.searchParams.get("offset"), "20");
+    assert.equal(calls[0].url.searchParams.get("limit"), "20");
+    assert.equal(calls[0].options.signal, controller.signal);
 });

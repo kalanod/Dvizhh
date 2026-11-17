@@ -5,18 +5,24 @@ from datetime import datetime
 from math import pi
 from uuid import UUID
 
-from sqlalchemy import Date, Float, String, and_, case, cast, func, literal, or_, select
+from sqlalchemy import Date, Float, String, and_, case, cast, exists, func, literal, or_, select
+from sqlalchemy.engine import RowMapping
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from dvizh_backend.api.schemas.discovery import DiscoveryFilters, MapViewport
+from dvizh_backend.api.schemas.discovery import DiscoveryFilters, MapPoint, MapViewport
 from dvizh_backend.database.models import (
     Event,
+    EventFavorite,
     EventOccurrence,
     EventParticipation,
     Friendship,
     Location,
 )
-from dvizh_backend.database.models.enums import FriendshipStatus, ParticipationStatus
+from dvizh_backend.database.models.enums import (
+    FriendshipStatus,
+    MapMarkerPriority,
+    ParticipationStatus,
+)
 
 from .event_queries import EventQueryService, going_count
 from .event_sorting import SORTINGS, DistanceSorting, SortContext, SortKey
@@ -111,6 +117,23 @@ class DiscoveryRepository:
                 .correlate(EventOccurrence)
                 .scalar_subquery()
             )
+        priority = literal(MapMarkerPriority.DEFAULT.value)
+        if filters.viewer_id is not None:
+            favorite = exists().where(
+                EventFavorite.event_id == Event.id,
+                EventFavorite.user_id == filters.viewer_id,
+            ).correlate(Event)
+            going = exists().where(
+                EventParticipation.occurrence_id == EventOccurrence.id,
+                EventParticipation.user_id == filters.viewer_id,
+                EventParticipation.status == ParticipationStatus.GOING,
+            ).correlate(EventOccurrence)
+            priority = case(
+                (favorite, MapMarkerPriority.FAVORITE.value),
+                (Event.organizer_user_id == filters.viewer_id, MapMarkerPriority.ORGANIZER.value),
+                (going, MapMarkerPriority.GOING.value),
+                else_=MapMarkerPriority.DEFAULT.value,
+            )
         # Only eligible occurrences participate. One canonical row per event, before counts/limits.
         eligible = statement.with_only_columns(
             Event.id.label("event_id"),
@@ -119,6 +142,7 @@ class DiscoveryRepository:
             Event.published_at.label("published_at"),
             Event.created_at.label("created_at"),
             Event.title.label("title"),
+            func.max(priority).over(partition_by=Event.id).label("marker_priority"),
             going_count.label("going_count"),
             cast(Location.latitude, Float).label("latitude"),
             cast(Location.longitude, Float).label("longitude"),
@@ -157,6 +181,8 @@ class DiscoveryRepository:
             y.label("y"),
             func.count().label("count"),
             func.min(c.event_id.cast(String)).label("event_id"),
+            func.min(c.title).label("title"),
+            func.max(c.marker_priority).label("marker_priority"),
             func.avg(c.latitude).label("latitude"),
             func.degrees(
                 func.atan2(
@@ -174,6 +200,21 @@ class DiscoveryRepository:
         # 31 is only an overflow probe. An overflowing result is never sent to the browser.
         result = await self.session.execute(statement.group_by(x, y).order_by(x, y).limit(31))
         return [dict(row, level=level) for row in result.mappings()]
+
+    async def nearest(self, origin: MapPoint) -> RowMapping | None:
+        c = self.candidates.c
+        context = SortContext(
+            self.session, self.filters.viewer_id, origin.latitude, origin.longitude,
+            as_of=self.as_of, columns=c,
+        )
+        distance = (await SORTINGS["distance"].keys(context))[0].expression
+        statement = (
+            select(c.event_id, c.latitude, c.longitude)
+            .where(c.position.is_not(None))
+            .order_by(distance, c.event_id)
+            .limit(1)
+        )
+        return (await self.session.execute(statement)).mappings().first()
 
     async def feed(self, sort: str, center, limit: int, after=None, cell=None, *, ranking=None):
         c = self.candidates.c

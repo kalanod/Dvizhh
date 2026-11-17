@@ -17,6 +17,7 @@ from pydantic import ValidationError
 from dvizh_backend.api.dependencies import get_discovery_service, get_discovery_viewer
 from dvizh_backend.api.routers.discovery import router
 from dvizh_backend.api.schemas.discovery import (
+    DiscoveryBootstrapResponse,
     DiscoveryFeed,
     DiscoveryRequest,
     DiscoveryResponse,
@@ -211,6 +212,31 @@ def test_discovery_sets_private_no_store_for_a_valid_read():
     assert result.status_code == 200
     assert result.headers["cache-control"] == "private, no-store"
     assert result.json()["feed"] == {"items": [], "total_events": 0, "next_cursor": None}
+
+
+def test_bootstrap_validates_origin_and_actors_without_accepting_a_viewport():
+    app = FastAPI()
+    app.include_router(router)
+    service = SimpleNamespace(bootstrap=AsyncMock(
+        return_value=DiscoveryBootstrapResponse(nearest=None),
+    ))
+    app.dependency_overrides[get_discovery_service] = lambda: service
+    app.dependency_overrides[get_discovery_viewer] = lambda: None
+    body = {"origin": {"longitude": 30, "latitude": 60}, "filters": {"q": "#поход"}}
+    with TestClient(app) as http:
+        response = http.post("/api/events/discovery/bootstrap", json=body)
+        assert response.status_code == 200
+        assert response.json() == {"nearest": None}
+        assert response.headers["cache-control"] == "private, no-store"
+        assert service.bootstrap.call_args.args[0].filters.q == "#поход"
+        for field in ("viewer_id", "friends_of"):
+            response = http.post("/api/events/discovery/bootstrap", json={
+                **body, "filters": {field: str(uuid4())},
+            })
+            assert response.status_code == 403
+        for invalid in ({}, {**body, "viewport": {}}, {"origin": {"latitude": 91, "longitude": 0}}):
+            assert http.post("/api/events/discovery/bootstrap", json=invalid).status_code == 422
+        assert service.bootstrap.await_count == 1
 
 
 @pytest.mark.parametrize("bad", [
