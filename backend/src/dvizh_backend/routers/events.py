@@ -31,13 +31,7 @@ router = APIRouter(prefix="/api/events", tags=["events"])
 async def list_events(
     events: EventServiceDep,
     q: Annotated[
-        str | None,
-        Query(
-            description=(
-                "Полнотекстовый поиск по названию и описанию. Отдельный #хештег ищется "
-                "целиком в названии без учёта регистра (буквы, цифры и подчёркивания)."
-            ),
-        ),
+        str | None, Query(description="Полнотекстовый поиск по названию и описанию.")
     ] = None,
     tag_id: Annotated[uuid.UUID | None, Query(description="Тематика события.")] = None,
     date_from: Annotated[
