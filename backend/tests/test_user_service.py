@@ -7,10 +7,10 @@ from uuid import UUID
 import pytest
 from pydantic import ValidationError
 
+from dvizh_backend.api.schemas.user import CreateProfileDTO, UpdateProfileDTO
 from dvizh_backend.database.models import Friendship, Profile
 from dvizh_backend.database.models.enums import FriendshipStatus, ProfileStatus
 from dvizh_backend.database.services.catalog import ProfileService
-from dvizh_backend.dto.user import CreateProfileDTO, UpdateProfileDTO
 from dvizh_backend.services.errors import (
     AvatarUnavailableError,
     FriendshipStateError,

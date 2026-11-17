@@ -7,12 +7,12 @@ import pytest
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
-from dvizh_backend.dto.account import AccountRequestContext
-from dvizh_backend.dto.settings import InputElement, SettingsActionRequest
-from dvizh_backend.dto.tag import CategoryTagsDTO, TagDTO
+from dvizh_backend.api import security as admin_auth
+from dvizh_backend.api.dependencies import get_settings_service
+from dvizh_backend.api.schemas.settings import InputElement, SettingsActionRequest
+from dvizh_backend.api.schemas.tag import CategoryTagsDTO, TagDTO
 from dvizh_backend.main import app
-from dvizh_backend.routers.settings import get_settings_service
-from dvizh_backend.services import admin_auth
+from dvizh_backend.services.account_context import AccountRequestContext
 from dvizh_backend.services.settings_service import (
     SettingsActionNotFoundError,
     SettingsInputError,
@@ -265,7 +265,7 @@ def test_settings_http_enforces_admin_csrf_and_sanitizes_invalid_secrets(monkeyp
     role = {"name": "admin"}
     monkeypatch.setattr(
         admin_auth,
-        "_fetch_account",
+        "fetch_current_account",
         lambda *_: admin_auth.AdminAccount(
             id=uuid4(),
             role=role["name"],

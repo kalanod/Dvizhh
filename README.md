@@ -1,5 +1,7 @@
 # Dvizh
 
+[Документация проекта и сервисов](docs/README.md).
+
 Запуск всего проекта из корня:
 
 ```shell
@@ -9,17 +11,17 @@ docker compose up --build
 Сайт: **http://localhost:8080**. 
 
 Для карты места события и подсказок адреса заполните ключи Яндекса в `.env`:
-[подключение Яндекс Карт](docs/yandex-maps.md). Дальше используется та же команда запуска.
+[подключение Яндекс Карт](web-app/docs/yandex-maps.md). Дальше используется та же команда запуска.
 
-API изображений, черновиков и уведомлений: [MEDIA_LIFECYCLE_API.md](backend/MEDIA_LIFECYCLE_API.md).
+API изображений, черновиков и уведомлений: [MEDIA_LIFECYCLE_API.md](backend/docs/MEDIA_LIFECYCLE_API.md).
 
-Основной пользовательский API: [профиль, личные списки и приглашения](backend/PERSONAL_API.md).
+Основной пользовательский API: [профиль, личные списки и приглашения](backend/docs/PERSONAL_API.md).
 
-Контракт динамических настроек администратора: [вкладки, карточки и действия v2](docs/SETTINGS_CONTRACT.md).
+Контракт динамических настроек администратора: [вкладки, карточки и действия v2](backend/docs/SETTINGS_CONTRACT.md).
 
-Создание событий: [единое место и автоматический часовой пояс](docs/EVENT_PLACE_CONTRACT.md).
+Создание событий: [единое место и автоматический часовой пояс](backend/docs/EVENT_PLACE_CONTRACT.md).
 
-![img_2.png](img_2.png)
+![img_2.png](docs/img_2.png)
 
 ## Сервисы
 
@@ -28,7 +30,7 @@ API изображений, черновиков и уведомлений: [MED
   `/api` в backend;
 - `backend` — основной FastAPI API;
 - `auth-api` — внутренний FastAPI-сервис аутентификации;
-- [recommendation-service](recommendation-service/README.md) — отдельный gRPC-сервис рекомендаций;
+- [recommendation-service](recommendation-service/docs/README.md) — отдельный gRPC-сервис рекомендаций;
 - `postgres` — основная реляционная база;
 - `pgvector` — отдельный PostgreSQL с расширением pgvector;
 - `database-init` — подготовка роли рекомендаций и схемы pgvector перед запуском API;
@@ -74,6 +76,20 @@ service/
 собираются в два этапа, устанавливают пакет в non-editable режиме и запускаются
 от непривилегированного пользователя без uv и исходников в runtime-слое.
 
+FastAPI-сервисы `backend` и `auth-api` используют единый API-слой внутри Python-пакета:
+
+```text
+src/<package>/
+├── api/
+│   ├── routers/   # HTTP-маршруты, включая system/health
+│   ├── schemas/   # схемы запросов и ответов
+│   └── errors.py  # обработчики ошибок HTTP
+└── main.py        # приложение, lifespan и подключение роутеров
+```
+
+Правила предметной области остаются в сервисах, работа с БД — в слое хранения.
+`recommendation-service` использует gRPC и сохраняет свою структуру.
+
 Фронтенд `web-app` — React + TypeScript + Vite + Tailwind CSS:
 
 ```text
@@ -110,8 +126,8 @@ backend и хранилища доступны только внутри сет�
 
 ## README отдельных компонентов
 
-- [Сервис рекомендаций](recommendation-service/README.md) — устройство сервиса, gRPC-контракт, запуск и тестирование.
-- [pgvector](pgvector/README.md) — назначение векторной БД, схема хранения и настройка.
+- [Сервис рекомендаций](recommendation-service/docs/README.md) — устройство сервиса, gRPC-контракт, запуск и тестирование.
+- [pgvector](pgvector/docs/README.md) — назначение векторной БД, схема хранения и настройка.
 - [Alembic сервиса аутентификации](auth-api/alembic/README) — краткая справка об окружении миграций.
-- [Роли аккаунтов](docs/roles.md) — роли `user`/`admin` и начальный аккаунт администратора.
+- [Роли аккаунтов](auth-api/docs/roles.md) — роли `user`/`admin` и начальный аккаунт администратора.
 

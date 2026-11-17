@@ -7,14 +7,17 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from dvizh_backend.api.errors import register_error_handlers
+from dvizh_backend.api.routers import maps
 from dvizh_backend.config import Settings, get_settings
-from dvizh_backend.routers import maps
+from dvizh_backend.services import yandex_maps_client
 
 
 @pytest.fixture
 def client(monkeypatch):
     app = FastAPI()
     app.include_router(maps.router)
+    register_error_handlers(app)
     settings = Settings(
         _env_file=None,
         yandex_maps_api_key="browser-key",
@@ -26,7 +29,7 @@ def client(monkeypatch):
     def no_network(*args, **kwargs):
         raise AssertionError("Tests must not call Yandex")
 
-    monkeypatch.setattr(maps, "urlopen", no_network)
+    monkeypatch.setattr(yandex_maps_client, "urlopen", no_network)
     with TestClient(app) as client:
         yield client, settings
 
@@ -39,7 +42,7 @@ def provider(monkeypatch, data):
         assert timeout == 10
         return BytesIO(json.dumps(data).encode())
 
-    monkeypatch.setattr(maps, "urlopen", respond)
+    monkeypatch.setattr(yandex_maps_client, "urlopen", respond)
     return requests
 
 
@@ -172,7 +175,7 @@ def test_business_permission_error_identifies_product_and_key_source(client, mon
         assert parse_qs(urlparse(request.full_url).query)["apikey"] == ["organization-secret"]
         raise HTTPError(request.full_url, 403, "Forbidden", {}, None)
 
-    monkeypatch.setattr(maps, "urlopen", denied)
+    monkeypatch.setattr(yandex_maps_client, "urlopen", denied)
     with caplog.at_level("INFO", logger="uvicorn.error"):
         response = http.get("/api/maps/geocode", params={"uri": "ymapsbm1://org?oid=123"})
     assert response.status_code == 503
@@ -264,7 +267,7 @@ def test_provider_error_does_not_leak_secret_url(client, monkeypatch, status):
     def error(request, *, timeout):
         raise HTTPError(request.full_url, status, "provider error", {}, None)
 
-    monkeypatch.setattr(maps, "urlopen", error)
+    monkeypatch.setattr(yandex_maps_client, "urlopen", error)
     response = http.get("/api/maps/geocode", params={"query": "Москва"})
     assert response.status_code == 503
     assert "secret" not in response.text

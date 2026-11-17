@@ -5,15 +5,15 @@ import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import httpx
 import pytest
 from sqlalchemy import func, select, update
 from sqlalchemy.engine import make_url
 
+from dvizh_backend.api.dependencies import get_database_service, get_discovery_viewer
 from dvizh_backend.database.database_service import DatabaseService
-from dvizh_backend.database.dependencies import get_database_service
 from dvizh_backend.database.models import (
     EventInteraction,
     EventInvitation,
@@ -164,10 +164,14 @@ def test_profile_patch_and_friend_request_inboxes() -> None:
     asyncio.run(scenario())
 
 
-def test_favorites_dismissal_personal_cards_and_retry_logs() -> None:
+def test_favorites_dismissal_personal_cards_and_retry_logs(monkeypatch) -> None:
     async def scenario() -> None:
         async with client() as (http, database):
             owner, viewer, other = await user(http), await user(http), await user(http)
+            # This domain scenario uses a verified viewer; cookie verification is tested separately.
+            monkeypatch.setitem(
+                app.dependency_overrides, get_discovery_viewer, lambda: UUID(viewer),
+            )
             card = await event(http, owner)
             event_id = card["id"]
             favorite = f"/api/users/{viewer}/favorites/{event_id}"

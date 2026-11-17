@@ -5,7 +5,12 @@ from contextlib import suppress
 from threading import Lock
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from ..dto.timezone import EventTimezoneRequest, EventTimezoneResponse, PlaceCoordinates
+from dvizh_backend.api.schemas.timezone import (
+    EventTimezoneRequest,
+    EventTimezoneResponse,
+    PlaceCoordinates,
+)
+
 from .errors import UserInactiveError, UserNotFoundError
 from .place_geocoding import ProfileCityGeocoder
 from .user_service import UserService

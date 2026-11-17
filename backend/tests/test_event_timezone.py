@@ -11,9 +11,10 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
-from dvizh_backend.dto.timezone import EventTimezoneRequest, PlaceCoordinates
-from dvizh_backend.routers.maps import get_timezone_service, router
-from dvizh_backend.services import place_geocoding
+from dvizh_backend.api.dependencies import get_discovery_viewer, get_timezone_service
+from dvizh_backend.api.routers.maps import router
+from dvizh_backend.api.schemas.timezone import EventTimezoneRequest, PlaceCoordinates
+from dvizh_backend.services import yandex_maps_client
 from dvizh_backend.services.errors import UserInactiveError, UserNotFoundError
 from dvizh_backend.services.event_timezone_service import (
     CoordinateTimezoneResolver,
@@ -139,6 +140,35 @@ def test_http_endpoint_validates_and_does_not_cache_personalized_results():
         }).status_code == 422
 
 
+def test_http_timezone_does_not_read_an_unverified_profile():
+    app = FastAPI()
+    app.include_router(router)
+    application = service()
+    app.dependency_overrides[get_timezone_service] = lambda: application
+    with TestClient(app) as http:
+        response = http.post("/api/maps/timezone", json={
+            "place": None, "user_id": str(uuid4()), "device_timezone": "UTC",
+        })
+    assert response.status_code == 403
+    application.users.get_profile.assert_not_awaited()
+
+
+def test_http_timezone_uses_verified_account_when_profile_id_is_null():
+    app = FastAPI()
+    app.include_router(router)
+    viewer = uuid4()
+    application = service()
+    app.dependency_overrides[get_timezone_service] = lambda: application
+    app.dependency_overrides[get_discovery_viewer] = lambda: viewer
+    with TestClient(app) as http:
+        response = http.post("/api/maps/timezone", json={
+            "place": None, "user_id": None, "device_timezone": "UTC",
+        })
+    assert response.status_code == 200
+    assert response.json()["source"] == "device"
+    application.users.get_profile.assert_awaited_once_with(viewer)
+
+
 def test_city_geocoder_reads_locality_without_parsing_address_text(monkeypatch):
     def provider(request, *, timeout):
         assert timeout == 10
@@ -153,7 +183,7 @@ def test_city_geocoder_reads_locality_without_parsing_address_text(monkeypatch):
             },
         }]}}}).encode())
 
-    monkeypatch.setattr(place_geocoding, "urlopen", provider)
+    monkeypatch.setattr(yandex_maps_client, "urlopen", provider)
     result = asyncio.run(ProfileCityGeocoder("dummy-secret").coordinates("Tokyo"))
     assert result == (PlaceCoordinates(latitude=35.6762, longitude=139.6503), "Токио")
 
@@ -169,7 +199,7 @@ def test_city_geocoder_does_not_infer_city_from_free_text(monkeypatch):
             },
         }]}}}).encode())
 
-    monkeypatch.setattr(place_geocoding, "urlopen", provider)
+    monkeypatch.setattr(yandex_maps_client, "urlopen", provider)
     assert asyncio.run(ProfileCityGeocoder("dummy-secret").coordinates("Москва")) is None
 
 
@@ -180,7 +210,7 @@ def test_city_provider_failures_fall_back_without_exposing_keys(monkeypatch, cap
             raise HTTPError(request.full_url, 403, "Forbidden", {}, None)
         raise URLError("Request failed: " + request.full_url)
 
-    monkeypatch.setattr(place_geocoding, "urlopen", unavailable)
+    monkeypatch.setattr(yandex_maps_client, "urlopen", unavailable)
 
     async def scenario():
         application = service(SimpleNamespace(latitude=None, longitude=None, city="Tokyo"))

@@ -4,13 +4,18 @@ from uuid import UUID
 from sqlalchemy import func, select
 from test_media_lifecycle import client, event, pytestmark, upload, user  # noqa: F401
 
+from dvizh_backend.api.dependencies import get_discovery_viewer
 from dvizh_backend.database.models import EventDismissal, EventFavorite, EventInteraction
+from dvizh_backend.main import app
 
 
-def test_cover_personal_lists_invitations_and_notifications_work_together() -> None:
+def test_cover_personal_lists_invitations_and_notifications_work_together(monkeypatch) -> None:
     async def scenario() -> None:
         async with client() as (http, _, _storage):
             owner, participant, invitee = [await user(http) for _ in range(3)]
+            monkeypatch.setitem(
+                app.dependency_overrides, get_discovery_viewer, lambda: UUID(participant),
+            )
             card = await event(http, owner, draft=True)
             event_id = card["id"]
             asset = await upload(http, owner)

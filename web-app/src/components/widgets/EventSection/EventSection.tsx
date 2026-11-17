@@ -1,41 +1,22 @@
 import { useState } from "react";
-import { errorText, listEvents } from "../../../api";
-import { useAsync, useCurrentUser, useEventFilters } from "../../../hooks";
-import { Button, Input, Tag } from "../../ui";
+import { errorText } from "../../../api";
+import type { EventDiscoveryController } from "../../../hooks/useEventDiscovery";
+import { Button, Input, Notice, Tag } from "../../ui";
 import { CalendarPreview } from "../CalendarPreview";
 import { EventList } from "../EventList";
 import { RightPanel } from "../Filters";
-
-const PAGE_SIZE = 20;
+import { SortMenu } from "../SortMenu";
 
 interface EventSectionProps {
     title: string;
+    discovery: EventDiscoveryController;
 }
 
 /** Лента событий: поиск, список и панель фильтров (BookSection шаблона). */
-export const EventSection = ({ title }: EventSectionProps) => {
-    const { userId } = useCurrentUser();
-    const { filters, setFilters, clearFilters, activeCount } = useEventFilters();
+export const EventSection = ({ title, discovery }: EventSectionProps) => {
+    const { userId, filters, setFilters, clearFilters, activeCount, events, error, loading } = discovery;
     const [searchValue, setSearchValue] = useState(filters.q);
-    const [limit, setLimit] = useState(PAGE_SIZE);
-
-    const query = {
-        q: filters.q,
-        tagId: filters.tagId,
-        from: filters.from,
-        to: filters.to,
-        freeOnly: filters.freeOnly,
-        availableOnly: filters.availableOnly,
-        friendsOf: filters.withFriends && userId ? userId : undefined,
-        viewerId: userId,
-        limit,
-    };
-    const { data: events, error, loading } = useAsync((signal) => listEvents(query, signal), JSON.stringify(query));
-
-    const applyFilters = (patch: Parameters<typeof setFilters>[0]) => {
-        setLimit(PAGE_SIZE);
-        setFilters(patch);
-    };
+    const applyFilters = (patch: Parameters<typeof setFilters>[0]) => setFilters(patch);
 
     const handleSearch = () => applyFilters({ q: searchValue.trim() });
 
@@ -47,7 +28,7 @@ export const EventSection = ({ title }: EventSectionProps) => {
 
     const handleClearAllFilters = () => {
         setSearchValue("");
-        setLimit(PAGE_SIZE);
+        discovery.clearSelection();
         clearFilters();
     };
 
@@ -61,7 +42,7 @@ export const EventSection = ({ title }: EventSectionProps) => {
         filters.withFriends && userId && "друзья идут",
     ].filter((chip): chip is string => Boolean(chip));
 
-    const hasMore = (events?.length ?? 0) >= limit;
+    const hasMore = discovery.canLoadMore;
 
     const searchButton = (
         <>
@@ -90,12 +71,19 @@ export const EventSection = ({ title }: EventSectionProps) => {
                     onKeyDown={handleKeyDown}
                 />
             </div>
+            <SortMenu value={discovery.sort} onChange={(value) => void discovery.setSort(value)}
+                distanceLabel={discovery.viewport ? "Ближе к центру карты" : "Рядом со мной"} />
         </>
     );
 
     return (
         <section className="flex w-full flex-col gap-[10px] lg:flex-row lg:items-start">
             <div className="flex min-w-0 flex-1 flex-col gap-[10px]">
+                {discovery.selected && <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-cards-surface p-3" role="status">
+                    <span className="text-body text-textprimary">Выбрана группа: {discovery.total} мероприятий</span>
+                    <Button onClick={discovery.clearSelection}>Сбросить выбор группы</Button>
+                </div>}
+                {discovery.notice && <p role="status" className="text-small text-textsecondary">{discovery.notice}</p>}
                 {activeChips.length > 0 && (
                     <div className="flex flex-wrap items-center gap-2 rounded-lg bg-cards-surface px-4 py-3">
                         <span className="text-small font-medium text-textsecondary">Активные фильтры:</span>
@@ -111,6 +99,8 @@ export const EventSection = ({ title }: EventSectionProps) => {
                     </div>
                 )}
 
+                {discovery.sortNotice && <Notice>{discovery.sortNotice}</Notice>}
+
                 <EventList
                     title={title}
                     events={events}
@@ -120,12 +110,13 @@ export const EventSection = ({ title }: EventSectionProps) => {
                     emptyText={activeChips.length > 0 ? "Под эти фильтры ничего не нашлось" : "Событий пока нет — создайте первый движ!"}
                     onTagClick={(tagId) => applyFilters({ tagId })}
                     collapseDismissed
+                    onPersonalChange={discovery.onPersonalChange}
                     footer={
                         hasMore && !loading ? (
                             <Button
                                 state="hover1"
                                 className="self-center"
-                                onClick={() => setLimit((value) => value + PAGE_SIZE)}
+                                onClick={discovery.loadMore}
                             >
                                 Показать ещё
                             </Button>

@@ -1,8 +1,8 @@
 import pytest
 from pydantic import ValidationError
 
+from dvizh_auth.api.schemas.account import RegisterRequest
 from dvizh_auth.config import Settings
-from dvizh_auth.main import RegisterRequest
 
 
 def test_public_registration_cannot_grant_admin() -> None:
