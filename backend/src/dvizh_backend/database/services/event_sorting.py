@@ -1,7 +1,7 @@
 """Порядок ленты событий: каждый способ сортировки — отдельный класс на SQLAlchemy.
 
-Способ задаёт только ключи ``ORDER BY``; фильтры, пагинацию и общий порядок
-при равенстве (дата проведения, затем ID) добавляет ``EventQueryService``.
+Способ задаёт типизированные ключи порядка для обычной и курсорной выдачи;
+фильтры и общий порядок при равенстве добавляет репозиторий.
 Новый способ: подкласс ``EventSorting`` и его имя в ``EventSort`` и ``SORTINGS``.
 """
 
@@ -9,16 +9,18 @@ import math
 from abc import ABC, abstractmethod
 from collections import defaultdict
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import ClassVar
+from typing import Any, ClassVar, Literal
 from uuid import UUID
 
-from sqlalchemy import Float, String, case, cast, func, literal, select, union_all
+from sqlalchemy import Float, String, case, cast, false, func, literal, or_, select, union_all
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.elements import ColumnElement
 
-from ...dto.event import EventSort
+from dvizh_backend.api.schemas.event import EventSort
+from dvizh_backend.database.geo import GeographyPoint
+
 from ..models import (
     Event,
     EventDismissal,
@@ -40,14 +42,73 @@ class SortContext:
     viewer_id: UUID | None
     latitude: float | None
     longitude: float | None
+    as_of: datetime = field(default_factory=lambda: datetime.now(UTC))
+    columns: Any = None
+    interest: Mapping[UUID, float] | None = None
+
+    def event_column(self, name: str) -> ColumnElement:
+        if self.columns is None:
+            return getattr(Event, name)
+        return getattr(self.columns, "event_id" if name == "id" else name)
+
+
+@dataclass(frozen=True)
+class SortKey:
+    """One ORDER BY key, including the matching cursor comparison and value type."""
+
+    expression: ColumnElement
+    kind: Literal["number", "text", "datetime", "uuid"] = "number"
+    descending: bool = False
+
+    def order_by(self) -> ColumnElement:
+        ordered = self.expression.desc() if self.descending else self.expression.asc()
+        return ordered.nulls_last()
+
+    def decode(self, value):
+        if value is None:
+            return None
+        if self.kind == "datetime":
+            return datetime.fromisoformat(value)
+        if self.kind == "uuid":
+            return UUID(value)
+        if self.kind == "text":
+            if not isinstance(value, str):
+                raise ValueError("Invalid text cursor")
+            return value
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise ValueError("Invalid numeric cursor")
+        if not math.isfinite(value):
+            raise ValueError("Invalid numeric cursor")
+        return value
+
+    def encode(self, value):
+        if value is None:
+            return None
+        if self.kind == "datetime":
+            return value.isoformat()
+        if self.kind in {"uuid", "text"}:
+            return str(value)
+        return float(value)
+
+    def equal_to(self, value) -> ColumnElement:
+        return self.expression.is_(None) if value is None else self.expression == value
+
+    def after(self, value) -> ColumnElement:
+        if value is None:
+            return false()  # NULLS LAST: only subsequent tie-breakers can follow a null key.
+        comparison = self.expression < value if self.descending else self.expression > value
+        return or_(comparison, self.expression.is_(None))
 
 
 class EventSorting(ABC):
     name: ClassVar[EventSort]
 
     @abstractmethod
-    async def order_by(self, context: SortContext) -> list[ColumnElement]:
+    async def keys(self, context: SortContext) -> list[SortKey]:
         """Ключи сортировки, самые подходящие события первыми."""
+
+    async def order_by(self, context: SortContext) -> list[ColumnElement]:
+        return [key.order_by() for key in await self.keys(context)]
 
 
 class NoveltySorting(EventSorting):
@@ -55,8 +116,8 @@ class NoveltySorting(EventSorting):
 
     name = "novelty"
 
-    async def order_by(self, context: SortContext) -> list[ColumnElement]:
-        return [Event.published_at.desc().nulls_last()]
+    async def keys(self, context: SortContext) -> list[SortKey]:
+        return [SortKey(context.event_column("published_at"), "datetime", descending=True)]
 
 
 class TitleSorting(EventSorting):
@@ -64,39 +125,45 @@ class TitleSorting(EventSorting):
 
     name = "title"
 
-    async def order_by(self, context: SortContext) -> list[ColumnElement]:
-        return [func.lower(Event.title), Event.title]
+    async def keys(self, context: SortContext) -> list[SortKey]:
+        title = context.event_column("title")
+        return [SortKey(func.lower(title), "text"), SortKey(title, "text")]
+
+
+class StartSorting(EventSorting):
+    name = "start"
+
+    async def keys(self, context: SortContext) -> list[SortKey]:
+        starts = (
+            context.columns.starts_at if context.columns is not None else EventOccurrence.starts_at
+        )
+        return [SortKey(starts, "datetime")]
 
 
 class DistanceSorting(EventSorting):
     """Сначала ближайшие к точке пользователя; онлайн-события в конце.
 
     Точка — координаты из запроса (геопозиция браузера), а без них — из профиля.
-    Расстояние по поверхности Земли считается формулой гаверсинуса.
+    Расстояние по поверхности Земли считается PostGIS в метрах.
     """
 
     name = "distance"
-    EARTH_RADIUS_KM: ClassVar[float] = 6371.0088
 
-    async def order_by(self, context: SortContext) -> list[ColumnElement]:
+    async def keys(self, context: SortContext) -> list[SortKey]:
         latitude, longitude = await self._origin(context)
-        place_lat = cast(Location.latitude, Float)
-        place_lon = cast(Location.longitude, Float)
-        origin_lat = literal(latitude, Float)
-        origin_lon = literal(longitude, Float)
-        half_chord = func.power(func.sin(func.radians(place_lat - origin_lat) / 2.0), 2) + func.cos(
-            func.radians(origin_lat)
-        ) * func.cos(func.radians(place_lat)) * func.power(
-            func.sin(func.radians(place_lon - origin_lon) / 2.0), 2
+        origin = func.ST_SetSRID(func.ST_MakePoint(longitude, latitude), 4326)
+        position = context.columns.position if context.columns is not None else Location.position
+        distance = func.ST_Distance(
+            cast(position, GeographyPoint()), cast(origin, GeographyPoint())
         )
-        # least(1, …) защищает asin от погрешности округления чуть выше 1.
-        distance_km = (
-            select(2 * self.EARTH_RADIUS_KM * func.asin(func.least(1.0, func.sqrt(half_chord))))
-            .where(Location.id == Event.location_id)
-            .correlate(Event)
-            .scalar_subquery()
-        )
-        return [distance_km.asc().nulls_last()]
+        if context.columns is None:
+            distance = (
+                select(distance)
+                .where(Location.id == Event.location_id)
+                .correlate(Event)
+                .scalar_subquery()
+            )
+        return [SortKey(cast(distance, Float))]
 
     @staticmethod
     async def _origin(context: SortContext) -> tuple[float, float]:
@@ -144,39 +211,55 @@ class RelevanceSorting(EventSorting):
     W_FRESHNESS: ClassVar[float] = 0.3
     FRESHNESS_HALF_LIFE_DAYS: ClassVar[float] = 14
 
-    async def order_by(self, context: SortContext) -> list[ColumnElement]:
-        interest = await self._interest(context)
+    async def keys(self, context: SortContext) -> list[SortKey]:
+        interest = (
+            context.interest if context.interest is not None else await self._interest(context)
+        )
         going = (
-            select(func.count(EventParticipation.id))
-            .where(
-                EventParticipation.occurrence_id == EventOccurrence.id,
-                EventParticipation.status == ParticipationStatus.GOING,
+            context.columns.going_count
+            if context.columns is not None
+            else (
+                select(func.count(EventParticipation.id))
+                .where(
+                    EventParticipation.occurrence_id == EventOccurrence.id,
+                    EventParticipation.status == ParticipationStatus.GOING,
+                )
+                .correlate(EventOccurrence)
+                .scalar_subquery()
             )
-            .correlate(EventOccurrence)
-            .scalar_subquery()
         )
         age_seconds = func.greatest(
-            func.extract("epoch", func.now() - func.coalesce(Event.published_at, Event.created_at)),
+            func.extract(
+                "epoch",
+                literal(context.as_of)
+                - func.coalesce(
+                    context.event_column("published_at"),
+                    context.event_column("created_at"),
+                ),
+            ),
             0,
         )
         freshness = func.exp(-math.log(2) * age_seconds / (self.FRESHNESS_HALF_LIFE_DAYS * 86400))
         score = (
-            self.W_INTEREST * self._interest_score(interest)
+            self.W_INTEREST * self._interest_score(interest, context)
             + self.W_POPULAR * func.ln(1 + cast(going, Float))
             + self.W_FRESHNESS * freshness
         )
-        return [score.desc(), Event.published_at.desc().nulls_last()]
+        return [
+            SortKey(cast(score, Float), descending=True),
+            SortKey(context.event_column("published_at"), "datetime", descending=True),
+        ]
 
     @staticmethod
-    def _interest_score(interest: Mapping[UUID, float]) -> ColumnElement:
+    def _interest_score(interest: Mapping[UUID, float], context: SortContext) -> ColumnElement:
         """Сумма интереса к тегам события, делённая на корень из числа его тегов."""
         if not interest:
             return literal(0.0, Float)
         tag_weight = case(interest, value=EventTag.tag_id, else_=0.0)
         per_event = (
             select(func.sum(tag_weight) / func.sqrt(func.count()))
-            .where(EventTag.event_id == Event.id)
-            .correlate(Event)
+            .where(EventTag.event_id == context.event_column("id"))
+            .correlate(context.columns.event_id.table if context.columns is not None else Event)
             .scalar_subquery()
         )
         return func.coalesce(per_event, 0.0)
@@ -222,11 +305,13 @@ class RelevanceSorting(EventSorting):
                 ),
             ),
         )
-        now = datetime.now(UTC)
+        now = context.as_of
         weights: dict[UUID, float] = defaultdict(float)
         for tag_id, kind, happened_at in await context.session.execute(signals):
             weight = self.SIGNAL_WEIGHTS.get(kind)
             if weight is None:
+                continue
+            if happened_at > now:
                 continue
             age_days = max((now - happened_at).total_seconds(), 0) / 86400
             weights[tag_id] += weight * 0.5 ** (age_days / self.SIGNAL_HALF_LIFE_DAYS)
@@ -244,5 +329,11 @@ class RelevanceSorting(EventSorting):
 
 SORTINGS: dict[EventSort, EventSorting] = {
     sorting.name: sorting
-    for sorting in (NoveltySorting(), TitleSorting(), DistanceSorting(), RelevanceSorting())
+    for sorting in (
+        NoveltySorting(),
+        TitleSorting(),
+        DistanceSorting(),
+        RelevanceSorting(),
+        StartSorting(),
+    )
 }

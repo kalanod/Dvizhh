@@ -5,8 +5,8 @@ from uuid import UUID
 
 from pydantic import ValidationError
 
-from ..dto.account import AccountRequestContext, ChangePasswordCommand
-from ..dto.settings import (
+from dvizh_backend.api.schemas.account import ChangePasswordCommand
+from dvizh_backend.api.schemas.settings import (
     ButtonElement,
     InputElement,
     SelectElement,
@@ -19,7 +19,14 @@ from ..dto.settings import (
     TextElement,
     ToggleElement,
 )
-from ..dto.tag import CategoryCreateDTO, CategoryUpdateDTO, TagCreateDTO, TagUpdateDTO
+from dvizh_backend.api.schemas.tag import (
+    CategoryCreateDTO,
+    CategoryUpdateDTO,
+    TagCreateDTO,
+    TagUpdateDTO,
+)
+from dvizh_backend.services.account_context import AccountRequestContext
+
 from .tag_service import TagService
 from .user_service import UserService
 

@@ -1,7 +1,7 @@
 import asyncio
 from logging.config import fileConfig
 
-from sqlalchemy import pool
+from sqlalchemy import pool, text
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from alembic import context
@@ -16,6 +16,12 @@ if config.config_file_name is not None:
 
 config.set_main_option("sqlalchemy.url", get_settings().database_url.replace("%", "%%"))
 target_metadata = Base.metadata
+extension_tables = {"spatial_ref_sys"}
+
+
+def include_object(object_, name, type_, reflected, compare_to):
+    # Ignore extension-owned relations visible through PostgreSQL's search_path.
+    return not (type_ == "table" and name in extension_tables)
 
 
 def run_migrations_offline() -> None:
@@ -25,6 +31,7 @@ def run_migrations_offline() -> None:
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
         compare_type=True,
+        include_object=include_object,
     )
 
     with context.begin_transaction():
@@ -32,7 +39,22 @@ def run_migrations_offline() -> None:
 
 
 def do_run_migrations(connection: object) -> None:
-    context.configure(connection=connection, target_metadata=target_metadata, compare_type=True)
+    extension_tables.update(connection.execute(text(
+        "SELECT c.relname FROM pg_class c "
+        "JOIN pg_depend d ON d.objid=c.oid AND d.classid='pg_class'::regclass "
+        "JOIN pg_extension e ON e.oid=d.refobjid "
+        "WHERE d.refclassid='pg_extension'::regclass AND d.deptype='e' "
+        "AND e.extname IN ('postgis', 'postgis_topology')"
+    )).scalars())
+    # The extension lookup starts an implicit transaction. Alembic must own its
+    # transaction so upgrade/downgrade changes are committed on connection close.
+    connection.commit()
+    context.configure(
+        connection=connection,
+        target_metadata=target_metadata,
+        compare_type=True,
+        include_object=include_object,
+    )
 
     with context.begin_transaction():
         context.run_migrations()

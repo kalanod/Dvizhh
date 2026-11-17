@@ -8,6 +8,15 @@ import pytest
 from pydantic import ValidationError
 from sqlalchemy.dialects import postgresql
 
+from dvizh_backend.api.errors import STATUS_BY_ERROR
+from dvizh_backend.api.schemas.event import (
+    CreateEventDTO,
+    EventPersonalStateDTO,
+    LocationDTO,
+    UpdateEventDTO,
+)
+from dvizh_backend.api.schemas.tag import CategoryDTO, EventTagDTO
+from dvizh_backend.api.schemas.user import UserCreate
 from dvizh_backend.database.models import Event, EventOccurrence, Profile
 from dvizh_backend.database.models.enums import (
     EventFormat,
@@ -20,16 +29,7 @@ from dvizh_backend.database.models.enums import (
 )
 from dvizh_backend.database.services.event_queries import EventQueryService, EventRow
 from dvizh_backend.database.services.exceptions import EntityNotFoundError
-from dvizh_backend.dto.event import (
-    CreateEventDTO,
-    EventPersonalStateDTO,
-    LocationDTO,
-    UpdateEventDTO,
-)
-from dvizh_backend.dto.tag import CategoryDTO, EventTagDTO
 from dvizh_backend.main import app
-from dvizh_backend.routers.errors import STATUS_BY_ERROR
-from dvizh_backend.routers.users import UserCreate
 from dvizh_backend.services.errors import UserNotFoundError
 from dvizh_backend.services.event_service import EventService
 

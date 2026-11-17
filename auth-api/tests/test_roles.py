@@ -11,10 +11,11 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.exc import IntegrityError
 from starlette.requests import Request
 
+from dvizh_auth.api.dependencies import require_admin
+from dvizh_auth.api.routers.auth import current_account, login, register
+from dvizh_auth.api.schemas.account import LoginRequest, RegisterRequest
 from dvizh_auth.config import Settings
 from dvizh_auth.database import Database
-from dvizh_auth.dependencies import require_admin
-from dvizh_auth.main import LoginRequest, RegisterRequest, current_account, login, register
 from dvizh_auth.models import ADMIN_ROLE_ID, USER_ROLE_ID, Account, Role
 
 

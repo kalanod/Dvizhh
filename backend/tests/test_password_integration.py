@@ -9,9 +9,9 @@ from uuid import uuid4
 import httpx
 import pytest
 
+from dvizh_backend.api.dependencies import get_user_service
 from dvizh_backend.main import app
 from dvizh_backend.services.account_gateway import AccountGateway
-from dvizh_backend.services.dependencies import get_user_service
 from dvizh_backend.services.user_service import UserService
 
 

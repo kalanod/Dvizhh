@@ -12,6 +12,7 @@ import pytest
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
+from dvizh_backend.api.dependencies import get_event_service
 from dvizh_backend.database.models import (
     Event,
     EventDismissal,
@@ -28,7 +29,6 @@ from dvizh_backend.database.services.event_queries import EventQueryService
 from dvizh_backend.database.services.event_sorting import SORTINGS, SortContext
 from dvizh_backend.database.services.exceptions import EventSortError
 from dvizh_backend.main import app
-from dvizh_backend.services.dependencies import get_event_service
 
 TEST_DATABASE_URL = os.getenv("TEST_DATABASE_URL")
 SPB = (59.9386, 30.3141)
@@ -52,7 +52,7 @@ def order_by_sql(sort: str, **context) -> str:
 
 
 def test_every_sorting_is_registered_under_its_name():
-    assert set(SORTINGS) == {"relevance", "novelty", "title", "distance"}
+    assert set(SORTINGS) == {"relevance", "novelty", "title", "distance", "start"}
     assert all(name == sorting.name for name, sorting in SORTINGS.items())
 
 
@@ -60,9 +60,10 @@ def test_every_sorting_is_registered_under_its_name():
     ("sort", "context", "first_key"),
     [
         ("novelty", {}, "ORDER BY events.published_at DESC NULLS LAST"),
-        ("title", {}, "ORDER BY lower(events.title), events.title"),
-        ("distance", {"latitude": 59.93, "longitude": 30.31}, "ORDER BY (SELECT"),
+        ("title", {}, "ORDER BY lower(events.title) ASC NULLS LAST, events.title ASC NULLS LAST"),
+        ("distance", {"latitude": 59.93, "longitude": 30.31}, "ORDER BY CAST((SELECT ST_Distance"),
         ("relevance", {}, "ORDER BY "),
+        ("start", {}, "ORDER BY event_occurrences.starts_at ASC NULLS LAST"),
     ],
 )
 def test_sorting_keys_come_before_the_shared_tie_breakers_and_limit(sort, context, first_key):
@@ -138,6 +139,15 @@ def test_events_endpoint_returns_sort_errors_as_json():
 
     assert response.status_code == 422
     assert response.json() == {"detail": "Передайте latitude и longitude вместе."}
+
+
+@pytest.mark.parametrize("field", ["viewer_id", "friends_of"])
+def test_legacy_feed_cannot_bypass_discovery_identity_checks(field):
+    service = MagicMock()
+    service.list_public = AsyncMock()
+    response = request_events(service, f"sort=relevance&{field}={uuid4()}")
+    assert response.status_code == 403
+    service.list_public.assert_not_awaited()
 
 
 integration = pytest.mark.skipif(not TEST_DATABASE_URL, reason="Requires PostgreSQL")

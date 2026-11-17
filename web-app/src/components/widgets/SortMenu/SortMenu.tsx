@@ -6,6 +6,7 @@ const SORT_LABELS: Record<EventSort, string> = {
     novelty: "Сначала новые",
     title: "По названию",
     distance: "Рядом со мной",
+    start: "По дате начала",
 };
 
 const SORTS = Object.keys(SORT_LABELS) as EventSort[];
@@ -13,12 +14,14 @@ const SORTS = Object.keys(SORT_LABELS) as EventSort[];
 interface SortMenuProps {
     value: EventSort;
     onChange: (sort: EventSort) => void;
+    distanceLabel?: string;
 }
 
 /** Квадратная кнопка рядом с поиском и выпадающий список сортировок ленты. */
-export const SortMenu = ({ value, onChange }: SortMenuProps) => {
+export const SortMenu = ({ value, onChange, distanceLabel = SORT_LABELS.distance }: SortMenuProps) => {
     const [open, setOpen] = useState(false);
     const rootRef = useRef<HTMLDivElement>(null);
+    const labels = { ...SORT_LABELS, distance: distanceLabel };
 
     useEffect(() => {
         if (!open) return;
@@ -38,7 +41,7 @@ export const SortMenu = ({ value, onChange }: SortMenuProps) => {
 
     const choose = (sort: EventSort) => {
         setOpen(false);
-        if (sort !== value) onChange(sort);
+        onChange(sort);
     };
 
     return (
@@ -48,8 +51,8 @@ export const SortMenu = ({ value, onChange }: SortMenuProps) => {
                 onClick={() => setOpen((previous) => !previous)}
                 aria-haspopup="menu"
                 aria-expanded={open}
-                aria-label={`Сортировка: ${SORT_LABELS[value]}`}
-                title={`Сортировка: ${SORT_LABELS[value]}`}
+                aria-label={`Сортировка: ${labels[value]}`}
+                title={`Сортировка: ${labels[value]}`}
                 className="inline-flex h-[41px] w-[41px] cursor-pointer items-center justify-center rounded-lg bg-primary transition-all hover:bg-borderlight"
             >
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -80,7 +83,7 @@ export const SortMenu = ({ value, onChange }: SortMenuProps) => {
                                     sort === value ? "bg-cards-surface font-medium" : ""
                                 }`}
                             >
-                                {SORT_LABELS[sort]}
+                                {labels[sort]}
                                 {sort === value && <span aria-hidden="true">✓</span>}
                             </button>
                         </li>

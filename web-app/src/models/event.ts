@@ -95,8 +95,8 @@ export interface Participant {
     status: ParticipationStatus;
 }
 
-/** Сортировка ленты GET /api/events (параметр sort). */
-export type EventSort = "relevance" | "novelty" | "title" | "distance";
+/** Общие сортировки публичной ленты и географической выдачи. */
+export type EventSort = "relevance" | "novelty" | "title" | "distance" | "start";
 
 /** Параметры ленты GET /api/events. */
 export interface EventFilters {

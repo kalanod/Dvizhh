@@ -13,6 +13,9 @@ class AccountRepository:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
 
+    async def get(self, account_id: UUID) -> Account | None:
+        return await self.session.get(Account, account_id)
+
     async def find(self, identifier: str) -> Account | None:
         column = Account.email if "@" in identifier else Account.username
         return await self.session.scalar(select(Account).where(column == identifier))

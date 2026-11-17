@@ -6,6 +6,20 @@ from uuid import UUID, uuid4
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from dvizh_backend.api.schemas.event import (
+    CreateEventDTO,
+    EventDTO,
+    EventSort,
+    LocationDTO,
+    ParticipantDTO,
+    UpdateEventDTO,
+    UserSummaryDTO,
+)
+from dvizh_backend.api.schemas.invitation import (
+    CreateInvitationDTO,
+    InvitationCardDTO,
+    InvitationDTO,
+)
 from dvizh_backend.database.models import Event, EventInvitation, EventOccurrence, Profile
 from dvizh_backend.database.models.enums import EventOrigin, EventStatus, ProfileStatus
 from dvizh_backend.database.services.access import can_manage_event
@@ -19,16 +33,7 @@ from dvizh_backend.database.services.exceptions import (
     PermissionDeniedError,
 )
 from dvizh_backend.database.services.participation import ParticipationService
-from dvizh_backend.dto.event import (
-    CreateEventDTO,
-    EventDTO,
-    EventSort,
-    LocationDTO,
-    ParticipantDTO,
-    UpdateEventDTO,
-    UserSummaryDTO,
-)
-from dvizh_backend.dto.invitation import CreateInvitationDTO, InvitationCardDTO, InvitationDTO
+from dvizh_backend.services.event_presenter import EventPresenter
 
 from .errors import UserInactiveError, UserNotFoundError
 from .notification_service import NotificationService
@@ -44,6 +49,7 @@ class EventService:
     def __init__(self, session: AsyncSession) -> None:
         self.events = EventCRUDService(session)
         self.queries = EventQueryService(session)
+        self.presenter = EventPresenter(self.queries)
         self.participations = ParticipationService(session)
         self.profiles = ProfileService(session)
         self.locations = LocationService(session)
@@ -86,11 +92,13 @@ class EventService:
             limit=limit,
             viewer_id=viewer_id,
         )
-        return await self._to_dtos(rows, viewer_id=viewer_id)
+        return await self.presenter.to_dtos(rows, viewer_id=viewer_id)
 
     async def list_calendar(self, user_id: UUID) -> list[EventDTO]:
         await self._require_active_profile(user_id)
-        return await self._to_dtos(await self.queries.list_going(user_id), viewer_id=user_id)
+        return await self.presenter.to_dtos(
+            await self.queries.list_going(user_id), viewer_id=user_id
+        )
 
     async def get_event(self, event_id: UUID, viewer_id: UUID | None = None) -> EventDTO:
         if viewer_id is not None:
@@ -100,7 +108,7 @@ class EventService:
             viewer_id is None or not await can_manage_event(self.session, row.event, viewer_id)
         ):
             raise PermissionDeniedError("Draft is only available to its managers")
-        return (await self._to_dtos([row], viewer_id=viewer_id))[0]
+        return (await self.presenter.to_dtos([row], viewer_id=viewer_id))[0]
 
     async def list_personal(
         self,
@@ -112,7 +120,7 @@ class EventService:
     ) -> list[EventDTO]:
         await self._require_active_profile(user_id)
         rows = await self.queries.list_personal(user_id, kind=kind, offset=offset, limit=limit)
-        return await self._to_dtos(rows, viewer_id=user_id)
+        return await self.presenter.to_dtos(rows, viewer_id=user_id)
 
     async def set_favorite(self, event_id: UUID, user_id: UUID, *, enabled: bool) -> EventDTO:
         await self._require_active_profile(user_id)
@@ -151,7 +159,10 @@ class EventService:
         await self._require_active_profile(user_id)
         invitations = await self.invitations.list_incoming(user_id, offset=offset, limit=limit)
         rows = await self.queries.get_occurrences([item.occurrence_id for item in invitations])
-        dtos = {card.occurrence_id: card for card in await self._to_dtos(rows, viewer_id=user_id)}
+        dtos = {
+            card.occurrence_id: card
+            for card in await self.presenter.to_dtos(rows, viewer_id=user_id)
+        }
         return [
             InvitationCardDTO(
                 invitation=InvitationDTO.model_validate(item), event=dtos[item.occurrence_id]
@@ -170,7 +181,8 @@ class EventService:
             select(EventInvitation)
             .where(EventInvitation.occurrence_id == row.occurrence.id)
             .order_by(EventInvitation.created_at.desc(), EventInvitation.id)
-            .offset(offset).limit(limit)
+            .offset(offset)
+            .limit(limit)
         )
         return [InvitationDTO.model_validate(item) for item in items]
 
@@ -211,7 +223,7 @@ class EventService:
         self, user_id: UUID, *, offset: int = 0, limit: int = 20
     ) -> list[EventDTO]:
         await self._require_active_profile(user_id)
-        return await self._to_dtos(
+        return await self.presenter.to_dtos(
             await self.queries.list_drafts(user_id, offset=offset, limit=limit), viewer_id=user_id
         )
 
@@ -343,66 +355,6 @@ class EventService:
         location = await self.locations.get_by_id(location_id)
         if location is not None:
             await self.locations.delete(location)
-
-    async def _to_dtos(
-        self, rows: list[EventRow], *, viewer_id: UUID | None = None
-    ) -> list[EventDTO]:
-        if not rows:
-            return []
-        events = [row.event for row in rows]
-        tags = await self.queries.event_tags(event.id for event in events)
-        locations = await self.queries.locations(
-            event.location_id for event in events if event.location_id is not None
-        )
-        organizers = await self.queries.profiles(
-            event.organizer_user_id for event in events if event.organizer_user_id is not None
-        )
-
-        dtos = []
-        covers = await self.queries.covers(event.id for event in events)
-        personal_states = (
-            await self.queries.personal_states(viewer_id, rows) if viewer_id is not None else {}
-        )
-        for row in rows:
-            event, occurrence = row.event, row.occurrence
-            location = locations.get(event.location_id)
-            organizer = organizers.get(event.organizer_user_id)
-            dtos.append(
-                EventDTO(
-                    id=event.id,
-                    occurrence_id=occurrence.id,
-                    slug=event.slug,
-                    title=event.title,
-                    description=event.description,
-                    tags=tags.get(event.id, []),
-                    starts_at=occurrence.starts_at,
-                    ends_at=occurrence.ends_at,
-                    timezone=occurrence.timezone,
-                    is_all_day=occurrence.is_all_day,
-                    format=event.format,
-                    location=LocationDTO.model_validate(location) if location else None,
-                    online_url=event.online_url,
-                    registration_url=event.registration_url,
-                    price_type=event.price_type,
-                    price_min=event.price_min,
-                    price_max=event.price_max,
-                    currency=event.currency,
-                    capacity=event.capacity,
-                    participants_count=row.participants_count,
-                    status=event.status,
-                    visibility=event.visibility,
-                    join_policy=event.join_policy,
-                    organizer=UserSummaryDTO.model_validate(organizer) if organizer else None,
-                    published_at=event.published_at,
-                    created_at=event.created_at,
-                    cover_media_id=covers.get(event.id),
-                    cover_url=(
-                        f"/api/media/{covers[event.id]}/content" if event.id in covers else None
-                    ),
-                    personal_state=personal_states.get(occurrence.id),
-                )
-            )
-        return dtos
 
     @staticmethod
     def _make_slug(title: str) -> str:

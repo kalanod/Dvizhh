@@ -1,6 +1,7 @@
 from functools import lru_cache
+from secrets import token_urlsafe
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -19,6 +20,14 @@ class Settings(BaseSettings):
     media_max_mib: int = Field(10, ge=1, le=128)
     media_max_pixels: int = Field(25_000_000, ge=1, le=100_000_000)
     recommendation_url: str = "http://recommendation-service:8001"
+    discovery_token_secret: str = Field(default_factory=lambda: token_urlsafe(48), min_length=32)
+    discovery_token_ttl_seconds: int = Field(default=600, ge=60, le=3600)
+
+    @field_validator("discovery_token_secret", mode="before")
+    @classmethod
+    def discovery_default_when_blank(cls, value):
+        return token_urlsafe(48) if isinstance(value, str) and not value.strip() else value
+
     auth_url: str = "http://auth-api:8003"
     yandex_maps_api_key: str = ""
     yandex_suggest_api_key: str = ""

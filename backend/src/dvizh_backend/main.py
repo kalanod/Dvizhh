@@ -2,14 +2,26 @@ import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 
-from .config import get_settings
-from .database.database_service import DatabaseService
-from .routers import admin, events, friends, lifecycle, maps, media, personal, tags, users
-from .routers import settings as settings_router
-from .routers.errors import register_error_handlers
-from .storage import MediaStorage
+from dvizh_backend.api.errors import register_error_handlers
+from dvizh_backend.api.routers import (
+    admin,
+    discovery,
+    events,
+    friends,
+    lifecycle,
+    maps,
+    media,
+    personal,
+    system,
+    tags,
+    users,
+)
+from dvizh_backend.api.routers import settings as settings_router
+from dvizh_backend.config import get_settings
+from dvizh_backend.database.database_service import DatabaseService
+from dvizh_backend.storage import MediaStorage
 
 settings = get_settings()
 logger = logging.getLogger("uvicorn.error")
@@ -46,25 +58,11 @@ app.include_router(settings_router.router)
 app.include_router(tags.router)
 app.include_router(users.router)
 app.include_router(friends.router)
+app.include_router(discovery.router)
 app.include_router(events.router)
 app.include_router(lifecycle.router)
 app.include_router(media.router)
 app.include_router(maps.router)
 app.include_router(personal.router)
+app.include_router(system.router)
 register_error_handlers(app)
-
-
-@app.get(
-    "/api/health",
-    tags=["system"],
-    summary="Состояние сервиса (используется healthcheck-ом контейнера).",
-)
-async def health(request: Request) -> dict[str, str]:
-    database_service: DatabaseService = request.app.state.database_service
-    await database_service.ping()
-    return {"status": "ok", "service": "backend", "database": "ok"}
-
-
-@app.get("/api", tags=["system"], summary="Проверка, что API запущен.")
-async def root() -> dict[str, str]:
-    return {"message": "Dvizh API is running"}

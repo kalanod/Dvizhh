@@ -20,6 +20,9 @@ interface MapEntity {
 }
 
 export interface MapInstance extends MapEntity {
+    readonly bounds?: [Coordinates, Coordinates];
+    readonly center?: Coordinates;
+    readonly zoom?: number;
     addChild(entity: MapEntity): MapInstance;
     removeChild(entity: MapEntity): MapInstance;
     destroy(): void;
@@ -33,7 +36,9 @@ export interface YandexMaps {
     YMapMarker: new (props: Record<string, unknown>, element: HTMLElement) => MapEntity;
     YMapListener: new (props: {
         layer: string;
-        onClick: (object: { type: string } | undefined, event: { coordinates: Coordinates }) => void;
+        onClick?: (object: { type: string } | undefined, event: { coordinates: Coordinates }) => void;
+        onUpdate?: (event: { mapInAction: boolean; location: { center: Coordinates; zoom: number } }) => void;
+        onResize?: (event: { mapInAction: boolean }) => void;
     }) => MapEntity;
 }
 

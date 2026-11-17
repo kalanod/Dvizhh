@@ -1,91 +1,22 @@
-import { useRef, useState } from "react";
-import { errorText, listEvents } from "../../../api";
-import { useAsync, useCurrentUser, useEventFilters } from "../../../hooks";
-import type { EventSort } from "../../../models";
-import { currentCoordinates } from "../../../utils/geolocation";
+import { useState } from "react";
+import { errorText } from "../../../api";
+import type { EventDiscoveryController } from "../../../hooks/useEventDiscovery";
 import { Button, Input, Notice, Tag } from "../../ui";
 import { CalendarPreview } from "../CalendarPreview";
 import { EventList } from "../EventList";
 import { RightPanel } from "../Filters";
 import { SortMenu } from "../SortMenu";
 
-const PAGE_SIZE = 20;
-
 interface EventSectionProps {
     title: string;
+    discovery: EventDiscoveryController;
 }
 
 /** Лента событий: поиск, список и панель фильтров (BookSection шаблона). */
-export const EventSection = ({ title }: EventSectionProps) => {
-    const { userId, user } = useCurrentUser();
-    const { filters, setFilters, clearFilters, activeCount } = useEventFilters();
+export const EventSection = ({ title, discovery }: EventSectionProps) => {
+    const { userId, filters, setFilters, clearFilters, activeCount, events, error, loading } = discovery;
     const [searchValue, setSearchValue] = useState(filters.q);
-    const [limit, setLimit] = useState(PAGE_SIZE);
-    // null — сортировка по умолчанию: «Рекомендуем» для вошедших, «Сначала новые» для гостей.
-    const [sort, setSort] = useState<EventSort | null>(null);
-    const [point, setPoint] = useState<{ latitude: number; longitude: number } | null>(null);
-    const [locationNotice, setLocationNotice] = useState<string | null>(null);
-    const selectedSort = sort ?? (userId ? "relevance" : "novelty");
-
-    const query = {
-        q: filters.q,
-        tagId: filters.tagId,
-        from: filters.from,
-        to: filters.to,
-        freeOnly: filters.freeOnly,
-        availableOnly: filters.availableOnly,
-        friendsOf: filters.withFriends && userId ? userId : undefined,
-        viewerId: userId,
-        sort: selectedSort,
-        latitude: selectedSort === "distance" ? point?.latitude : undefined,
-        longitude: selectedSort === "distance" ? point?.longitude : undefined,
-        limit,
-    };
-    const { data: events, error, loading } = useAsync((signal) => listEvents(query, signal), JSON.stringify(query));
-
-    const sortRequest = useRef(0);
-    const chooseSort = async (next: EventSort) => {
-        const request = ++sortRequest.current;
-        setLocationNotice(null);
-        if (next !== "distance") {
-            setLimit(PAGE_SIZE);
-            setSort(next);
-            return;
-        }
-        const hasProfilePoint = Boolean(user?.latitude && user.longitude);
-        if (hasProfilePoint) {
-            // Сразу сортируем от точки профиля, а геопозицию браузера ждём в фоне.
-            setPoint(null);
-            setLimit(PAGE_SIZE);
-            setSort("distance");
-            setLocationNotice("Показываем события рядом с точкой из профиля и уточняем геопозицию…");
-        } else {
-            setLocationNotice("Определяем местоположение…");
-        }
-        try {
-            const [longitude, latitude] = await currentCoordinates();
-            if (request !== sortRequest.current) return; // пока ждали, выбрали другую сортировку
-            setPoint({ latitude, longitude });
-            setLimit(PAGE_SIZE);
-            setSort("distance");
-            setLocationNotice(null);
-        } catch (error) {
-            if (request !== sortRequest.current) return;
-            // Причина от браузера: запрещён доступ, нет сигнала или истекло время.
-            const reason = error instanceof Error ? error.message : "Не удалось определить местоположение.";
-            setLocationNotice(
-                hasProfilePoint
-                    ? reason + " Показываем события рядом с точкой из профиля."
-                    // Сортировать «рядом» не с чем: оставляем прежнюю сортировку.
-                    : reason + (userId ? " Или укажите широту и долготу в профиле." : ""),
-            );
-        }
-    };
-
-    const applyFilters = (patch: Parameters<typeof setFilters>[0]) => {
-        setLimit(PAGE_SIZE);
-        setFilters(patch);
-    };
+    const applyFilters = (patch: Parameters<typeof setFilters>[0]) => setFilters(patch);
 
     const handleSearch = () => applyFilters({ q: searchValue.trim() });
 
@@ -97,7 +28,7 @@ export const EventSection = ({ title }: EventSectionProps) => {
 
     const handleClearAllFilters = () => {
         setSearchValue("");
-        setLimit(PAGE_SIZE);
+        discovery.clearSelection();
         clearFilters();
     };
 
@@ -111,7 +42,7 @@ export const EventSection = ({ title }: EventSectionProps) => {
         filters.withFriends && userId && "друзья идут",
     ].filter((chip): chip is string => Boolean(chip));
 
-    const hasMore = (events?.length ?? 0) >= limit;
+    const hasMore = discovery.canLoadMore;
 
     const searchButton = (
         <>
@@ -140,13 +71,19 @@ export const EventSection = ({ title }: EventSectionProps) => {
                     onKeyDown={handleKeyDown}
                 />
             </div>
-            <SortMenu value={selectedSort} onChange={chooseSort} />
+            <SortMenu value={discovery.sort} onChange={(value) => void discovery.setSort(value)}
+                distanceLabel={discovery.viewport ? "Ближе к центру карты" : "Рядом со мной"} />
         </>
     );
 
     return (
         <section className="flex w-full flex-col gap-[10px] lg:flex-row lg:items-start">
             <div className="flex min-w-0 flex-1 flex-col gap-[10px]">
+                {discovery.selected && <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-cards-surface p-3" role="status">
+                    <span className="text-body text-textprimary">Выбрана группа: {discovery.total} мероприятий</span>
+                    <Button onClick={discovery.clearSelection}>Сбросить выбор группы</Button>
+                </div>}
+                {discovery.notice && <p role="status" className="text-small text-textsecondary">{discovery.notice}</p>}
                 {activeChips.length > 0 && (
                     <div className="flex flex-wrap items-center gap-2 rounded-lg bg-cards-surface px-4 py-3">
                         <span className="text-small font-medium text-textsecondary">Активные фильтры:</span>
@@ -162,7 +99,7 @@ export const EventSection = ({ title }: EventSectionProps) => {
                     </div>
                 )}
 
-                {locationNotice && <Notice tone="info">{locationNotice}</Notice>}
+                {discovery.sortNotice && <Notice>{discovery.sortNotice}</Notice>}
 
                 <EventList
                     title={title}
@@ -173,12 +110,13 @@ export const EventSection = ({ title }: EventSectionProps) => {
                     emptyText={activeChips.length > 0 ? "Под эти фильтры ничего не нашлось" : "Событий пока нет — создайте первый движ!"}
                     onTagClick={(tagId) => applyFilters({ tagId })}
                     collapseDismissed
+                    onPersonalChange={discovery.onPersonalChange}
                     footer={
                         hasMore && !loading ? (
                             <Button
                                 state="hover1"
                                 className="self-center"
-                                onClick={() => setLimit((value) => value + PAGE_SIZE)}
+                                onClick={discovery.loadMore}
                             >
                                 Показать ещё
                             </Button>

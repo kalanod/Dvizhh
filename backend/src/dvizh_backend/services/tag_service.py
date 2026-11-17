@@ -3,10 +3,7 @@ from uuid import UUID
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..database.models import Tag, TagCategory
-from ..database.services.exceptions import EntityNotFoundError
-from ..database.services.tags import TagRepository
-from ..dto.tag import (
+from dvizh_backend.api.schemas.tag import (
     CategoryCreateDTO,
     CategoryDTO,
     CategoryTagsDTO,
@@ -15,6 +12,10 @@ from ..dto.tag import (
     TagDTO,
     TagUpdateDTO,
 )
+
+from ..database.models import Tag, TagCategory
+from ..database.services.exceptions import EntityNotFoundError
+from ..database.services.tags import TagRepository
 
 
 class CatalogConflictError(Exception):

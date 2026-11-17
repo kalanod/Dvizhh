@@ -12,6 +12,8 @@ interface ButtonProps {
     type?: "button" | "submit" | "reset";
     ariaPressed?: boolean;
     ariaLabel?: string;
+    ariaExpanded?: boolean;
+    ariaControls?: string;
     title?: string;
     disabled?: boolean;
 }
@@ -33,6 +35,8 @@ export const Button = ({
     type = "button",
     ariaPressed,
     ariaLabel,
+    ariaExpanded,
+    ariaControls,
     title,
     disabled = false,
 }: ButtonProps) => {
@@ -59,6 +63,8 @@ export const Button = ({
             onClick={isDisabled ? undefined : onClick}
             aria-pressed={ariaPressed}
             aria-label={ariaLabel}
+            aria-expanded={ariaExpanded}
+            aria-controls={ariaControls}
             title={title}
             disabled={isDisabled}
             onMouseEnter={() => setIsHovered(true)}

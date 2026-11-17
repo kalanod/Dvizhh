@@ -7,7 +7,7 @@ from uuid import uuid4
 import pytest
 from test_personal_scenarios import client
 
-from dvizh_backend.services import admin_auth
+from dvizh_backend.api import security as admin_auth
 
 
 def values(row: dict) -> dict:
@@ -26,7 +26,7 @@ def rows(document: dict) -> list[dict]:
 def test_settings_catalog_round_trip_and_domain_conflicts(monkeypatch) -> None:
     monkeypatch.setattr(
         admin_auth,
-        "_fetch_account",
+        "fetch_current_account",
         lambda *_: admin_auth.AdminAccount(
             id=uuid4(),
             role="admin",

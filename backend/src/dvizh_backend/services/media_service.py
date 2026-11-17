@@ -9,6 +9,9 @@ from PIL import Image, ImageOps, UnidentifiedImageError
 from sqlalchemy import delete, exists, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from dvizh_backend.api.schemas.event import EventDTO
+from dvizh_backend.api.schemas.media import MediaDTO
+from dvizh_backend.api.schemas.user import ProfileDTO, UpdateProfileDTO
 from dvizh_backend.config import Settings
 from dvizh_backend.database.models import Event, EventMedia, MediaAsset, Profile
 from dvizh_backend.database.models.enums import (
@@ -23,8 +26,6 @@ from dvizh_backend.database.services.exceptions import (
     InvalidStateTransitionError,
     PermissionDeniedError,
 )
-from dvizh_backend.dto.event import EventDTO
-from dvizh_backend.dto.media import MediaDTO
 from dvizh_backend.storage import MediaStorage
 
 from .event_service import EventService
@@ -67,9 +68,21 @@ class MediaService:
     def __init__(self, session: AsyncSession, storage: MediaStorage, settings: Settings) -> None:
         self.session, self.storage, self.settings = session, storage, settings
 
+    @property
+    def max_upload_bytes(self) -> int:
+        return self.settings.media_max_mib * 1024 * 1024
+
+    async def set_avatar(self, user_id: UUID, media_id: UUID | None) -> ProfileDTO:
+        """Coordinate media ownership/readiness and the profile's own invariants."""
+        if media_id is not None:
+            await self.require_owned(media_id, user_id)
+        return await UserService(self.session).update_profile(
+            user_id, UpdateProfileDTO(avatar_media_id=media_id)
+        )
+
     async def upload(self, user_id: UUID, data: bytes, filename: str | None) -> MediaDTO:
         await UserService(self.session).get_profile(user_id)
-        limit = self.settings.media_max_mib * 1024 * 1024
+        limit = self.max_upload_bytes
         if len(data) > limit:
             raise MediaTooLargeError("Upload exceeds size limit")
         normalized, width, height = await asyncio.to_thread(

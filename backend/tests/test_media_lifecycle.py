@@ -14,9 +14,9 @@ from PIL import Image
 from sqlalchemy import func, select
 from sqlalchemy.engine import make_url
 
+from dvizh_backend.api.dependencies import get_database_service, get_media_storage
 from dvizh_backend.config import Settings, get_settings
 from dvizh_backend.database.database_service import DatabaseService
-from dvizh_backend.database.dependencies import get_database_service
 from dvizh_backend.database.models import (
     EventFavorite,
     EventInvitation,
@@ -26,7 +26,6 @@ from dvizh_backend.database.models import (
 )
 from dvizh_backend.database.models.enums import EventManagerRole, FriendshipStatus
 from dvizh_backend.main import app
-from dvizh_backend.services.dependencies import get_media_storage
 from dvizh_backend.services.media_errors import StorageUnavailableError
 from dvizh_backend.storage import MediaStorage
 

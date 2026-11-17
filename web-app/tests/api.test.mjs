@@ -35,6 +35,8 @@ for (const name of [
     "components/widgets/EventCard/EventCoverMicro",
     "components/ui/Avatar/Avatar",
     "api/maps",
+    "api/discovery",
+    "utils/discovery",
     "utils/yandexMaps",
     "utils/geolocation",
     "components/widgets/SortMenu/SortMenu",
@@ -947,6 +949,113 @@ test("draft submit button passes its action to the native button", () => {
     assert.match(html, /type="submit"/);
 });
 
+const discoveryApi = require(join(output, "api/discovery.js"));
+const { DiscoveryCache, discoveryViewport, mergeDiscoveryEvents } = require(join(output, "utils/discovery.js"));
+function discoveryQuery(q = "") {
+    return { filters: { q, viewer_id: null }, viewport: null, sort: "novelty",
+        selection_token: null, cursor: null, limit: 20, include_map: true };
+}
+function discoveryResult() {
+    return { as_of: "2030-01-01T00:00:00Z", map: { items: [], total_events: 0 },
+        feed: { items: [], total_events: 0, next_cursor: null } };
+}
+
+test("discovery sends one shared filter/viewport/selection contract and rejects over-cap maps", async (t) => {
+    const body = { ...discoveryQuery("music"), selection_token: "signed-region",
+        viewport: { west: 30, east: 31, south: 59, north: 60, zoom: 10, center: { longitude: 30.5, latitude: 59.5 } } };
+    const signal = new AbortController().signal;
+    const calls = recordFetch(t, () => Response.json(discoveryResult()));
+    await discoveryApi.discoverEvents(body, signal);
+    assert.equal(calls[0].url.pathname, "/api/events/discovery");
+    assert.equal(calls[0].options.method, "POST");
+    assert.equal(calls[0].options.signal, signal);
+    assert.deepEqual(JSON.parse(calls[0].body), body);
+    t.mock.method(globalThis, "fetch", async () => Response.json({ ...discoveryResult(), map: {
+        total_events: 31, items: Array.from({ length: 31 }, (_, i) => ({ id: String(i), count: 1, latitude: 59, longitude: 30 })),
+    } }));
+    await assert.rejects(discoveryApi.discoverEvents(body), (error) => error.status === 502);
+});
+
+test("discovery cache expires, evicts by recency and separates viewer/filter contexts", async () => {
+    let now = 0;
+    let calls = 0;
+    const cache = new DiscoveryCache(async () => { calls++; return discoveryResult(); }, 50, 2, () => now);
+    const load = (body) => cache.get(body, new AbortController().signal);
+    await load(discoveryQuery("a")); await load(discoveryQuery("b"));
+    await load(discoveryQuery("a"));
+    assert.equal(calls, 2);
+    await load(discoveryQuery("c")); await load(discoveryQuery("b"));
+    assert.equal(calls, 4);
+    now = 51;
+    await load(discoveryQuery("b"));
+    assert.equal(calls, 5);
+    await load({ ...discoveryQuery("b"), filters: { q: "b", viewer_id: "another-viewer" } });
+    assert.equal(calls, 6);
+});
+
+test("discovery deduplicates in-flight queries without aborting another subscriber", async () => {
+    let complete;
+    let networkSignal;
+    let calls = 0;
+    const cache = new DiscoveryCache((_body, signal) => {
+        calls++; networkSignal = signal;
+        return new Promise((resolve) => { complete = resolve; });
+    });
+    const first = new AbortController(); const second = new AbortController();
+    const abandoned = cache.get(discoveryQuery(), first.signal);
+    const remaining = cache.get(discoveryQuery(), second.signal);
+    const rejected = assert.rejects(abandoned, { name: "AbortError" });
+    first.abort();
+    await rejected;
+    assert.equal(networkSignal.aborted, false);
+    complete(discoveryResult());
+    await remaining;
+    await cache.get(discoveryQuery(), new AbortController().signal);
+    assert.equal(calls, 1);
+});
+
+test("abandoned discovery responses cannot refill cache or replace a newer request", async () => {
+    const entries = [];
+    const cache = new DiscoveryCache((_body, signal) => new Promise((resolve) => entries.push({ signal, resolve })));
+    const first = new AbortController();
+    const abandoned = cache.get(discoveryQuery(), first.signal);
+    const rejected = assert.rejects(abandoned, { name: "AbortError" });
+    first.abort(); await rejected;
+    assert.equal(entries[0].signal.aborted, true);
+    const fresh = cache.get(discoveryQuery(), new AbortController().signal);
+    entries[0].resolve({ ...discoveryResult(), as_of: "old" });
+    entries[1].resolve({ ...discoveryResult(), as_of: "fresh" });
+    assert.equal((await fresh).as_of, "fresh");
+    assert.equal((await cache.get(discoveryQuery(), new AbortController().signal)).as_of, "fresh");
+    assert.equal(entries.length, 2);
+});
+
+test("discovery viewports preserve the date-line crossing and event pages deduplicate recurring ids", () => {
+    assert.deepEqual(discoveryViewport([[179, -10], [181, 10]], [180, 0], 5), {
+        west: 179, east: -179, south: -10, north: 10, zoom: 5, center: { longitude: -180, latitude: 0 },
+    });
+    const world = discoveryViewport([[-200, -85], [200, 85]], [0, 0], 0);
+    assert.equal(world.west, -180); assert.equal(world.east, 180);
+    assert.equal(discoveryViewport([[0, 1], [0, 2]], [0, 1], 10), null);
+    assert.equal(discoveryViewport([[0, 0], [1, 1]], [NaN, 0], 10), null);
+    assert.deepEqual(mergeDiscoveryEvents([{ id: "one", title: "old" }], [{ id: "one", title: "new" }, { id: "two" }]),
+        [{ id: "one", title: "new" }, { id: "two" }]);
+});
+
+test("clearing discovery cache prevents an older in-flight read from restoring stale data", async () => {
+    const entries = [];
+    const cache = new DiscoveryCache(() => new Promise((resolve) => entries.push(resolve)));
+    const old = cache.get(discoveryQuery(), new AbortController().signal);
+    cache.clear();
+    const fresh = cache.get(discoveryQuery(), new AbortController().signal);
+    entries[1]({ ...discoveryResult(), as_of: "fresh" });
+    await fresh;
+    entries[0]({ ...discoveryResult(), as_of: "old" });
+    await old;
+    assert.equal((await cache.get(discoveryQuery(), new AbortController().signal)).as_of, "fresh");
+    assert.equal(entries.length, 2);
+});
+
 test("feed sends the chosen sort and point together with filters", async (t) => {
     const calls = recordFetch(t, () => Response.json([]));
     await api.listEvents({ sort: "distance", latitude: 59.93, longitude: 30.31, freeOnly: true, viewerId: "viewer-1", limit: 20 });
@@ -969,6 +1078,24 @@ test("sort menu names the current sort", () => {
     assert.match(markup, /aria-label="Сортировка: Рядом со мной"/);
     assert.match(markup, /aria-haspopup="menu"/);
     assert.match(markup, /aria-expanded="false"/);
+    const mapped = renderToStaticMarkup(createElement(SortMenu, {
+        value: "distance", onChange: () => undefined, distanceLabel: "Ближе к центру карты",
+    }));
+    assert.match(mapped, /aria-label="Сортировка: Ближе к центру карты"/);
+    const starts = renderToStaticMarkup(createElement(SortMenu, { value: "start", onChange: () => undefined }));
+    assert.match(starts, /aria-label="Сортировка: По дате начала"/);
+});
+
+test("discovery shares all feed sorts and sends an explicit distance origin without a viewport", async (t) => {
+    const calls = recordFetch(t, () => Response.json(discoveryResult()));
+    for (const sort of ["relevance", "novelty", "title", "distance", "start"]) {
+        await discoveryApi.discoverEvents({ ...discoveryQuery(), sort,
+            origin: sort === "distance" ? { latitude: 59.93, longitude: 30.31 } : null });
+    }
+    assert.deepEqual(calls.map((call) => JSON.parse(call.body).sort), ["relevance", "novelty", "title", "distance", "start"]);
+    const distance = JSON.parse(calls[3].body);
+    assert.equal(distance.viewport, null);
+    assert.deepEqual(distance.origin, { latitude: 59.93, longitude: 30.31 });
 });
 
 test("password inputs stay hidden and get a hold-to-reveal button; other inputs do not", () => {
