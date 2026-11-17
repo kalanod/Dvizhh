@@ -1,3 +1,4 @@
+import re
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from datetime import date
@@ -99,8 +100,15 @@ class EventQueryService:
             )
 
         if text_query:
-            tsquery = func.websearch_to_tsquery("russian", text_query)
-            statement = statement.where(Event.search_document.op("@@")(tsquery))
+            if re.fullmatch(r"#\w+", text_query.strip()):
+                # Не разбиваем слова по подчёркиваниям и не находим только префикс тега.
+                # После проверки \w+ в теге нет специальных символов regexp.
+                hashtag = text_query.strip()
+                pattern = rf"(^|[^[:alnum:]_#]){hashtag}($|[^[:alnum:]_])"
+                statement = statement.where(Event.title.op("~*")(pattern))
+            else:
+                tsquery = func.websearch_to_tsquery("russian", text_query)
+                statement = statement.where(Event.search_document.op("@@")(tsquery))
         if tag_id is not None:
             statement = statement.where(
                 exists().where(

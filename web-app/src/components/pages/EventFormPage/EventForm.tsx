@@ -95,7 +95,7 @@ export const EventForm = ({ title, submitLabel, initial, allowDraft, userId, ini
                     onChange={setCover}
                     onError={setCoverError}
                 />
-                <FormField label="Название" htmlFor="title" required>
+                <FormField label="Название" htmlFor="title" hint="Добавьте #хештег, например #испанские_слизни: по нажатию на него можно найти события с таким же хештегом." required>
                     <Input id="title" maxLength={200} placeholder="Поход в Выборг" value={form.title} onChange={set("title")} />
                 </FormField>
                 <FormField label="Описание" htmlFor="description">

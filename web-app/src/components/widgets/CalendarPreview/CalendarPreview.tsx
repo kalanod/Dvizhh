@@ -4,7 +4,7 @@ import { getCalendar } from "../../../api";
 import { useAsync } from "../../../hooks";
 import type { DvizhEvent } from "../../../models";
 import { formatEventDate } from "../../../utils/format";
-import { ButtonGhost } from "../../ui";
+import { ButtonGhost, EventTitle } from "../../ui";
 
 /** Строка ближайшего события (MainPageFrame шаблона). */
 export const CalendarRow = ({ event }: { event: DvizhEvent }) => {
@@ -16,7 +16,7 @@ export const CalendarRow = ({ event }: { event: DvizhEvent }) => {
             className="flex min-h-[42px] w-full cursor-pointer flex-col justify-center gap-0.5 overflow-hidden rounded-lg bg-cards-surface p-2.5 transition-colors hover:bg-cards-surface/80"
         >
             <div className="text-duration text-textsecondary">{formatEventDate(event)}</div>
-            <div className="truncate text-body text-black">{event.title}</div>
+            <div className="truncate text-body text-black"><EventTitle title={event.title} /></div>
         </div>
     );
 };

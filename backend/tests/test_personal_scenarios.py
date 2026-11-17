@@ -58,9 +58,11 @@ async def user(http: httpx.AsyncClient) -> str:
     return response.json()["id"]
 
 
-async def event(http: httpx.AsyncClient, owner: str, **fields: object) -> dict:
+async def event(
+    http: httpx.AsyncClient, owner: str, *, draft: bool = False, **fields: object,
+) -> dict:
     response = await http.post(
-        "/api/events",
+        "/api/events/drafts" if draft else "/api/events",
         json={
             "organizer_id": owner,
             "title": "Test " + uuid4().hex,
@@ -72,6 +74,28 @@ async def event(http: httpx.AsyncClient, owner: str, **fields: object) -> dict:
     )
     assert response.status_code == 201, response.text
     return response.json()
+
+
+def test_feed_searches_whole_title_hashtags_case_insensitively() -> None:
+    async def scenario() -> None:
+        async with client() as (http, _database):
+            owner = await user(http)
+            hashtag = "#испанские_слизни_" + uuid4().hex
+            matching = [
+                await event(http, owner, title=f"Встреча {hashtag}"),
+                await event(http, owner, title=f"({hashtag.upper()}), встреча"),
+            ]
+            for title in (
+                f"{hashtag}_летом", f"слово{hashtag}", f"#{hashtag}", "Другой движ",
+            ):
+                await event(http, owner, title=title, description=hashtag)
+            await event(http, owner, title=hashtag, visibility="PRIVATE")
+            await event(http, owner, title=hashtag, draft=True)
+            response = await http.get("/api/events", params={"q": hashtag})
+            assert response.status_code == 200, response.text
+            assert {item["id"] for item in response.json()} == {item["id"] for item in matching}
+
+    asyncio.run(scenario())
 
 
 @pytest.mark.parametrize("event_format", ["OFFLINE", "HYBRID"])

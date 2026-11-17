@@ -8,3 +8,4 @@ export * from "./Tag";
 export * from "./Toggle";
 export * from "./ImagePicker";
 export { ImageViewer } from "./ImageViewer/ImageViewer";
+export * from "./EventTitle/EventTitle";

@@ -21,6 +21,55 @@ from dvizh_backend.services.discovery_service import EventDiscoveryService
 
 @pytest.mark.skipif(not os.getenv("TEST_DATABASE_URL"), reason="Requires disposable PostGIS")
 @pytest.mark.parametrize("sort", ["novelty", "title", "distance", "start", "relevance"])
+def test_hashtags_share_map_feed_selection_and_pagination(sort):
+    async def scenario(catalog: Catalog, _queries):
+        organizer = await catalog.profile()
+        hashtag = "#слизни_" + uuid4().hex
+        first, _ = await catalog.event(organizer, (), title=f"Trip {hashtag}", point=(60, 30))
+        second, _ = await catalog.event(
+            organizer, (), title=f"({hashtag.upper()}), meetup", point=(60, 30),
+        )
+        online, _ = await catalog.event(organizer, (), title=f"Online {hashtag}")
+        for title in (f"{hashtag}_extra", f"word{hashtag}", f"#{hashtag}"):
+            await catalog.event(organizer, (), title=title, point=(60, 30))
+        service = EventDiscoveryService(
+            catalog.session,
+            Settings(_env_file=None, discovery_token_secret="hashtag-discovery-test-" * 2),
+        )
+        request = DiscoveryRequest(
+            filters={"q": hashtag}, sort=sort, limit=1,
+            origin={"latitude": 60, "longitude": 30} if sort == "distance" else None,
+        )
+        unscoped = await service.discover(request.model_copy(update={"limit": 20}), None)
+        assert {item.id for item in unscoped.feed.items} == {first, second, online}
+        viewport = dict(
+            west=29, east=31, south=59, north=61, zoom=12,
+            center={"longitude": 30, "latitude": 60},
+        )
+        scoped = DiscoveryRequest(**{**request.model_dump(), "viewport": viewport})
+        page = await service.discover(scoped, None)
+        assert page.feed.total_events == page.map.total_events == 2
+        assert len(page.map.items) == 1
+        assert page.map.items[0].count == 2
+        seen = [item.id for item in page.feed.items]
+        token = page.map.items[0].selection_token
+        while page.feed.next_cursor:
+            page = await service.discover(
+                scoped.model_copy(update={"cursor": page.feed.next_cursor}), None,
+            )
+            seen.extend(item.id for item in page.feed.items)
+        assert set(seen) == {first, second}
+        assert len(seen) == 2
+        selected = await service.discover(
+            scoped.model_copy(update={"selection_token": token, "limit": 20}), None,
+        )
+        assert {item.id for item in selected.feed.items} == {first, second}
+
+    run_in_rollback(scenario)
+
+
+@pytest.mark.skipif(not os.getenv("TEST_DATABASE_URL"), reason="Requires disposable PostGIS")
+@pytest.mark.parametrize("sort", ["novelty", "title", "distance", "start", "relevance"])
 def test_discovery_postgis_counts_clusters_filters_recurrence_and_keyset(sort):
     async def scenario():
         engine = create_async_engine(os.environ["TEST_DATABASE_URL"])
