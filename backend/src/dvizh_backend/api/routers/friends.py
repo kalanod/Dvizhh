@@ -13,6 +13,13 @@ async def list_friends(user_id: uuid.UUID, users: UserServiceDep) -> list[Profil
     return await users.list_friends(user_id)
 
 
+@router.get("/{friend_id:uuid}", summary="Текущее состояние дружбы двух пользователей.")
+async def get_friendship(
+    user_id: uuid.UUID, friend_id: uuid.UUID, users: UserServiceDep,
+) -> FriendshipDTO | None:
+    return await users.get_friendship(user_id, friend_id)
+
+
 @router.put(
     "/{friend_id}",
     summary="Отправить заявку в друзья.",
@@ -41,8 +48,8 @@ async def respond_to_friend(
 @router.delete(
     "/{friend_id}",
     status_code=status.HTTP_204_NO_CONTENT,
-    summary="Удалить пользователя из друзей.",
-    description="Дружба прекращается у обоих пользователей.",
+    summary="Удалить пользователя из друзей или отменить исходящую заявку.",
+    description="Дружба прекращается у обоих. Отменить заявку может только её отправитель.",
 )
 async def remove_friend(user_id: uuid.UUID, friend_id: uuid.UUID, users: UserServiceDep) -> None:
     await users.remove_friend(user_id, friend_id)

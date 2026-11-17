@@ -6,6 +6,7 @@ import { CalendarPreview } from "../CalendarPreview";
 import { EventList } from "../EventList";
 import { RightPanel } from "../Filters";
 import { SortMenu } from "../SortMenu";
+import { discoveryEmptyText } from "../../../utils/discovery";
 
 interface EventSectionProps {
     title: string;
@@ -107,7 +108,10 @@ export const EventSection = ({ title, discovery }: EventSectionProps) => {
                     actionButton={searchButton}
                     loading={loading}
                     error={error ? errorText(error) : null}
-                    emptyText={activeChips.length > 0 ? "Под эти фильтры ничего не нашлось" : "Событий пока нет — создайте первый движ!"}
+                    emptyText={discoveryEmptyText(
+                        !discovery.mapCollapsed && discovery.viewport !== null,
+                        Boolean(discovery.selected), activeChips.length > 0,
+                    )}
                     onTagClick={(tagId) => applyFilters({ tagId })}
                     collapseDismissed
                     onPersonalChange={discovery.onPersonalChange}

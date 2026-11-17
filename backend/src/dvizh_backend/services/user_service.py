@@ -95,6 +95,13 @@ class UserService:
             raise
         return ProfileDTO.model_validate(profile)
 
+    async def get_friendship(self, user_id: UUID, other_user_id: UUID) -> FriendshipDTO | None:
+        low_id, high_id = self._canonical_pair(user_id, other_user_id)
+        await self._require_active_profile(user_id)
+        await self._require_active_profile(other_user_id)
+        friendship = await self.friendships.get_pair(low_id, high_id)
+        return FriendshipDTO.model_validate(friendship) if friendship is not None else None
+
     async def request_friendship(self, user_id: UUID, other_user_id: UUID) -> FriendshipDTO:
         low_id, high_id = self._canonical_pair(user_id, other_user_id)
         await self._require_active_profile(user_id)
@@ -147,8 +154,15 @@ class UserService:
         low_id, high_id = self._canonical_pair(user_id, friend_id)
         await self._require_active_profile(user_id)
         friendship = await self.friendships.get_pair(low_id, high_id, for_update=True)
-        if friendship is None or friendship.status != FriendshipStatus.ACCEPTED:
-            raise FriendshipStateError("Active friendship not found")
+        can_cancel = (
+            friendship is not None
+            and friendship.status == FriendshipStatus.PENDING
+            and friendship.requested_by_user_id == user_id
+        )
+        if friendship is None or (
+            friendship.status != FriendshipStatus.ACCEPTED and not can_cancel
+        ):
+            raise FriendshipStateError("Active friendship or outgoing request not found")
         friendship.status = FriendshipStatus.REMOVED
         friendship.removed_at = datetime.now(UTC)
         await self.friendships.flush()

@@ -9,7 +9,6 @@ const navButtons = [
     { label: "Афиша", path: "/" },
     { label: "Мой календарь", path: "/calendar" },
     { label: "Мои события", path: "/my" },
-    { label: "Профиль", path: "/profile" },
 ];
 
 export const PageHeader = () => {
@@ -37,6 +36,7 @@ export const PageHeader = () => {
                     Движж
                 </span>
             </span>
+            {user ? <>
             <button
                 type="button"
                 aria-label={menuOpen ? "Закрыть меню" : "Открыть меню"}
@@ -82,7 +82,6 @@ export const PageHeader = () => {
                     )}
                 </nav>
                 <div className="flex items-center gap-2">
-                    {user ? (
                         <>
                             <button
                                 type="button"
@@ -129,13 +128,9 @@ export const PageHeader = () => {
                                 Выйти
                             </Button>
                         </>
-                    ) : (
-                        <Button state="hover2" className="max-lg:!w-full" onClick={() => go("/login")}>
-                            Войти
-                        </Button>
-                    )}
                 </div>
             </div>
+            </> : <Button state="hover2" onClick={() => go("/login")}>Войти</Button>}
         </header>
     );
 };

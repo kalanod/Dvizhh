@@ -4,13 +4,13 @@ import type { DiscoveryMapItem, DiscoveryRequest, DiscoveryResponse, DiscoverySo
 import type { DvizhEvent } from "../models";
 import { discoveryCache, mergeDiscoveryEvents } from "../utils/discovery";
 import { currentCoordinates } from "../utils/geolocation";
-import { locationCoordinates } from "../utils/yandexMaps";
 import { useCurrentUser } from "./useCurrentUser";
 import { useEventFilters } from "./useEventFilters";
 
 interface Result {
     key: string; requestKey: string; userId: string | null;
     events: DvizhEvent[]; map: DiscoveryResponse["map"]; total: number; next: string | null;
+    mapViewport: DiscoveryViewport | null;
     error?: unknown;
 }
 
@@ -20,6 +20,7 @@ export function useEventDiscovery() {
     const filterState = useEventFilters();
     const { filters } = filterState;
     const [viewport, setViewport] = useState<DiscoveryViewport | null>(null);
+    const [mapCollapsed, setMapCollapsed] = useState(false);
     const [sortChoice, changeSort] = useState<{ actorId: string | null; value: DiscoverySort } | null>(null);
     const [point, setPoint] = useState<{ actorId: string | null; latitude: number; longitude: number } | null>(null);
     const [sortNotice, setSortNotice] = useState<string | null>(null);
@@ -28,9 +29,7 @@ export function useEventDiscovery() {
     useLayoutEffect(() => { actor.current = userId; sortRequest.current++; }, [userId]);
     useEffect(() => () => { sortRequest.current++; }, []);
     const sort = sortChoice?.actorId === userId ? sortChoice.value : userId ? "relevance" : "novelty";
-    const coordinates = locationCoordinates(user?.latitude ?? "", user?.longitude ?? "");
-    const profileOrigin = coordinates ? { longitude: coordinates[0], latitude: coordinates[1] } : null;
-    const origin = point?.actorId === userId ? { latitude: point.latitude, longitude: point.longitude } : profileOrigin;
+    const origin = point?.actorId === userId ? { latitude: point.latitude, longitude: point.longitude } : null;
     const [selection, setSelection] = useState<{ scope: string; item: DiscoveryMapItem } | null>(null);
     const [page, setPage] = useState<{ key: string; cursor: string } | null>(null);
     const [refresh, setRefresh] = useState({ key: "", version: 0 });
@@ -50,13 +49,15 @@ export function useEventDiscovery() {
         setNotice(null);
         setSortNotice(null);
     }
-    const selected = selection?.scope === scope ? selection.item : null;
-    const base = { filters: normalizedFilters, viewport, sort,
-        origin: sort === "distance" && !viewport ? origin : null,
+    const selected = !mapCollapsed && selection?.scope === scope ? selection.item : null;
+    const activeViewport = mapCollapsed ? null : viewport;
+    const distanceOrigin = mapCollapsed && viewport ? viewport.center : origin;
+    const base = { filters: normalizedFilters, viewport: activeViewport, sort,
+        origin: sort === "distance" && !activeViewport ? distanceOrigin : null,
         selection_token: selected?.selection_token ?? null };
     const key = JSON.stringify(base);
     const cursor = page?.key === key ? page.cursor : null;
-    const body: DiscoveryRequest = { ...base, cursor, limit: 20, include_map: !cursor };
+    const body: DiscoveryRequest = { ...base, cursor, limit: 20, include_map: !cursor && !mapCollapsed };
     const version = refresh.key === key ? refresh.version : 0;
     const requestKey = JSON.stringify(body) + `:${version}`;
 
@@ -69,7 +70,8 @@ export function useEventDiscovery() {
             if (controller.signal.aborted) return;
             setResult((previous) => ({ key, requestKey, userId,
                 events: cursor && previous?.key === key ? mergeDiscoveryEvents(previous.events, response.feed.items) : response.feed.items,
-                map: response.map ?? (previous?.key === key ? previous.map : null),
+                map: response.map ?? (previous?.userId === userId ? previous.map : null),
+                mapViewport: response.map ? request.viewport : previous?.mapViewport ?? null,
                 total: response.feed.total_events, next: response.feed.next_cursor,
             }));
         }, (error: unknown) => {
@@ -84,6 +86,7 @@ export function useEventDiscovery() {
             setResult((previous) => ({ key, requestKey, userId,
                 events: previous?.userId === userId ? previous.events : [],
                 map: previous?.userId === userId ? previous.map : null,
+                mapViewport: previous?.userId === userId ? previous.mapViewport : null,
                 total: previous?.total ?? 0, next: null, error,
             }));
         });
@@ -111,26 +114,32 @@ export function useEventDiscovery() {
             setSortNotice(null);
         } catch (failure) {
             if (request !== sortRequest.current || actor.current !== actorId) return;
-            if (profileOrigin) {
-                setPoint({ actorId, ...profileOrigin });
+            if (user?.city) {
+                setPoint(null);
                 apply();
-                setSortNotice(`${errorText(failure)} Показываем события рядом с точкой из профиля.`);
+                setSortNotice(`${errorText(failure)} Используем город из профиля.`);
             } else {
                 setSortNotice(errorText(failure));
             }
         }
     };
     return {
-        ...filterState, userId, user, viewport, sort, selected, notice, sortNotice,
+        ...filterState, userId, user, viewport, mapCollapsed, sort, selected, notice, sortNotice,
         events: visible?.events, map: visible?.map, total: visible?.total ?? 0,
+        mapViewport: visible?.mapViewport ?? null,
         error: visible?.error, loading, canLoadMore: result?.key === key && Boolean(result.next) && !loading,
         setViewport: (value: DiscoveryViewport) => { setViewport(value); setPage(null); },
+        setMapCollapsed: (value: boolean) => {
+            if (value === mapCollapsed) return;
+            sortRequest.current++;
+            setMapCollapsed(value); setSelection(null); setPage(null); setNotice(null); setSortNotice(null);
+        },
         setSort: chooseSort,
         selectCluster: (item: DiscoveryMapItem) => { setSelection({ scope, item }); setPage(null); setNotice(null); },
         clearSelection: () => { setSelection(null); setPage(null); },
         mapUnavailable: () => {
             setViewport(null); setSelection(null); setPage(null);
-            if (sort === "distance" && !origin) changeSort(null);
+            if (sort === "distance" && !origin && !user?.city) changeSort(null);
         },
         loadMore: () => { if (result?.key === key && result.next && !loading) setPage({ key, cursor: result.next }); },
         reload,

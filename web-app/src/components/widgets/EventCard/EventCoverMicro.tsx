@@ -1,12 +1,14 @@
 import { useState, type ReactNode } from "react";
 import { dateBadge } from "../../../utils/format";
 import { mediaContentUrl } from "../../../utils/media";
+import { ImageViewer } from "../../ui/ImageViewer/ImageViewer";
 
 interface CoverProps {
     startsAt: string;
     timeZone?: string;
     coverUrl?: string | null;
     viewerId?: string | null;
+    preview?: boolean;
 }
 
 const CoverImage = ({ source, children }: { source: string | null; children: ReactNode }) => {
@@ -23,10 +25,11 @@ const CoverImage = ({ source, children }: { source: string | null; children: Rea
 };
 
 /** Обложка карточки; если изображения нет или оно недоступно, показывает дату. */
-export const EventCoverMicro = ({ startsAt, timeZone, coverUrl, viewerId }: CoverProps) => {
+export const EventCoverMicro = ({ startsAt, timeZone, coverUrl, viewerId, preview = true }: CoverProps) => {
     const badge = dateBadge(startsAt, timeZone);
 
     return (
+        <ImageViewer src={mediaContentUrl(coverUrl, viewerId)} alt="Обложка события" disabled={!preview} className="block h-full w-full">
         <div className="relative flex h-full w-full flex-col items-center justify-center overflow-hidden rounded bg-gradient-to-br from-success/70 to-success text-white">
             <CoverImage source={mediaContentUrl(coverUrl, viewerId)}>
                 <div className="flex flex-col items-center">
@@ -35,14 +38,16 @@ export const EventCoverMicro = ({ startsAt, timeZone, coverUrl, viewerId }: Cove
                 </div>
             </CoverImage>
         </div>
+        </ImageViewer>
     );
 };
 
 /** Большая обложка страницы события с тем же поведением при отсутствии изображения. */
-export const EventCoverMain = ({ startsAt, timeZone, coverUrl, viewerId }: CoverProps) => {
+export const EventCoverMain = ({ startsAt, timeZone, coverUrl, viewerId, preview = true }: CoverProps) => {
     const badge = dateBadge(startsAt, timeZone);
 
     return (
+        <ImageViewer src={mediaContentUrl(coverUrl, viewerId)} alt="Обложка события" disabled={!preview} className="block w-full shrink-0 self-center sm:w-[186px] sm:self-start">
         <div className="h-[279px] w-[186px] shrink-0 self-center overflow-hidden rounded-lg bg-secondary max-sm:h-[160px] max-sm:w-full sm:self-start">
             <CoverImage source={mediaContentUrl(coverUrl, viewerId)}>
                 <div className="flex h-full w-full flex-col items-center justify-center bg-gradient-to-b from-borderlight to-bordermain text-textthird">
@@ -51,5 +56,6 @@ export const EventCoverMain = ({ startsAt, timeZone, coverUrl, viewerId }: Cover
                 </div>
             </CoverImage>
         </div>
+        </ImageViewer>
     );
 };

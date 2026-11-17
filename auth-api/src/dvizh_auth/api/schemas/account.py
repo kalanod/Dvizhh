@@ -84,5 +84,10 @@ class RegisterResponse(BaseModel):
     email: str | None
 
 
+class UsernameAvailabilityResponse(BaseModel):
+    username: str
+    available: bool
+
+
 class CurrentAccountResponse(RegisterResponse):
     role: Literal["user", "admin"]

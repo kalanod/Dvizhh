@@ -31,5 +31,5 @@ class EventTimezoneRequest(BaseModel):
 
 class EventTimezoneResponse(BaseModel):
     timezone: str
-    source: Literal["place", "profile_coordinates", "profile_city", "device"]
+    source: Literal["device"]
     city: str | None = None

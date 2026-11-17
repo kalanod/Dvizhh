@@ -16,9 +16,9 @@ export const SettingsRow = ({ row, values, busy, onChange, onAction }: Props) =>
         {row.elements.map((element) => {
             const fieldId = `setting-${row.id}-${element.id}`;
             switch (element.type) {
-                case "text": return <p key={element.id} className={`flex h-[41px] w-28 shrink-0 items-center text-body ${element.tone === "muted" ? "text-textsecondary" : "text-textprimary"}`}><span className="line-clamp-2 break-words" title={element.text}>{element.text}</span></p>;
+                case "text": return <p key={element.id} className={`flex h-[56px] w-28 shrink-0 items-center text-body ${element.tone === "muted" ? "text-textsecondary" : "text-textprimary"}`}><span className="line-clamp-2 break-words" title={element.text}>{element.text}</span></p>;
                 case "input": return <SettingsField key={element.id} id={fieldId} label={element.label} hint={element.hint} required={element.required}>
-                    <Input id={fieldId} name={element.id} aria-describedby={element.hint ? `${fieldId}-hint` : undefined} type={element.input_type} required={element.required} minLength={element.min_length} maxLength={element.max_length} pattern={element.pattern} autoComplete={element.autocomplete ?? "off"} value={String(values[element.id] ?? "")} onChange={(value) => onChange(element.id, value)} />
+                    <Input id={fieldId} name={element.id} type={element.input_type} required={element.required} minLength={element.min_length} maxLength={element.max_length} pattern={element.pattern} validate={element.matches ? (value) => value === String(values[element.matches!] ?? "") ? null : "Значения не совпадают." : undefined} autoComplete={element.autocomplete ?? "off"} value={String(values[element.id] ?? "")} onChange={(value) => onChange(element.id, value)} />
                 </SettingsField>;
                 case "select": return <SettingsField key={element.id} id={fieldId} label={element.label} required={element.required}>
                     <Select id={fieldId} name={element.id} required={element.required} value={String(values[element.id] ?? "")} options={Object.fromEntries(element.options.map((option) => [option.value, option.label]))} onChange={(value) => onChange(element.id, value)} />

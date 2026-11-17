@@ -31,7 +31,7 @@ export const PasswordEditor = () => {
                 <Input id="password-new" type="password" required minLength={8} maxLength={128} autoComplete="new-password" value={form.next} onChange={(next) => setForm({ ...form, next })} />
             </FormField>
             <FormField label="Повторите новый пароль" htmlFor="password-confirmation">
-                <Input id="password-confirmation" type="password" required minLength={8} maxLength={128} autoComplete="new-password" value={form.confirmation} onChange={(confirmation) => setForm({ ...form, confirmation })} />
+                <Input id="password-confirmation" type="password" required minLength={8} maxLength={128} autoComplete="new-password" validate={(value) => value === form.next ? null : "Пароли не совпадают."} value={form.confirmation} onChange={(confirmation) => setForm({ ...form, confirmation })} />
             </FormField>
             {error && <Notice tone="error">{error}</Notice>}
             <div className="flex flex-wrap gap-2">

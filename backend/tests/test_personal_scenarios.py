@@ -130,13 +130,13 @@ def test_profile_patch_and_friend_request_inboxes() -> None:
                 json={
                     "display_name": "Updated",
                     "bio": None,
-                    "latitude": "55.75",
-                    "longitude": "37.61",
+                    "city": "Москва",
                 },
             )
             assert response.status_code == 200, response.text
             assert response.json()["display_name"] == "Updated"
-            assert response.json()["latitude"] == "55.750000"
+            assert response.json()["city"] == "Москва"
+            assert "latitude" not in response.json() and "longitude" not in response.json()
             for patch in ({}, {"display_name": None}, {"latitude": "1"}, {"unknown": True}):
                 assert (await http.patch(f"/api/users/{first}", json=patch)).status_code == 422
             name = (await http.get(f"/api/users/{second}")).json()["username"]

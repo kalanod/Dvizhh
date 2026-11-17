@@ -9,6 +9,12 @@ export interface UpdateAccountInput { username?: string; email?: string | null }
 export interface ChangePasswordInput { current_password: string; new_password: string }
 
 export const normalizeUsername = (username: string) => username.trim().toLowerCase();
+export const validateUsernameAvailability = async (username: string, signal: AbortSignal) => {
+    const result = await request<{ username: string; available: boolean }>("/auth/username-availability", {
+        query: { username: normalizeUsername(username) }, signal,
+    });
+    return result.available ? null : "Этот никнейм уже занят.";
+};
 const normalizeEmail = (email?: string | null) => email?.trim().toLowerCase() || null;
 
 export const registerAccount = (body: RegisterCredentials) => request<Account>("/auth/register", {

@@ -41,7 +41,7 @@ export interface EventTimezoneRequest {
 
 export interface EventTimezone {
     timezone: string;
-    source: "place" | "profile_coordinates" | "profile_city" | "device";
+    source: "device";
     city: string | null;
 }
 

@@ -3,7 +3,8 @@
 import asyncio
 import os
 from datetime import UTC, datetime, timedelta
-from decimal import Decimal
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
 from uuid import uuid4
 
 import pytest
@@ -185,6 +186,14 @@ def test_pagination_freezes_personal_interest_and_profile_origin(sort):
                 _env_file=None,
                 discovery_token_secret="personal-cursor-integration-" * 2,
             ),
+            cities=SimpleNamespace(
+                coordinates=AsyncMock(
+                    return_value=(
+                        SimpleNamespace(latitude=60, longitude=30),
+                        "SPB",
+                    )
+                )
+            ),
         )
         request = DiscoveryRequest(sort=sort, filters={"tag_id": scope}, limit=2)
         first = await service.discover(request, viewer)
@@ -194,7 +203,11 @@ def test_pagination_freezes_personal_interest_and_profile_origin(sort):
         # A new preference/profile point must not silently change a running cursor's ordering.
         await catalog.session.execute(delete(EventFavorite).where(EventFavorite.user_id == viewer))
         profile = await catalog.session.get(Profile, viewer)
-        profile.latitude, profile.longitude = Decimal("55.75"), Decimal("37.6")
+        profile.city = "Moscow"
+        service.cities.coordinates.return_value = (
+            SimpleNamespace(latitude=55.75, longitude=37.6),
+            "Moscow",
+        )
         await catalog.session.flush()
         await catalog.session.refresh(profile)
         seen = [item.id for item in first.feed.items]

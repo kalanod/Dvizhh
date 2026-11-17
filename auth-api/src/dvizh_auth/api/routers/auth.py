@@ -8,6 +8,8 @@ from dvizh_auth.api.schemas.account import (
     RegisterRequest,
     RegisterResponse,
     UpdateAccountRequest,
+    Username,
+    UsernameAvailabilityResponse,
 )
 from dvizh_auth.config import get_settings
 from dvizh_auth.services.account_service import (
@@ -19,6 +21,16 @@ from dvizh_auth.services.session_service import SessionService
 
 settings = get_settings()
 router = APIRouter(prefix="/api/auth")
+
+
+@router.get("/username-availability", response_model=UsernameAvailabilityResponse)
+async def username_availability(
+    username: Username, session: SessionDep, response: Response,
+) -> UsernameAvailabilityResponse:
+    response.headers["Cache-Control"] = "no-store"
+    return UsernameAvailabilityResponse(
+        username=username, available=await AccountService(session).username_available(username),
+    )
 
 
 @router.post(

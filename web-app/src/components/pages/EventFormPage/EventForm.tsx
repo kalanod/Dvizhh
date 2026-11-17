@@ -10,11 +10,8 @@ import { EventCoverField } from "./EventCoverField";
 import { EventLocationField } from "./EventLocationField";
 import { EventTagField } from "./EventTagField";
 import { browserTimeZone } from "../../../utils/format";
-import { resolveEventTimezone, type EventTimezone } from "../../../api/maps";
-import { useAsync, useCurrentUser } from "../../../hooks";
-import { placeContextUnchanged, placeCoordinates } from "./eventPlace";
+import { useCurrentUser } from "../../../hooks";
 
-type FormTimezone = Omit<EventTimezone, "source"> & { source: EventTimezone["source"] | "saved"; warning?: string };
 
 interface EventFormProps {
     title: string;
@@ -43,28 +40,10 @@ export const EventForm = ({ title, submitLabel, initial, allowDraft, userId, ini
     const [locationPending, setLocationPending] = useState(false);
     const [deviceTimezone] = useState(browserTimeZone);
     const { user } = useCurrentUser();
-    const keepSavedTimezone = Boolean(initial && placeContextUnchanged(form.place, initial.place));
-    const point = form.format === "ONLINE" ? null : placeCoordinates(form.place);
-    const timezoneRequest = {
-        place: point ? { latitude: point[1], longitude: point[0] } : null,
-        user_id: userId, device_timezone: deviceTimezone,
-    };
-    const timezoneState = useAsync<FormTimezone>(async (signal) => {
-        if (initial && keepSavedTimezone) return { timezone: initial.timezone, source: "saved", city: null };
-        try { return await resolveEventTimezone(timezoneRequest, signal); }
-        catch (failure) {
-            if (signal.aborted) throw failure;
-            return { timezone: deviceTimezone, source: "device", city: null,
-                warning: "Не удалось определить местный часовой пояс. Используется пояс вашего устройства." };
-        }
-    }, keepSavedTimezone ? `saved-timezone:${initial?.timezone}` : `event-timezone:${JSON.stringify(timezoneRequest)}`);
-    const timezone = timezoneState.data?.timezone ?? (keepSavedTimezone ? initial!.timezone : deviceTimezone);
-    const timezoneHint = timezoneState.loading ? "Определяем местное время…"
-        : timezoneState.data?.source === "saved" ? "Время в часовом поясе сохранённого события."
-        : timezoneState.data?.source === "place" ? "Время указано по месту проведения."
-        : timezoneState.data?.source === "profile_coordinates" ? "Время указано по местоположению из профиля."
-        : timezoneState.data?.source === "profile_city" ? `Время указано по городу профиля${timezoneState.data.city ? ` (${timezoneState.data.city})` : ""}.`
-        : "Время указано по часовому поясу вашего устройства.";
+    const timezone = initial?.timezone ?? deviceTimezone;
+    const timezoneHint = initial
+        ? "Время в часовом поясе сохранённого события."
+        : "Время указано по часовому поясу вашего браузера.";
 
     const set =
         <K extends keyof EventFormState>(key: K) =>
@@ -74,7 +53,7 @@ export const EventForm = ({ title, submitLabel, initial, allowDraft, userId, ini
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         if (submitting || coverError) return;
-        if (locationPending || timezoneState.loading) { setError("Дождитесь определения места и местного времени."); return; }
+        if (locationPending) { setError("Дождитесь определения места."); return; }
         const problem = validateForm(form, timezone);
         if (problem) {
             setError(problem);
@@ -148,7 +127,6 @@ export const EventForm = ({ title, submitLabel, initial, allowDraft, userId, ini
                 </div>
                 <Toggle label="Весь день" checked={form.isAllDay} onChange={set("isAllDay")} />
                 <p role="status" className="text-small text-textsecondary">{timezoneHint}</p>
-                {timezoneState.data?.warning && <Notice>{timezoneState.data.warning}</Notice>}
             </Section>
 
             <Section title="Где">

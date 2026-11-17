@@ -76,19 +76,30 @@ def test_sorting_keys_come_before_the_shared_tie_breakers_and_limit(sort, contex
 def test_distance_without_any_point_explains_what_to_do():
     session = MagicMock()
     session.get = AsyncMock(return_value=None)
-    with pytest.raises(EventSortError, match="широту и долготу в профиле"):
+    with pytest.raises(EventSortError, match="город в профиле"):
         asyncio.run(SORTINGS["distance"].order_by(SortContext(session, None, None, None)))
     with pytest.raises(EventSortError, match="вместе"):
         asyncio.run(SORTINGS["distance"].order_by(SortContext(session, None, 59.9, None)))
 
 
-def test_distance_falls_back_to_the_profile_point():
-    session = MagicMock()
-    session.get = AsyncMock(
-        return_value=MagicMock(latitude=Decimal("59.938600"), longitude=Decimal("30.314100"))
-    )
-    keys = asyncio.run(SORTINGS["distance"].order_by(SortContext(session, uuid4(), None, None)))
-    assert "59.9386" in str(keys[0].compile(compile_kwargs={"literal_binds": True}))
+def test_distance_falls_back_to_geocoded_profile_city():
+    from dvizh_backend.services.event_service import EventService
+
+    async def scenario():
+        cities = MagicMock()
+        cities.coordinates = AsyncMock(
+            return_value=(MagicMock(latitude=59.9386, longitude=30.3141), "SPB")
+        )
+        service = EventService(MagicMock(), cities)
+        service._require_active_profile = AsyncMock()
+        service.profiles.get = AsyncMock(return_value=MagicMock(city="SPB"))
+        service.queries.list_public = AsyncMock(return_value=[])
+        await service.list_public(sort="distance", viewer_id=uuid4())
+        assert service.queries.list_public.call_args.kwargs["latitude"] == 59.9386
+        assert service.queries.list_public.call_args.kwargs["longitude"] == 30.3141
+        cities.coordinates.assert_awaited_once_with("SPB")
+
+    asyncio.run(scenario())
 
 
 def request_events(service, query: str) -> httpx.Response:
@@ -165,8 +176,7 @@ class Catalog:
             id=uuid4(),
             username=f"sort_{uuid4().hex[:20]}",
             display_name="Test user",
-            latitude=point and Decimal(str(point[0])),
-            longitude=point and Decimal(str(point[1])),
+            city="SPB" if point else None,
         )
         self.session.add(profile)
         await self.session.flush()
@@ -271,7 +281,12 @@ def test_title_novelty_and_distance_on_real_schema():
         moscow = {"latitude": MOSCOW[0], "longitude": MOSCOW[1]}
         assert await order("distance", **moscow) == [running, nearby, art, online]
         from_profile = await queries.list_public(
-            tag_id=only_ours, sort="distance", viewer_id=user, limit=2
+            tag_id=only_ours,
+            sort="distance",
+            viewer_id=user,
+            limit=2,
+            latitude=SPB[0],
+            longitude=SPB[1],
         )
         assert ids(from_profile) == [art, nearby]
 

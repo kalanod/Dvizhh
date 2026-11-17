@@ -42,8 +42,11 @@ for (const name of [
     "utils/geolocation",
     "components/widgets/SortMenu/SortMenu",
     "components/ui/Input/Input",
+    "components/ui/ImageViewer/ImageViewer",
+    "components/ui/FormField/context",
+    "hooks/useFieldValidation",
 ]) {
-    const extension = name.startsWith("components/") && !["formState", "settingsState", "eventPlace"].some((suffix) => name.endsWith(suffix)) ? "tsx" : "ts";
+    const extension = name.startsWith("components/") && !["formState", "settingsState", "eventPlace", "context"].some((suffix) => name.endsWith(suffix)) ? "tsx" : "ts";
     const source = readFileSync(new URL(`../src/${name}.${extension}`, import.meta.url), "utf8");
     const { outputText } = ts.transpileModule(source, {
         fileName: `${name}.${extension}`,
@@ -414,12 +417,12 @@ test("unchanged stored venue keeps metadata and instant; resolved timezone chang
     assert.equal(moved.ends_at, "2030-01-01T08:00:00.000Z");
 });
 
-test("automatic timezone lookup sends place coordinates, profile ID and actual device zone", async (t) => {
-    const calls = recordFetch(t, () => Response.json({ timezone: "Asia/Tokyo", source: "place", city: null }));
+test("legacy timezone lookup sends actual device zone", async (t) => {
+    const calls = recordFetch(t, () => Response.json({ timezone: "America/New_York", source: "device", city: null }));
     const signal = new AbortController().signal;
     const body = { place: { latitude: 35.6591, longitude: 139.7006 }, user_id: "actor", device_timezone: "America/New_York" };
     const result = await maps.resolveEventTimezone(body, signal);
-    assert.equal(result.timezone, "Asia/Tokyo");
+    assert.equal(result.timezone, "America/New_York");
     assert.equal(calls[0].url.pathname, "/api/maps/timezone");
     assert.equal(calls[0].options.method, "POST");
     assert.deepEqual(JSON.parse(calls[0].body), body);
@@ -1014,7 +1017,7 @@ test("draft submit button passes its action to the native button", () => {
 });
 
 const discoveryApi = require(join(output, "api/discovery.js"));
-const { DiscoveryCache, discoveryViewport, mergeDiscoveryEvents } = require(join(output, "utils/discovery.js"));
+const { DiscoveryCache, discoveryViewport, mergeDiscoveryEvents, discoveryEmptyText } = require(join(output, "utils/discovery.js"));
 function discoveryQuery(q = "") {
     return { filters: { q, viewer_id: null }, viewport: null, sort: "novelty",
         selection_token: null, cursor: null, limit: 20, include_map: true };
@@ -1139,7 +1142,7 @@ test("feed sends the chosen sort and point together with filters", async (t) => 
 
 test("sort menu names the current sort", () => {
     const markup = renderToStaticMarkup(createElement(SortMenu, { value: "distance", onChange: () => undefined }));
-    assert.match(markup, /aria-label="Сортировка: Рядом со мной"/);
+    assert.match(markup, /aria-label="Сортировка: По удалённости"/);
     assert.match(markup, /aria-haspopup="menu"/);
     assert.match(markup, /aria-expanded="false"/);
     const mapped = renderToStaticMarkup(createElement(SortMenu, {
@@ -1170,4 +1173,33 @@ test("password inputs stay hidden and get a hold-to-reveal button; other inputs 
     const text = renderToStaticMarkup(createElement(Input, { value: "", onChange: () => undefined }));
     assert.match(text, /type="text"/);
     assert.doesNotMatch(text, /Показать пароль/);
+});
+
+test("empty discovery distinguishes area, group and filters without claiming the global catalog is empty", () => {
+    assert.equal(discoveryEmptyText(true, false, false), "В этой области событий нет!");
+    assert.equal(discoveryEmptyText(true, false, true), "В этой области нет событий, подходящих под выбранные фильтры.");
+    assert.equal(discoveryEmptyText(false, false, false), "Сейчас нет доступных событий.");
+    assert.equal(discoveryEmptyText(false, false, true), "Нет событий, подходящих под выбранные фильтры.");
+    assert.equal(discoveryEmptyText(true, true, false), "В выбранной группе больше нет доступных событий.");
+    assert.equal(discoveryEmptyText(true, true, true), "В выбранной группе нет событий, подходящих под выбранные фильтры.");
+});
+
+test("username availability normalizes the value and forwards cancellation without credentials", async () => {
+    const originalFetch = globalThis.fetch;
+    const controller = new AbortController();
+    const calls = [];
+    globalThis.fetch = async (url, options) => {
+        calls.push({ url: String(url), options });
+        return new Response(JSON.stringify({ username: "member", available: calls.length === 1 }), {
+            headers: { "Content-Type": "application/json" },
+        });
+    };
+    try {
+        assert.equal(await auth.validateUsernameAvailability(" MEMBER ", controller.signal), null);
+        assert.equal(await auth.validateUsernameAvailability("member", controller.signal), "Этот никнейм уже занят.");
+        assert.equal(new URL(calls[0].url).searchParams.get("username"), "member");
+        assert.equal(calls[0].options.method, "GET");
+        assert.equal(calls[0].options.signal, controller.signal);
+        assert.equal(calls[0].options.body, undefined);
+    } finally { globalThis.fetch = originalFetch; }
 });

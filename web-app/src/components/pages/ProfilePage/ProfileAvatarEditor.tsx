@@ -4,7 +4,7 @@ import { createAvatarSaver } from "../../../api/profileImage";
 import { useAsync } from "../../../hooks";
 import type { Profile } from "../../../models";
 import { mediaContentUrl, validateCoverFile } from "../../../utils/media";
-import { Avatar, Button } from "../../ui";
+import { Avatar, Button, ImageViewer } from "../../ui";
 
 interface ProfileAvatarEditorProps {
     profile: Profile;
@@ -43,6 +43,24 @@ export const ProfileAvatarEditor = ({ profile, editing, onSaved }: ProfileAvatar
         }
     };
 
+    const remove = async () => {
+        if (uploading.current) return;
+        uploading.current = true;
+        setBusy(true);
+        setError(null);
+        setMessage(null);
+        setRetryFile(null);
+        try {
+            onSaved(await save({ kind: "remove" }));
+            setMessage("Фотография профиля удалена.");
+        } catch (failure) {
+            setError(errorText(failure));
+        } finally {
+            uploading.current = false;
+            setBusy(false);
+        }
+    };
+
     const avatar = <Avatar name={profile.display_name} src={mediaContentUrl(profile.avatar_url, profile.id)} size="lg" className="!flex" />;
     return (
         <div className="flex shrink-0 flex-col items-start gap-2">
@@ -50,7 +68,7 @@ export const ProfileAvatarEditor = ({ profile, editing, onSaved }: ProfileAvatar
                 <>
                     <button
                         type="button"
-                        aria-label={busy ? "Загрузка фотографии профиля" : "Изменить фотографию профиля"}
+                        aria-label={busy ? "Обновление фотографии профиля" : "Изменить фотографию профиля"}
                         aria-busy={busy}
                         disabled={busy || !config.data}
                         title={config.data ? `JPEG, PNG или WebP, до ${config.data.max_bytes / 1024 / 1024} МБ` : "Загружаем ограничения файла…"}
@@ -79,14 +97,19 @@ export const ProfileAvatarEditor = ({ profile, editing, onSaved }: ProfileAvatar
                             if (file) void upload(file);
                         }}
                     />
+                    {(profile.avatar_media_id || profile.avatar_url) && (
+                        <Button disabled={busy} onClick={() => void remove()} className="!h-[34px] !px-3">
+                            Удалить фото
+                        </Button>
+                    )}
                     {config.error !== undefined && (
                         <div role="alert" className="max-w-64 text-small text-texterror">
                             Не удалось загрузить ограничения файла. <Button onClick={config.reload}>Повторить</Button>
                         </div>
                     )}
                 </>
-            ) : avatar}
-            {busy && <span role="status" className="max-w-64 text-small text-textsecondary">Загружаем фотографию…</span>}
+            ) : <ImageViewer src={mediaContentUrl(profile.avatar_url, profile.id)} alt={`Фото профиля ${profile.display_name}`} className="block">{avatar}</ImageViewer>}
+            {busy && <span role="status" className="max-w-64 text-small text-textsecondary">Обновляем фотографию…</span>}
             {message && <span role="status" className="max-w-64 text-small text-textsuccess">{message}</span>}
             {error && <div role="alert" className="max-w-64 text-small text-texterror">{error}
                 {editing && retryFile && <Button disabled={busy} onClick={() => void upload(retryFile)}>Повторить загрузку</Button>}

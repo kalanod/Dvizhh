@@ -34,8 +34,8 @@ export const emptyForm = (): EventFormState => ({
     place: textPlace(),
     onlineUrl: "",
     registrationUrl: "",
-    price: "",
-    capacity: "",
+    price: "0",
+    capacity: "12",
     visibility: "PUBLIC",
     joinPolicy: "OPEN",
 });

@@ -1,6 +1,5 @@
 import uuid
 from datetime import datetime
-from decimal import Decimal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validator, model_validator
@@ -33,14 +32,6 @@ class CreateProfileDTO(UserDTO):
         default=None, description="Готовый медиафайл пользователя для аватара."
     )
     city: str | None = Field(default=None, min_length=1, max_length=120, description="Город.")
-    latitude: Decimal | None = Field(default=None, ge=-90, le=90, max_digits=9, decimal_places=6)
-    longitude: Decimal | None = Field(default=None, ge=-180, le=180, max_digits=9, decimal_places=6)
-
-    @model_validator(mode="after")
-    def coordinates_are_a_pair(self) -> "CreateProfileDTO":
-        if (self.latitude is None) != (self.longitude is None):
-            raise ValueError("latitude and longitude must be provided together")
-        return self
 
 
 class UpdateProfileDTO(UserDTO):
@@ -49,8 +40,6 @@ class UpdateProfileDTO(UserDTO):
     bio: str | None = Field(default=None, max_length=2000)
     avatar_media_id: UUID | None = None
     city: str | None = Field(default=None, min_length=1, max_length=120)
-    latitude: Decimal | None = Field(default=None, ge=-90, le=90, max_digits=9, decimal_places=6)
-    longitude: Decimal | None = Field(default=None, ge=-180, le=180, max_digits=9, decimal_places=6)
 
     @model_validator(mode="after")
     def validate_patch(self) -> "UpdateProfileDTO":
@@ -61,10 +50,6 @@ class UpdateProfileDTO(UserDTO):
             raise ValueError("username cannot be null")
         if "display_name" in fields and self.display_name is None:
             raise ValueError("display_name cannot be null")
-        if ("latitude" in fields) != ("longitude" in fields):
-            raise ValueError("latitude and longitude must be updated together")
-        if "latitude" in fields and (self.latitude is None) != (self.longitude is None):
-            raise ValueError("latitude and longitude must both be set or both be null")
         return self
 
 
@@ -75,8 +60,6 @@ class ProfileDTO(UserDTO):
     bio: str | None
     avatar_media_id: UUID | None
     city: str | None
-    latitude: Decimal | None
-    longitude: Decimal | None
     status: ProfileStatus
     created_at: datetime
     updated_at: datetime
@@ -107,7 +90,7 @@ class FriendshipRequestDTO(UserDTO):
 
 
 class UserCreate(CreateProfileDTO):
-    # Тело запроса приходит из JSON, где UUID и координаты — строки и числа.
+    # Тело запроса приходит из JSON, где UUID передаётся строкой.
     model_config = ConfigDict(strict=False)
 
     id: uuid.UUID = Field(

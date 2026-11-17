@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { cancelEvent, deleteEvent, errorText, publishEvent, setEventCover, uploadImage } from "../../../api";
+import { cancelEvent, deleteEvent, errorText, publishEvent, setEventCover } from "../../../api";
 import type { DvizhEvent } from "../../../models";
-import { Button, FileButton, Notice } from "../../ui";
+import { Button, Notice } from "../../ui";
 
 interface OrganizerPanelProps {
     event: DvizhEvent;
@@ -33,12 +33,6 @@ export const OrganizerPanel = ({ event, userId, onChanged }: OrganizerPanelProps
             setBusy(false);
         }
     };
-
-    const handleCover = (file: File) =>
-        run(async () => {
-            const media = await uploadImage(userId, file);
-            await setEventCover(event.id, userId, media.id);
-        }, "Обложка обновлена.");
 
     const handleCancel = () => {
         if (
@@ -86,9 +80,6 @@ export const OrganizerPanel = ({ event, userId, onChanged }: OrganizerPanelProps
                         <Button state="fixed2" className="!h-[30px] !px-4" disabled={busy} onClick={() => navigate(`/events/${event.id}/edit`)}>
                             Редактировать
                         </Button>
-                        <FileButton state="hover1" className="!h-[30px] !px-4" disabled={busy} onFile={handleCover}>
-                            {event.cover_media_id ? "Сменить обложку" : "Загрузить обложку"}
-                        </FileButton>
                         {event.cover_media_id && (
                             <Button
                                 state="hover1"

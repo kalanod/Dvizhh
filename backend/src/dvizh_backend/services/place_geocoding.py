@@ -3,12 +3,17 @@
 import asyncio
 
 from dvizh_backend.api.schemas.timezone import PlaceCoordinates
+from dvizh_backend.config import Settings
 
 from .maps_errors import MapsUnavailableError
 from .yandex_maps_client import YandexMapsClient
 
 
 class ProfileCityGeocoder:
+    @classmethod
+    def from_settings(cls, settings: Settings, referer: str = "") -> "ProfileCityGeocoder":
+        return cls(settings.yandex_geocoder_api_key or settings.yandex_maps_api_key, referer)
+
     def __init__(
         self, api_key: str, referer: str = "", client: YandexMapsClient | None = None,
     ) -> None:
