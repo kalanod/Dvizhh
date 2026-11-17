@@ -4,12 +4,12 @@ from uuid import UUID
 import pytest
 from pydantic import ValidationError
 
-from dvizh_backend.database.models.enums import InteractionType
-from dvizh_backend.dto.interaction import (
+from dvizh_backend.api.schemas.interaction import (
     InteractionBatchDTO,
     InteractionBatchResponseDTO,
     InteractionDTO,
 )
+from dvizh_backend.database.models.enums import InteractionType
 
 INTERACTION_ID = "00000000-0000-0000-0000-000000000001"
 ITEM_ID = "00000000-0000-0000-0000-000000000002"

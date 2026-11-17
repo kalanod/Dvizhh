@@ -12,8 +12,8 @@ import pytest
 from sqlalchemy import func, select, update
 from sqlalchemy.engine import make_url
 
+from dvizh_backend.api.dependencies import get_database_service
 from dvizh_backend.database.database_service import DatabaseService
-from dvizh_backend.database.dependencies import get_database_service
 from dvizh_backend.database.models import (
     EventInteraction,
     EventInvitation,

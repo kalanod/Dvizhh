@@ -8,7 +8,7 @@ import jwt
 from fastapi import HTTPException
 from starlette.requests import Request
 
-from dvizh_auth.main import current_account, logout, settings
+from dvizh_auth.api.routers.auth import current_account, logout, settings
 
 
 class SessionTests(unittest.IsolatedAsyncioTestCase):

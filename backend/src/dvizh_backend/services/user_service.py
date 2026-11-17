@@ -4,18 +4,19 @@ from uuid import UUID
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from dvizh_backend.database.models import Friendship, Profile
-from dvizh_backend.database.models.enums import FriendshipStatus, MediaStatus, ProfileStatus
-from dvizh_backend.database.services.catalog import MediaAssetService, ProfileService
-from dvizh_backend.database.services.social import FriendshipService
-from dvizh_backend.dto.account import AccountRequestContext, ChangePasswordCommand
-from dvizh_backend.dto.user import (
+from dvizh_backend.api.schemas.account import ChangePasswordCommand
+from dvizh_backend.api.schemas.user import (
     CreateProfileDTO,
     FriendshipDTO,
     FriendshipRequestDTO,
     ProfileDTO,
     UpdateProfileDTO,
 )
+from dvizh_backend.database.models import Friendship, Profile
+from dvizh_backend.database.models.enums import FriendshipStatus, MediaStatus, ProfileStatus
+from dvizh_backend.database.services.catalog import MediaAssetService, ProfileService
+from dvizh_backend.database.services.social import FriendshipService
+from dvizh_backend.services.account_context import AccountRequestContext
 
 from .account_gateway import AccountGateway
 from .errors import (

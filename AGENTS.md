@@ -4,7 +4,7 @@
 
 Движж (Dvizh) - приложение для поиска и создания мероприятий, участия в них,
 личных списков, календаря и рекомендаций. Основная доменная сущность - мероприятие.
-Описание продукта в `about_project.txt` включает планы: не считайте все описанные
+Описание продукта в `docs/about_project.txt` включает планы: не считайте все описанные
 возможности реализованными. Проверяйте поведение по коду и тестам.
 
 Стек: React 19, TypeScript, Vite, Tailwind CSS; Python 3.12, FastAPI,
@@ -106,12 +106,15 @@ MLflow используется для экспериментов и верси�
 
 ## Документация
 
+- Подробные документы сервисов хранятся в `<service>/docs/`; `README.md` и
+  `AGENTS.md` остаются в корне сервиса. [Общий каталог](docs/README.md).
 - [README.md](README.md) - обзор и архитектура.
 - [RUNNING.md](RUNNING.md) - запуск, проверки, MLflow и резервные копии.
-- [about_project.txt](about_project.txt) - продуктовая концепция и планы.
-- [database.dbml](database.dbml), [scheme.png](scheme.png) - схемы; актуальность сверяйте с миграциями.
-- [PERSONAL_API.md](backend/PERSONAL_API.md), [MEDIA_LIFECYCLE_API.md](backend/MEDIA_LIFECYCLE_API.md),
-  [interactions.md](backend/interactions.md) - API и взаимодействия.
-- [README рекомендаций](recommendation-service/README.md), [README pgvector](pgvector/README.md).
+- [about_project.txt](docs/about_project.txt) - продуктовая концепция и планы.
+- Источник схемы БД — модели SQLAlchemy и миграции Alembic соответствующего сервиса.
+  [scheme.png](docs/scheme.png) — иллюстрация; актуальность сверяйте с моделями и миграциями.
+- [PERSONAL_API.md](backend/docs/PERSONAL_API.md), [MEDIA_LIFECYCLE_API.md](backend/docs/MEDIA_LIFECYCLE_API.md),
+  [interactions.md](backend/docs/interactions.md) - API и взаимодействия.
+- [README рекомендаций](recommendation-service/docs/README.md), [README pgvector](pgvector/docs/README.md).
 
 При расхождении документации с кодом сообщи об этом и исправь описание в рамках задачи после подтверждения изменения; не выполняй опасные команды из устаревших инструкций автоматически.

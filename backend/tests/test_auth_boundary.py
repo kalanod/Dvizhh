@@ -1,7 +1,7 @@
 """Граница авторизации: действовать можно только от своего имени.
 
 Пока auth-api не выдаёт сессии, backend не знает, кто отправил запрос, и берёт
-organizer_id из тела как есть (временный контракт, см. PERSONAL_API.md). Тесты ниже
+organizer_id из тела как есть (временный контракт, см. backend/docs/PERSONAL_API.md). Тесты ниже
 фиксируют требование заранее и помечены xfail(strict=True): когда авторизация
 появится, они начнут проходить, и pytest попросит снять пометку.
 
@@ -16,8 +16,8 @@ from uuid import UUID
 import httpx
 import pytest
 
+from dvizh_backend.api.dependencies import get_event_service
 from dvizh_backend.main import app
-from dvizh_backend.services.dependencies import get_event_service
 
 ACTING_USER_HEADER = "X-User-Id"
 ACTOR_ID = UUID("00000000-0000-0000-0000-0000000000a1")

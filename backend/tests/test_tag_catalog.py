@@ -8,10 +8,10 @@ import pytest
 from pydantic import ValidationError
 from test_personal_scenarios import client, event, user
 
-from dvizh_backend.dto.event import UpdateEventDTO
-from dvizh_backend.dto.tag import CategoryCreateDTO, TagUpdateDTO
+from dvizh_backend.api.schemas.event import UpdateEventDTO
+from dvizh_backend.api.schemas.tag import CategoryCreateDTO, TagUpdateDTO
+from dvizh_backend.api.security import require_admin
 from dvizh_backend.main import app
-from dvizh_backend.services.admin_auth import require_admin
 
 
 def test_tag_contract_rejects_duplicates_and_more_than_five() -> None:
