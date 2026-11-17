@@ -3,7 +3,7 @@ import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { errorText, getEvent, listParticipants } from "../../../api";
 import { useAsync, useCurrentUser } from "../../../hooks";
 import { MainLayout } from "../../layouts";
-import { Loader, Notice, Tag } from "../../ui";
+import { EventTitle, Loader, Notice, Tag } from "../../ui";
 import { EventCoverMain, PersonalToggles } from "../../widgets";
 import {
     EVENT_STATUS_LABELS,
@@ -72,7 +72,7 @@ export const EventPage = () => {
                                 />
                             )}
                             <h1 className={`text-h1 break-words text-textprimary ${event.status === "CANCELLED" ? "line-through opacity-70" : ""}`}>
-                                {event.title}
+                                <EventTitle title={event.title} />
                             </h1>
                             <PersonalToggles event={event} onChange={eventState.reload} />
                             {event.organizer && (

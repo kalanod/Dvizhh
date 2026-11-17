@@ -20,6 +20,13 @@ export const EventSection = ({ title, discovery }: EventSectionProps) => {
 
     const handleSearch = () => applyFilters({ q: searchValue.trim() });
 
+    const [searchQuery, setSearchQuery] = useState(filters.q);
+    // Переход по хештегу и история браузера обновляют URL без размонтирования ленты.
+    if (searchQuery !== filters.q) {
+        setSearchQuery(filters.q);
+        setSearchValue(filters.q);
+    }
+
     const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
         if (e.key === "Enter") {
             handleSearch();

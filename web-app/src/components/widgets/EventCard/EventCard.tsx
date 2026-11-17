@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useCurrentUser } from "../../../hooks";
-import { Tag } from "../../ui";
+import { EventTitle, Tag } from "../../ui";
 import type { DvizhEvent } from "../../../models";
 import {
     EVENT_STATUS_LABELS,
@@ -65,7 +65,7 @@ export const EventCard = ({ event: initial, onTagClick, onPersonalChange, collap
             <div className="flex min-w-0 flex-1 flex-col justify-between gap-4">
                 <div className="flex w-full flex-wrap gap-4">
                     <div className="flex min-w-[min(200px,100%)] flex-1 flex-col gap-2 py-1">
-                        <h3 className="text-h3 break-words text-textprimary transition-colors hover:text-primary">{event.title}</h3>
+                        <h3 className="text-h3 break-words text-textprimary"><EventTitle title={event.title} /></h3>
                         <span className="text-duration text-textsecondary">{formatEventDate(event)}</span>
                         <span className="text-body text-textprimary">{formatPlace(event)}</span>
                         {event.organizer && (

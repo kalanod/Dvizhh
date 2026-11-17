@@ -7,6 +7,7 @@ import { after, test } from "node:test";
 import ts from "typescript";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { MemoryRouter } from "react-router-dom";
 
 const testRoot = fileURLToPath(new URL("../node_modules/.tmp/", import.meta.url));
 mkdirSync(testRoot, { recursive: true });
@@ -32,6 +33,8 @@ for (const name of [
     "utils/media",
     "utils/format",
     "utils/tags",
+    "utils/hashtags",
+    "components/ui/EventTitle/EventTitle",
     "components/widgets/EventCard/EventCoverMicro",
     "components/ui/Avatar/Avatar",
     "api/maps",
@@ -62,6 +65,9 @@ const { saveProfileWithAccount } = require(join(output, "api/profileAccount.js")
 const api = require(join(output, "api/events.js"));
 const catalog = require(join(output, "api/tags.js"));
 const { toggleEventTag, MAX_EVENT_TAGS, tagColorStyle } = require(join(output, "utils/tags.js"));
+const { splitHashtags, isHashtag, hashtagSearchUrl } = require(join(output, "utils/hashtags.js"));
+const { EventTitle } = require(join(output, "components/ui/EventTitle/EventTitle.js"));
+const { formatEventDate } = require(join(output, "utils/format.js"));
 const media = require(join(output, "api/media.js"));
 const { createEventSaver } = require(join(output, "api/eventCover.js"));
 const { createAvatarSaver } = require(join(output, "api/profileImage.js"));
@@ -83,6 +89,51 @@ after(() => {
     assert.equal(dirname(output), resolve(testRoot));
     assert.ok(basename(output).startsWith("dvizh-api-test-"));
     rmSync(output, { recursive: true, force: true });
+});
+
+test("title hashtags support Unicode, underscores, punctuation and safe search URLs", () => {
+    const title = "Встреча (#испанские_слизни), #Music2026! #東京_2";
+    const parts = splitHashtags(title);
+    assert.equal(parts.join(""), title);
+    assert.deepEqual(parts.filter(isHashtag), ["#испанские_слизни", "#Music2026", "#東京_2"]);
+    assert.deepEqual(splitHashtags("слово#тег ##тег # !").filter(isHashtag), []);
+    const url = new URL(hashtagSearchUrl("#испанские_слизни"), "http://localhost");
+    assert.equal(url.searchParams.get("q"), "#испанские_слизни");
+    assert.equal(url.hash, "");
+});
+
+test("event title renders real search links and escapes surrounding text", () => {
+    const html = renderToStaticMarkup(createElement(MemoryRouter, null,
+        createElement(EventTitle, { title: '<script> #испанские_слизни & #music' })));
+    assert.ok(html.includes("&lt;script&gt;"));
+    assert.equal((html.match(/<a /g) ?? []).length, 2);
+    assert.ok(html.includes(`href="${hashtagSearchUrl("#испанские_слизни")}"`));
+    assert.ok(html.includes("Найти события с хештегом #испанские_слизни"));
+});
+
+test("hashtag search is sent intact to the event feed", async (t) => {
+    const calls = recordFetch(t, () => Response.json([]));
+    await api.listEvents({ q: "#испанские_слизни" });
+    assert.equal(calls[0].url.searchParams.get("q"), "#испанские_слизни");
+    assert.equal(calls[0].url.hash, "");
+});
+
+test("event dates show years for future events and both ends of date ranges in the event zone", () => {
+    const base = { starts_at: "2027-06-12T15:00:00Z", ends_at: null, is_all_day: false, timezone: "Europe/Moscow" };
+    const single = formatEventDate(base);
+    assert.match(single, /2027/);
+    assert.match(single, /18:00/);
+    const sameDay = formatEventDate({ ...base, ends_at: "2027-06-12T18:00:00Z" });
+    assert.match(sameDay, /2027/);
+    assert.match(sameDay, /18:00–21:00/);
+    assert.match(formatEventDate({ ...base, is_all_day: true }), /2027.*весь день/);
+
+    const yearBoundary = { ...base, starts_at: "2027-12-31T20:00:00Z", ends_at: "2027-12-31T22:00:00Z" };
+    const timedRange = formatEventDate(yearBoundary);
+    assert.match(timedRange, /2027.*23:00.*2028.*01:00/);
+    assert.match(formatEventDate({ ...yearBoundary, is_all_day: true }), /2027.*2028/);
+    // В UTC ещё 31 декабря, но местная дата начала уже в следующем году.
+    assert.match(formatEventDate({ ...base, starts_at: "2027-12-31T22:00:00Z" }), /2028/);
 });
 
 test("password change delegates through backend with unchanged secrets and protected writes", async (t) => {

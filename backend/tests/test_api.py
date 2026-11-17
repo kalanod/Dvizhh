@@ -150,6 +150,24 @@ def test_feed_query_compiles_for_postgres_with_all_filters() -> None:
     assert sql.index("DESC") < sql.index("events.published_at DESC")
 
 
+@pytest.mark.parametrize("hashtag", ["#испанские_слизни", "#Music2026", "#東京_2"])
+def test_hashtag_feed_search_uses_boundaries_in_title_and_keeps_visibility(hashtag: str) -> None:
+    async def scenario():
+        session = AsyncMock()
+        session.execute.return_value = []
+        await EventQueryService(session).list_public(text_query=f"  {hashtag}  ")
+        return session.execute.await_args.args[0].compile(dialect=postgresql.dialect())
+
+    compiled = asyncio.run(scenario())
+    sql = str(compiled)
+    assert "events.title ~*" in sql
+    assert "websearch_to_tsquery" not in sql
+    assert f"(^|[^[:alnum:]_#]){hashtag}($|[^[:alnum:]_])" in compiled.params.values()
+    assert "events.deleted_at IS NULL" in sql
+    assert EventStatus.PUBLISHED in compiled.params.values()
+    assert EventVisibility.PUBLIC in compiled.params.values()
+
+
 def make_event_service() -> EventService:
     service = EventService(AsyncMock())
     now = datetime.now(UTC)
