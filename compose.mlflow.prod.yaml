@@ -17,18 +17,7 @@ services:
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?Set MINIO_ROOT_PASSWORD}
       MLFLOW_STORAGE_SECRET_KEY: ${MLFLOW_STORAGE_SECRET_KEY:?Set MLFLOW_STORAGE_SECRET_KEY}
 
-  postgres:
-    environment:
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
-      RECSYS_READER_PASSWORD: ${RECSYS_READER_PASSWORD:?Set RECSYS_READER_PASSWORD}
-
-  minio:
-    ports: !reset []
-    environment:
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?Set MINIO_ROOT_PASSWORD}
-
   mlflow-gateway:
-    profiles: [ml]
     image: caddy:2.11.7-alpine@sha256:e70b164da81ef698b3ad19af799ea6086ce6d9e48ed4079eb9fe26f6fbf14ee5
     environment:
       MLFLOW_DOMAIN: ${MLFLOW_DOMAIN:?Set MLFLOW_DOMAIN}
@@ -51,4 +40,6 @@ services:
 
 volumes:
   mlflow-caddy-data:
+    name: ${MLFLOW_CADDY_DATA_VOLUME:-dvizh_mlflow-caddy-data}
   mlflow-caddy-config:
+    name: ${MLFLOW_CADDY_CONFIG_VOLUME:-dvizh_mlflow-caddy-config}
