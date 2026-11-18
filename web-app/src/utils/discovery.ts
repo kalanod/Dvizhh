@@ -79,7 +79,17 @@ export function discoveryEmptyText(inArea: boolean, selectedGroup: boolean, filt
 
 export function mergeDiscoveryEvents(previous: DvizhEvent[], incoming: DvizhEvent[]) {
     const events = new Map(previous.map((event) => [event.id, event]));
-    for (const event of incoming) events.set(event.id, event);
+    for (const event of incoming) {
+        const existing = events.get(event.id);
+        if (existing && existing.occurrence_id === event.occurrence_id && existing.interactionOrigin !== event.interactionOrigin) {
+            const card = { ...event };
+            if (existing.interactionOrigin) card.interactionOrigin = existing.interactionOrigin;
+            else delete card.interactionOrigin;
+            events.set(event.id, card);
+        } else {
+            events.set(event.id, event);
+        }
+    }
     return [...events.values()];
 }
 

@@ -184,7 +184,8 @@ def test_hashtags_share_map_feed_selection_and_pagination(sort):
         )
         scoped = DiscoveryRequest(**{**request.model_dump(), "viewport": viewport})
         page = await service.discover(scoped, None)
-        assert page.feed.total_events == page.map.total_events == 2
+        assert page.map.total_events == 2
+        assert page.feed.total_events == (None if sort == "relevance" else 2)
         assert len(page.map.items) == 1
         assert page.map.items[0].count == 2
         seen = [item.id for item in page.feed.items]
@@ -286,16 +287,19 @@ def test_discovery_postgis_counts_clusters_filters_recurrence_and_keyset(sort):
                             )
                         )
             first = await discover(viewport=world, limit=7)
-            assert first.map.total_events == first.feed.total_events == 160
+            assert first.map.total_events == 160
+            assert first.feed.total_events == (None if sort == "relevance" else 160)
             assert 1 <= len(first.map.items) <= 30
             assert sum(item.count for item in first.map.items) == 160
             free = await discover(viewport=world, filters={"free_only": True})
-            assert free.map.total_events == free.feed.total_events == 159
+            assert free.map.total_events == 159
+            assert free.feed.total_events == (None if sort == "relevance" else 159)
             later = await discover(
                 viewport=world,
                 filters={"date_from": (now + timedelta(days=3)).date()},
             )
-            assert later.map.total_events == later.feed.total_events == 1
+            assert later.map.total_events == 1
+            assert later.feed.total_events == (None if sort == "relevance" else 1)
             assert later.feed.items[0].starts_at == now + timedelta(days=3)
             seen = [item.id for item in first.feed.items]
             cursor = first.feed.next_cursor
@@ -331,7 +335,7 @@ def test_discovery_postgis_counts_clusters_filters_recurrence_and_keyset(sort):
             assert exact.map.items[0].count == 40
             assert exact.map.items[0].type == "cluster"
             unscoped = await discover(viewport=None)
-            assert unscoped.feed.total_events == 161  # Missing coordinates still work in the feed.
+            assert unscoped.feed.total_events == (None if sort == "relevance" else 161)
             async with sessions.begin() as session:
                 location = await session.get(Location, location_ids[0])
                 location.longitude = 179.9

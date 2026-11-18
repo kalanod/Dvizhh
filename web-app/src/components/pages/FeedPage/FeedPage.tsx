@@ -1,13 +1,14 @@
 ﻿import { MainLayout } from "../../layouts";
 import { EventSection } from "../../widgets";
 import { EventDiscoveryMap } from "../../widgets/EventDiscoveryMap/EventDiscoveryMap";
-import { useEventDiscovery } from "../../../hooks/useEventDiscovery";
+import { useOutletContext } from "react-router-dom";
+import type { EventDiscoveryController } from "../../../hooks/useEventDiscovery";
 import type { DiscoveryMapItem } from "../../../api/discovery";
 
 const EMPTY_MARKERS: DiscoveryMapItem[] = [];
 
 export const FeedPage = () => {
-    const discovery = useEventDiscovery();
+    const discovery = useOutletContext<EventDiscoveryController>();
     return <MainLayout>
         <div className="flex w-full min-w-0 flex-col gap-5">
             <EventDiscoveryMap key={discovery.userId ?? "guest"}

@@ -24,6 +24,7 @@ _fields = (
     "status",
     "duration_ms",
     "request_id",
+    "recommendation_request_id",
     "session_id",
     "dependency",
     "error_type",
@@ -48,6 +49,11 @@ def request_context(**fields: object) -> Iterator[None]:
         yield
     finally:
         _context.reset(token)
+
+
+def current_request_id() -> str | None:
+    value = (_context.get() or {}).get("request_id")
+    return value if isinstance(value, str) else None
 
 
 def record_dependency(

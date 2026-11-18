@@ -20,7 +20,9 @@ from dvizh_recommendation.recommendations import RecommendationBatch, Recommenda
 pytestmark = pytest.mark.integration
 
 
-async def keep_items(item_ids: Sequence[str]) -> tuple[str, ...]:
+async def keep_items(
+    item_ids: Sequence[str], query: RecommendationQuery, snapshots: Sequence[object]
+) -> tuple[str, ...]:
     return tuple(item_ids)
 
 
@@ -51,19 +53,33 @@ async def redis_sessions(url: str, *session_ids: str) -> AsyncIterator[Redis]:
             await redis.delete(*(SessionStore.key(session_id) for session_id in session_ids))
 
 
-def test_pages_cross_batches_without_reordering_or_recalculating_retries(
+def test_pages_cross_batches_with_the_original_provider_after_a_version_switch(
     integration_redis_url: str,
 ) -> None:
     async def run() -> None:
         session_id = uuid4().hex
+        new_session_id = uuid4().hex
         query = RecommendationQuery("user", {}, {})
         provider = OrderedRecommendations(225)
-        async with redis_sessions(integration_redis_url, session_id) as redis:
-            pagination = Pagination(SessionStore(redis), provider, keep_items)
+        next_provider = OrderedRecommendations(8)
+        async with redis_sessions(integration_redis_url, session_id, new_session_id) as redis:
+            pagination = Pagination(
+                SessionStore(redis, initial_version="original"),
+                provider,
+                keep_items,
+                provider_version="original",
+            )
             first = await pagination.get_page(query, session_id, page_size=30)
             assert await pagination.get_page(query, session_id, page_size=30) == first
             assert len(provider.calls) == 1
 
+            pagination = Pagination(
+                SessionStore(redis, initial_version="replacement"),
+                next_provider,
+                keep_items,
+                provider_version="replacement",
+                previous_providers={"original": provider},
+            )
             collected = list(first.item_ids)
             page = first
             while page.next_page_token is not None:
@@ -89,6 +105,9 @@ def test_pages_cross_batches_without_reordering_or_recalculating_retries(
                 await pagination.get_page(query, session_id, page_size=30, page_token=token) == page
             )
             assert len(provider.calls) == 3
+            assert not next_provider.calls
+            fresh_page = await pagination.get_page(query, new_session_id, page_size=30)
+            assert fresh_page.item_ids == next_provider.item_ids
 
     asyncio.run(run())
 

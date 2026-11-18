@@ -1,11 +1,12 @@
 import logging
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 
 import uvicorn
 from dvizh_logging import error_fields
 from dvizh_logging.http import RequestLoggingMiddleware, configure_http_logging
 from fastapi import FastAPI
+from grpc import aio
 
 from dvizh_backend.api.errors import register_error_handlers
 from dvizh_backend.api.routers import (
@@ -25,6 +26,7 @@ from dvizh_backend.api.routers import (
 from dvizh_backend.api.routers import settings as settings_router
 from dvizh_backend.config import get_settings
 from dvizh_backend.database.database_service import DatabaseService
+from dvizh_backend.services.recommendation_client import RecommendationClient
 from dvizh_backend.storage import MediaStorage
 
 settings = get_settings()
@@ -36,19 +38,25 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     database_service = DatabaseService(settings.database_url)
     app.state.database_service = database_service
     app.state.media_storage = MediaStorage(settings)
-    try:
-        await database_service.ping()
-    except Exception as exc:
-        if settings.require_database:
-            await database_service.dispose()
-            raise
-        logger.warning(
-            "Database unavailable", extra={"dependency": "postgresql", **error_fields(exc)}
-        )
-    try:
+    app.state.recommendation_client = None
+    async with AsyncExitStack() as resources:
+        resources.push_async_callback(database_service.dispose)
+        if settings.recommendation_grpc_address:
+            channel = await resources.enter_async_context(
+                aio.insecure_channel(settings.recommendation_grpc_address)
+            )
+            app.state.recommendation_client = RecommendationClient(
+                channel, timeout_seconds=settings.recommendation_grpc_timeout_seconds
+            )
+        try:
+            await database_service.ping()
+        except Exception as exc:
+            if settings.require_database:
+                raise
+            logger.warning(
+                "Database unavailable", extra={"dependency": "postgresql", **error_fields(exc)}
+            )
         yield
-    finally:
-        await database_service.dispose()
 
 
 class Application(FastAPI):
