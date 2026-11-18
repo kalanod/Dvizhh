@@ -33,6 +33,25 @@
 Оценка остаётся внутри сервиса и может использоваться как признак ранкера.
 `limit` задаёт число найденных айтемов, `page_size` — размер страницы выдачи.
 
+Команды из каталога `recommendation-service` выгружают историю подтверждённых
+записей, обучают Two-Tower, сохраняют версию в MLflow и считают векторы пакетами.
+Для обучения используются только записи пользователя, сделанные до целевой
+записи. Текст и темы мероприятий берутся из каталога на момент выгрузки.
+
+```shell
+uv run python -m dvizh_recommendation.encoder_data retrieval.json \
+  --history-start "$HISTORY_START" --as-of "$TRAIN_AS_OF"
+uv run --group encoder python -m dvizh_recommendation.encoder_training retrieval.json \
+  --validation-start "$VALIDATION_START" --experiment dvizh-retrieval \
+  --model dvizh-two-tower --git-sha "$(git rev-parse HEAD)"
+uv run --group encoder python -m dvizh_recommendation.generate_embeddings \
+  "$MODEL_URI" embeddings.json --history-start "$HISTORY_START" --as-of "$INDEX_AS_OF"
+```
+
+`MODEL_URI` — точный `models:/имя/версия` из команды обучения. Выгрузке нужны
+`SOURCE_DATABASE_URL`, обучению и генерации — `MLFLOW_TRACKING_URI`.
+PyTorch используется только в командах обучения и генерации векторов.
+
 ## pgvector
 
 Данные `IndexedItem` соответствуют схеме `event_embeddings`
@@ -52,7 +71,8 @@ uv run python -m dvizh_recommendation.vector_index embeddings.json
 `generated_at`, массив `items` с `item_id`, `content_hash` и `values`, массив
 `users` с `user_id` и `values`. Хэш вычисляет `catalog_content_hash`.
 Команда публикации возвращает ключ неизменяемого набора в поле `revision`.
-При запуске `VECTOR_MODEL_ID` выбирает последнюю публикацию энкодера для новых сессий.
+Для выкладки задайте `VECTOR_MODEL_ID` и точный `VECTOR_INDEX_REVISION` из вывода
+команды публикации. Без ревизии новые сессии берут последнюю публикацию энкодера.
 Продолжение использует исходную публикацию, в том числе после перезапуска.
 Если есть подходящие мероприятия, но в наборе нет вектора пользователя,
 RecSys возвращает `FAILED_PRECONDITION` с метаданными `recsys-reason=no-user-vector`.
@@ -176,8 +196,9 @@ docker compose run --rm --build prepare-ranker "$model_uri" &&
 
 Сохраните выбранный `RANKER_MODEL_URI` в окружении сервиса для следующих выкладок.
 RecSys при запуске читает локальный файл. Для продолжения активных сессий можно
-указать `PREVIOUS_RANKER_MODEL_URI` и `PREVIOUS_VECTOR_MODEL_ID`.
-Предыдущая версия ранкера также должна быть подготовлена в этом volume.
+указать `PREVIOUS_RANKER_MODEL_URI`, `PREVIOUS_VECTOR_MODEL_ID` и
+`PREVIOUS_VECTOR_INDEX_REVISION`. Предыдущая версия ранкера также должна быть
+подготовлена в этом volume.
 При обновлении нескольких экземпляров сначала обновите код на всех экземплярах, затем
 смените версию модели и индекса. [Запуск MLflow](../../mlflow/docs/README.md).
 

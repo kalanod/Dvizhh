@@ -35,6 +35,8 @@ async def _load_provider(
     settings: Settings,
     ranker_uri: str | None,
     vector_model_id: str | None,
+    *,
+    vector_index_revision: str | None,
 ) -> LatestRecommendations:
     ranker = await load_ranker(ranker_uri, settings.ranker_model_dir) if ranker_uri else None
     if not vector_model_id:
@@ -42,7 +44,7 @@ async def _load_provider(
             databases.source, settings.database_timeout_seconds, ranker=ranker
         )
 
-    generator = HnswCandidates(databases.vector, vector_model_id)
+    generator = HnswCandidates(databases.vector, vector_model_id, vector_index_revision or None)
     if not await generator.check_ready():
         raise ValueError("No compatible published HNSW index for the configured model")
     version = json.dumps(
@@ -121,6 +123,7 @@ async def running_server(
             settings,
             settings.ranker_model_uri,
             settings.vector_model_id,
+            vector_index_revision=settings.vector_index_revision,
         )
         previous_providers = {baseline.version: baseline}
         if settings.previous_ranker_model_uri or settings.previous_vector_model_id:
@@ -129,6 +132,7 @@ async def running_server(
                 settings,
                 settings.previous_ranker_model_uri,
                 settings.previous_vector_model_id,
+                vector_index_revision=settings.previous_vector_index_revision,
             )
             previous_providers[previous_provider.version] = previous_provider
 

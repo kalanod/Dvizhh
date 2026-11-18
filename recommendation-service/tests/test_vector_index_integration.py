@@ -43,8 +43,10 @@ def test_sessions_keep_their_index_across_republication_and_restart(
     known_viewer, new_viewer = uuid4(), uuid4()
     distractor, first, second, third = uuid4(), uuid4(), uuid4(), uuid4()
     items = (distractor, first, second, third)
-    original, cold, no_matches, fresh_session, filtered_session = (str(uuid4()) for _ in range(5))
-    sessions = (original, cold, no_matches, fresh_session, filtered_session)
+    original, cold, no_matches, pinned_session, fresh_session, filtered_session = (
+        str(uuid4()) for _ in range(6)
+    )
+    sessions = (original, cold, no_matches, pinned_session, fresh_session, filtered_session)
     marker = f"vector{uuid4().hex}"
     model_id = f"fixture-{uuid4()}"
     now = datetime.now(UTC)
@@ -71,13 +73,18 @@ def test_sessions_keep_their_index_across_republication_and_restart(
         )
 
     @asynccontextmanager
-    async def server() -> AsyncIterator[RecommendationServiceStub]:
+    async def server(
+        revision: str | None = None, previous_revision: str | None = None,
+    ) -> AsyncIterator[RecommendationServiceStub]:
         settings = Settings(
             grpc_bind_address="127.0.0.1:0",
             source_database_url=integration_databases.source_url,
             vector_database_url=integration_databases.vector_url,
             redis_url=integration_redis_url,
             vector_model_id=model_id,
+            vector_index_revision=revision,
+            previous_vector_model_id=model_id if previous_revision else None,
+            previous_vector_index_revision=previous_revision,
             _env_file=None,
         )
         async with (
@@ -196,7 +203,10 @@ def test_sessions_keep_their_index_across_republication_and_restart(
                 with pytest.raises(ValueError, match="no active items matching the catalogue"):
                     await refresh_index(catalog, writer, stale)
 
-                async with server() as client:
+                async with server(initial_revision) as client:
+                    await page(client, known_viewer, pinned_session, second)
+
+                async with server(updated_revision, initial_revision) as client:
                     await page(client, known_viewer, original, third, by_index.next_page_token)
                     fresh = await page(client, new_viewer, fresh_session, first)
                     assert fresh.HasField("next_page_token")
