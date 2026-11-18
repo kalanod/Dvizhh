@@ -2,7 +2,8 @@
 
 Действуют [корневые инструкции](../AGENTS.md).
 
-`init.sh` подготавливает роль чтения рекомендаций, права и схему pgvector.
+`init.sh` подготавливает БД Auth и роль чтения RecSys в основной PostgreSQL.
+Векторную схему отдельно применяет `pgvector-init` из `compose.yaml`.
 Изменения должны работать и на пустых, и на существующих volumes, выдерживать
 повторный запуск и сохранять данные. Не заменяй миграции backend этим скриптом.
 Сверяй изменения с `../postgres/`, `../pgvector/`, `../compose.yaml`
@@ -13,6 +14,6 @@
 в скрипте для POSIX sh.
 
 Проверка из корня: `python database-init/tests/test_startup.py`.
-Нужны Python 3.12+, Docker и образы `dvizh-postgres`, `dvizh-pgvector`,
-`dvizh-database-init`, собранные Compose. Тест проверяет повторную подготовку
+Нужны Python 3.12+, Docker и образы сервисов `postgres`, `pgvector`,
+`database-init` и `pgvector-init`, собранные Compose. Тест проверяет подготовку
 и сохранение данных в отдельном окружении. Не используй рабочие volumes.

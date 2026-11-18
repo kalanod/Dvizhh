@@ -2,13 +2,14 @@
 
 [Документация проекта и сервисов](docs/README.md).
 
-Запуск всего проекта из корня:
+Запуск приложения из корня:
 
 ```shell
 docker compose up --build
 ```
 
-Сайт: **http://localhost:8080**. 
+Для запуска только сайта используйте `docker compose up --build nginx`.
+Сайт доступен на **http://localhost:8080**.
 
 Для карты места события и подсказок адреса заполните ключи Яндекса в `.env`:
 [подключение Яндекс Карт](web-app/docs/yandex-maps.md). Дальше используется та же команда запуска.
@@ -33,7 +34,8 @@ API изображений, черновиков и уведомлений: [MED
 - [recommendation-service](recommendation-service/docs/README.md) — отдельный gRPC-сервис рекомендаций;
 - `postgres` — основная реляционная база;
 - `pgvector` — отдельный PostgreSQL с расширением pgvector;
-- `database-init` — подготовка роли рекомендаций и схемы pgvector перед запуском API;
+- `database-init` — подготовка БД Auth и роли чтения RecSys в основной PostgreSQL;
+- `pgvector-init` — применение актуальной схемы pgvector перед запуском RecSys;
 - `minio` — S3-совместимое файловое хранилище;
 - `minio-init` — одноразовый контейнер для создания bucket в MinIO.
 
@@ -127,6 +129,7 @@ backend и хранилища доступны только внутри сет�
 ## README отдельных компонентов
 
 - [Сервис рекомендаций](recommendation-service/docs/README.md) — устройство сервиса, gRPC-контракт, запуск и тестирование.
+- [MLflow](mlflow/docs/README.md) — отдельный запуск реестра и резервные копии.
 - [pgvector](pgvector/docs/README.md) — назначение векторной БД, схема хранения и настройка.
 - [Alembic сервиса аутентификации](auth-api/alembic/README) — краткая справка об окружении миграций.
 - [Роли аккаунтов](auth-api/docs/roles.md) — роли `user`/`admin` и начальный аккаунт администратора.

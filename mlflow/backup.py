@@ -13,7 +13,7 @@ from tempfile import mkdtemp
 from typing import BinaryIO
 
 ROOT = Path(__file__).resolve().parents[1]
-DATABASE_ENVIRONMENT = 'export PGPASSWORD="$POSTGRES_PASSWORD" PGCONNECT_TIMEOUT=10; '
+DATABASE_ENVIRONMENT = 'export PGPASSWORD="$POSTGRES_PASSWORD" PGHOST=postgres PGCONNECT_TIMEOUT=10\n'
 STORAGE_ACCESS = """
 set -eu
 umask 077
@@ -26,8 +26,10 @@ class Compose:
     def __init__(self, environment_file: Path) -> None:
         self.command = [
             "docker", "compose", "--project-directory", str(ROOT),
-            "--env-file", str(environment_file), "--profile", "ml",
+            "--env-file", str(environment_file),
         ]
+        if not os.environ.get("COMPOSE_FILE"):
+            self.command.extend(["-p", "dvizh-mlflow", "-f", str(ROOT / "compose.mlflow.yaml")])
 
     def run(
         self, *arguments: str, stdin: BinaryIO | None = None, stdout: BinaryIO | None = None,
@@ -53,8 +55,8 @@ class Compose:
         self, command: str, stdin: BinaryIO | None = None, stdout: BinaryIO | None = None,
     ) -> None:
         self.run(
-            "exec", "-T", "postgres", "sh", "-ec", DATABASE_ENVIRONMENT + command,
-            stdin=stdin, stdout=stdout,
+            "run", "--rm", "-T", "--no-deps", "--entrypoint", "/bin/sh", "mlflow-init",
+            "-ec", DATABASE_ENVIRONMENT + command, stdin=stdin, stdout=stdout,
         )
 
     def artifacts(self, directory: Path, restore: bool = False) -> None:
@@ -116,7 +118,7 @@ def backup(compose: Compose, destination: Path) -> None:
         (temporary / "artifacts").mkdir()
         with (temporary / "metadata.dump").open("wb") as target:
             compose.database(
-                'pg_dump --host=127.0.0.1 --username "$POSTGRES_USER" --no-password '
+                'pg_dump --username "$POSTGRES_USER" --no-password '
                 "--dbname=mlflow --format=custom --no-owner --no-acl",
                 stdout=target,
             )
@@ -136,14 +138,14 @@ def restore(compose: Compose, source: Path) -> None:
     was_running = compose.running()
     compose.run("stop", "mlflow")
     compose.database(
-        'dropdb --host=127.0.0.1 --username "$POSTGRES_USER" --no-password '
+        'dropdb --username "$POSTGRES_USER" --no-password '
         "--if-exists --force mlflow; "
-        'createdb --host=127.0.0.1 --username "$POSTGRES_USER" --no-password '
+        'createdb --username "$POSTGRES_USER" --no-password '
         "--owner=mlflow --template=template0 mlflow"
     )
     with (source / "metadata.dump").open("rb") as archive:
         compose.database(
-            'pg_restore --host=127.0.0.1 --username "$POSTGRES_USER" --no-password '
+            'pg_restore --username "$POSTGRES_USER" --no-password '
             "--dbname=mlflow --role=mlflow --no-owner --no-acl --single-transaction",
             stdin=archive,
         )

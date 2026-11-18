@@ -19,13 +19,13 @@ MLflow используется для экспериментов и верси�
 - `backend/` - основной API, доменная логика, миграции; см. [AGENTS.md](backend/AGENTS.md).
 - `auth-api/` - отдельный сервис учётных записей; см. [AGENTS.md](auth-api/AGENTS.md).
 - `recommendation-service/` - gRPC-рекомендации; см. [AGENTS.md](recommendation-service/AGENTS.md).
-- `database-init/` - повторяемая подготовка ролей и векторной схемы; см. [AGENTS.md](database-init/AGENTS.md).
+- `database-init/` - повторяемая подготовка БД Auth и роли чтения RecSys; см. [AGENTS.md](database-init/AGENTS.md).
 - `postgres/`, `pgvector/` - образы БД и их инициализация.
 - `minio/`, `minio-init/` - файловое хранилище и подготовка bucket.
 - `nginx/` - публичная точка входа.
 - `mlflow/`, `mlflow-init/` - MLflow, резервное копирование и подготовка хранилищ;
   см. [AGENTS.md](mlflow/AGENTS.md).
-- `compose.yaml`, `compose.mlflow.prod.yaml` - конфигурации окружений.
+- `compose.yaml` - приложение, `compose.mlflow.yaml` и `compose.mlflow.prod.yaml` - MLflow.
 
 Корневые правила действуют во всём репозитории. Локальные `AGENTS.md` уточняют
 их в пределах своей директории. Перед изменением прочитай применимые инструкции.
