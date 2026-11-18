@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { getCalendar } from "../../../api";
 import { useAsync } from "../../../hooks";
 import type { DvizhEvent } from "../../../models";
+import { eventDetailsPath } from "../../../utils/eventDetails";
 import { formatEventDate } from "../../../utils/format";
 import { ButtonGhost, EventTitle } from "../../ui";
 
@@ -12,7 +13,7 @@ export const CalendarRow = ({ event }: { event: DvizhEvent }) => {
 
     return (
         <div
-            onClick={() => navigate(`/events/${event.id}`)}
+            onClick={() => navigate(eventDetailsPath(event))}
             className="flex min-h-[42px] w-full cursor-pointer flex-col justify-center gap-0.5 overflow-hidden rounded-lg bg-cards-surface p-2.5 transition-colors hover:bg-cards-surface/80"
         >
             <div className="text-duration text-textsecondary">{formatEventDate(event)}</div>

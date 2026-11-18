@@ -28,7 +28,8 @@ ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONUNBUFFERED=1
 
 RUN groupadd --system app && \
-    useradd --system --gid app --home-dir /nonexistent --no-create-home app
+    useradd --system --gid app --home-dir /nonexistent --no-create-home app && \
+    install -d -o app -g app /models
 
 WORKDIR /app
 COPY --from=builder --chown=app:app /app/.venv /app/.venv

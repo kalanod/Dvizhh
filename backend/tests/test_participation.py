@@ -13,6 +13,7 @@ from dvizh_backend.database.models import (
 from dvizh_backend.database.models.enums import (
     EventJoinPolicy,
     EventStatus,
+    EventVisibility,
     OccurrenceStatus,
     ParticipationStatus,
 )
@@ -42,6 +43,7 @@ def make_event(
     return Event(
         id=EVENT_ID,
         status=status,
+        visibility=EventVisibility.PUBLIC,
         join_policy=join_policy,
         capacity=capacity,
         organizer_user_id=ORGANIZER_ID,

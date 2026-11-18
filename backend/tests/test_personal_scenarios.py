@@ -9,6 +9,7 @@ from uuid import UUID, uuid4
 
 import httpx
 import pytest
+from integration_auth import account_gateway, account_headers
 from sqlalchemy import func, select, update
 from sqlalchemy.engine import make_url
 
@@ -37,10 +38,11 @@ async def client() -> AsyncIterator[tuple[httpx.AsyncClient, DatabaseService]]:
     database = DatabaseService(TEST_DATABASE_URL)
     app.dependency_overrides[get_database_service] = lambda: database
     try:
-        async with httpx.AsyncClient(
-            transport=httpx.ASGITransport(app=app), base_url="http://test"
-        ) as http:
-            yield http, database
+        with account_gateway():
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app), base_url="http://test"
+            ) as http:
+                yield http, database
     finally:
         app.dependency_overrides.pop(get_database_service, None)
         await database.dispose()
@@ -259,6 +261,7 @@ def test_my_events_and_participation_states() -> None:
             assert (
                 await http.post(
                     f"/api/events/{event_id}/participants",
+                    headers=account_headers(participant),
                     json={
                         "user_id": participant,
                     },
@@ -269,6 +272,7 @@ def test_my_events_and_participation_states() -> None:
             assert (
                 await http.patch(
                     f"/api/events/{event_id}/participants/{participant}",
+                    headers=account_headers(owner),
                     json={
                         "actor_id": owner,
                         "accept": False,
@@ -283,6 +287,7 @@ def test_my_events_and_participation_states() -> None:
             assert (
                 await http.post(
                     f"/api/events/{event_id}/participants",
+                    headers=account_headers(participant),
                     json={
                         "user_id": participant,
                     },
@@ -292,6 +297,7 @@ def test_my_events_and_participation_states() -> None:
             assert (
                 await http.post(
                     f"/api/events/{open_card['id']}/participants",
+                    headers=account_headers(participant),
                     json={
                         "user_id": participant,
                     },

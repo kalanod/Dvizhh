@@ -88,7 +88,9 @@ export const EventSection = ({ title, discovery }: EventSectionProps) => {
         <section className="flex w-full flex-col gap-[10px] lg:flex-row lg:items-start">
             <div className="flex min-w-0 flex-1 flex-col gap-[10px]">
                 {discovery.selected && <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-cards-surface p-3" role="status">
-                    <span className="text-body text-textprimary">Выбрана группа: {discovery.total} мероприятий</span>
+                    <span className="text-body text-textprimary">
+                        Выбрана группа{discovery.total === undefined ? "" : `: ${discovery.total} мероприятий`}
+                    </span>
                     <Button onClick={discovery.clearSelection}>Сбросить выбор группы</Button>
                 </div>}
                 {discovery.notice && <p role="status" className="text-small text-textsecondary">{discovery.notice}</p>}
@@ -115,7 +117,7 @@ export const EventSection = ({ title, discovery }: EventSectionProps) => {
                     actionButton={searchButton}
                     loading={loading}
                     error={error ? errorText(error) : null}
-                    emptyText={discoveryEmptyText(
+                    emptyText={hasMore ? "На этой странице нет доступных мероприятий." : discoveryEmptyText(
                         !discovery.mapCollapsed && discovery.viewport !== null,
                         Boolean(discovery.selected), activeChips.length > 0,
                     )}

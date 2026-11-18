@@ -14,6 +14,7 @@ from pydantic import (
     model_validator,
 )
 
+from dvizh_backend.api.schemas.interaction import InteractionDTO
 from dvizh_backend.api.schemas.tag import EventTagDTO
 from dvizh_backend.database.models.enums import (
     EventFormat,
@@ -242,13 +243,13 @@ class EventDTO(BaseModel):
 
 class JoinEventDTO(BaseModel):
     user_id: UUID = Field(description="Идентификатор пользователя, который хочет пойти.")
+    interaction: InteractionDTO | None = None
 
 
 class ReviewParticipationDTO(BaseModel):
     actor_id: UUID = Field(
         description=(
-            "Кто рассматривает заявку: организатор или менеджер события "
-            "(пока нет авторизации, передаётся явно)."
+            "Идентификатор авторизованного организатора или менеджера события."
         )
     )
     accept: bool = Field(description="true — принять заявку, false — отклонить.")

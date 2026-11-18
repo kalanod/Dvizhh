@@ -1,14 +1,22 @@
 from functools import lru_cache
+from pathlib import Path
 from typing import Self
 
 from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+DEFAULT_RANKER_MODEL_DIR = Path("/models")
 
 
 class Settings(BaseSettings):
     app_name: str = "Dvizh Recommendation Service"
     source_database_url: SecretStr = Field(min_length=1)
     vector_database_url: SecretStr = Field(min_length=1)
+    ranker_model_dir: Path = DEFAULT_RANKER_MODEL_DIR
+    ranker_model_uri: str | None = None
+    previous_ranker_model_uri: str | None = None
+    vector_model_id: str | None = None
+    previous_vector_model_id: str | None = None
     redis_url: SecretStr = Field(min_length=1)
     redis_timeout_seconds: float = Field(default=5, gt=0, allow_inf_nan=False)
     recommendation_timeout_seconds: float = Field(default=5, gt=0, allow_inf_nan=False)

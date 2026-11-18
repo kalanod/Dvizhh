@@ -1,6 +1,7 @@
 import asyncio
 from uuid import UUID
 
+from integration_auth import account_headers
 from sqlalchemy import func, select
 from test_media_lifecycle import client, event, pytestmark, upload, user  # noqa: F401
 
@@ -35,7 +36,9 @@ def test_cover_personal_lists_invitations_and_notifications_work_together(monkey
             ).json()["cover_media_id"] == asset["id"]
             assert (
                 await http.post(
-                    f"/api/events/{event_id}/participants", json={"user_id": participant}
+                    f"/api/events/{event_id}/participants",
+                    headers=account_headers(participant),
+                    json={"user_id": participant},
                 )
             ).status_code == 200
             assert (

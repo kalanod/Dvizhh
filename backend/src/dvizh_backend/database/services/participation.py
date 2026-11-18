@@ -4,8 +4,11 @@ from uuid import UUID
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from dvizh_backend.api.schemas.interaction import InteractionDTO
+
 from ..models import (
     Event,
+    EventInteraction,
     EventInvitation,
     EventOccurrence,
     EventParticipation,
@@ -14,33 +17,60 @@ from ..models import (
 from ..models.enums import (
     EventJoinPolicy,
     EventStatus,
+    InteractionType,
     InvitationStatus,
     OccurrenceStatus,
     ParticipationStatus,
 )
-from .access import can_manage_event
+from .access import can_manage_event, can_view_event
 from .exceptions import (
     CapacityReachedError,
     EntityNotFoundError,
+    InteractionConflictError,
+    InteractionInputError,
     InvalidStateTransitionError,
     JoinUnavailableError,
     PermissionDeniedError,
 )
+from .interactions import InteractionService
 
 
 class ParticipationService:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
 
-    async def join(self, occurrence_id: UUID, user_id: UUID) -> EventParticipation:
+    async def join(
+        self, occurrence_id: UUID, user_id: UUID, *, interaction: InteractionDTO | None = None
+    ) -> EventParticipation:
         occurrence, event = await self._lock_occurrence_and_event(occurrence_id)
         self._require_joinable(occurrence, event)
+        if not await can_view_event(self.session, event, user_id, occurrence_id=occurrence_id):
+            raise PermissionDeniedError("User cannot join this event occurrence")
+
+        origin = None
+        if interaction is not None:
+            if (
+                interaction.event_type != InteractionType.JOIN_CLICK
+                or interaction.item_id != event.id
+            ):
+                raise InteractionInputError("Join requires a JOIN_CLICK for this event")
+            await InteractionService(self.session).record_batch(user_id, [interaction])
+            origin = await self._lock_join_interaction(interaction.interaction_id, user_id)
+            if origin.occurrence_id is not None:
+                if origin.occurrence_id != occurrence_id:
+                    raise InteractionConflictError("Join interaction refers to another occurrence")
+                existing = await self._get_participation(occurrence_id, user_id, lock=False)
+                if existing is None:
+                    raise InteractionConflictError("Original participation is no longer available")
+                return existing
 
         participation = await self._get_participation(occurrence.id, user_id, lock=True)
         if participation is not None and participation.status in {
             ParticipationStatus.GOING,
             ParticipationStatus.REQUESTED,
         }:
+            if origin is not None:
+                origin.occurrence_id = occurrence_id
             return participation
         if participation is not None and participation.status == ParticipationStatus.REJECTED:
             raise InvalidStateTransitionError("A rejected request cannot be submitted again")
@@ -58,12 +88,15 @@ class ParticipationService:
         if target_status == ParticipationStatus.GOING:
             await self._require_capacity(occurrence, event)
 
+        if origin is not None:
+            origin.occurrence_id = occurrence_id
         return await self._set_status(
             participation,
             occurrence_id=occurrence.id,
             user_id=user_id,
             target_status=target_status,
             actor_user_id=user_id,
+            origin_interaction_id=origin.interaction_id if origin is not None else None,
         )
 
     async def decide_request(
@@ -105,6 +138,7 @@ class ParticipationService:
             target_status=target_status,
             actor_user_id=actor_user_id,
             reason=reason,
+            origin_interaction_id=participation.origin_interaction_id,
         )
 
     async def cancel(self, occurrence_id: UUID, user_id: UUID) -> EventParticipation:
@@ -122,6 +156,7 @@ class ParticipationService:
             user_id=user_id,
             target_status=ParticipationStatus.CANCELLED,
             actor_user_id=user_id,
+            origin_interaction_id=participation.origin_interaction_id,
         )
 
     async def accept_invitation(self, invitation_id: UUID, user_id: UUID) -> EventParticipation:
@@ -173,20 +208,42 @@ class ParticipationService:
         await self.session.refresh(invitation)
         return participation
 
+    async def _lock_join_interaction(self, interaction_id: UUID, user_id: UUID) -> EventInteraction:
+        origin = await self.session.scalar(
+            select(EventInteraction)
+            .where(
+                EventInteraction.interaction_id == interaction_id,
+                EventInteraction.user_id == user_id,
+                EventInteraction.type == InteractionType.JOIN_CLICK,
+            )
+            .with_for_update(key_share=True)
+            .execution_options(populate_existing=True)
+        )
+        if origin is None:
+            raise InteractionConflictError("Join interaction does not exist for this account")
+        return origin
+
     async def _lock_occurrence_and_event(
         self, occurrence_id: UUID
     ) -> tuple[EventOccurrence, Event]:
-        row = (
-            await self.session.execute(
-                select(EventOccurrence, Event)
-                .join(Event, Event.id == EventOccurrence.event_id)
-                .where(EventOccurrence.id == occurrence_id)
-                .with_for_update(of=EventOccurrence)
-            )
-        ).one_or_none()
-        if row is None:
+        event = await self.session.scalar(
+            select(Event)
+            .join(EventOccurrence, EventOccurrence.event_id == Event.id)
+            .where(EventOccurrence.id == occurrence_id)
+            .with_for_update(read=True, of=Event)
+            .execution_options(populate_existing=True)
+        )
+        if event is None:
             raise EntityNotFoundError("Event occurrence not found")
-        return row.EventOccurrence, row.Event
+        occurrence = await self.session.scalar(
+            select(EventOccurrence)
+            .where(EventOccurrence.id == occurrence_id, EventOccurrence.event_id == event.id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        if occurrence is None:
+            raise EntityNotFoundError("Event occurrence not found")
+        return occurrence, event
 
     @staticmethod
     def _require_joinable(occurrence: EventOccurrence, event: Event) -> None:
@@ -231,6 +288,7 @@ class ParticipationService:
         target_status: ParticipationStatus,
         actor_user_id: UUID,
         reason: str | None = None,
+        origin_interaction_id: UUID | None = None,
     ) -> EventParticipation:
         now = datetime.now(UTC)
         previous_status = participation.status if participation is not None else None
@@ -239,11 +297,13 @@ class ParticipationService:
                 occurrence_id=occurrence_id,
                 user_id=user_id,
                 status=target_status,
+                origin_interaction_id=origin_interaction_id,
             )
             self.session.add(participation)
             await self.session.flush()
         else:
             participation.status = target_status
+            participation.origin_interaction_id = origin_interaction_id
 
         if target_status == ParticipationStatus.REQUESTED:
             participation.requested_at = now
@@ -270,6 +330,8 @@ class ParticipationService:
                 to_status=target_status,
                 changed_by_user_id=actor_user_id,
                 reason=reason,
+                origin_interaction_id=origin_interaction_id,
+                changed_at=now,
             )
         )
         await self.session.flush()

@@ -12,6 +12,7 @@ from sqlalchemy import (
     Integer,
     String,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
@@ -29,9 +30,16 @@ class EventInteraction(Base):
         Index("ix_event_interactions_user_occurred", "user_id", "occurred_at"),
         Index("ix_event_interactions_event_occurred", "event_id", "occurred_at"),
         Index("ix_event_interactions_type_occurred", "type", "occurred_at"),
+        Index(
+            "ix_event_interactions_recsys_impression_received", "received_at",
+            postgresql_where=text(
+                "type = 'IMPRESSION' AND session_id IS NOT NULL AND request_id IS NOT NULL"
+            ),
+        ),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    interaction_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), unique=True)
     user_id: Mapped[UUID] = mapped_column(
         PGUUID(as_uuid=True), ForeignKey("profiles.id", ondelete="CASCADE"), nullable=False
     )
@@ -52,4 +60,7 @@ class EventInteraction(Base):
     context: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     occurred_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    received_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
     )

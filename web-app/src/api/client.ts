@@ -8,6 +8,7 @@ interface RequestOptions {
     /** Отмена запроса, например когда пользователь ушёл со страницы. */
     signal?: AbortSignal;
     headers?: Record<string, string>;
+    keepalive?: boolean;
 }
 
 export class ApiError extends Error {
@@ -20,8 +21,10 @@ export class ApiError extends Error {
     }
 }
 
+export const accountWriteHeaders = { "X-Dvizh-Account": "1" };
+
 /** Запрос к backend через прокси web-app: все пути начинаются с /api. */
-export async function request<T>(path: string, { method = "GET", body, rawBody, query, signal, headers }: RequestOptions = {}): Promise<T> {
+export async function request<T>(path: string, { method = "GET", body, rawBody, query, signal, headers, keepalive }: RequestOptions = {}): Promise<T> {
     const url = new URL(`/api${path}`, window.location.origin);
     for (const [key, value] of Object.entries(query ?? {})) {
         if (value !== undefined && value !== null && value !== "" && value !== false) {
@@ -35,6 +38,7 @@ export async function request<T>(path: string, { method = "GET", body, rawBody, 
             method,
             credentials: "same-origin",
             signal,
+            ...(keepalive ? { keepalive } : {}),
             headers: {
                 ...(rawBody !== undefined
                     ? { "Content-Type": "application/octet-stream" }

@@ -8,6 +8,7 @@ dependencies = [
     "dvizh-logging",
     "grpcio>=1.84,<2.0",
     "grpcio-health-checking>=1.84,<2.0",
+    "mlflow-skinny==3.17.2",
     "protobuf>=7.35.1,<8.0",
     "pydantic-settings>=2.6,<3.0",
     "redis>=8.1,<9.0",
@@ -21,6 +22,9 @@ dev = [
     "grpcio-tools>=1.84,<2.0",
     "pytest>=8.3,<9.0",
     "ruff>=0.8,<1.0",
+]
+train = [
+    "scikit-learn>=1.7,<2",
 ]
 
 [build-system]

@@ -1,5 +1,6 @@
 import { loadPages } from "./paging";
-import { request } from "./client";
+import { accountWriteHeaders, request } from "./client";
+import type { Interaction } from "../models/interaction";
 import type {
     CreateEventInput,
     CreateInvitationInput,
@@ -30,8 +31,8 @@ export const listEvents = (filters: EventFilters = {}, signal?: AbortSignal) =>
         },
     }), filters.limit, filters.offset);
 
-export const getEvent = (eventId: string, viewerId?: string | null, signal?: AbortSignal) =>
-    request<DvizhEvent>(`/events/${eventId}`, { query: { viewer_id: viewerId }, signal });
+export const getEvent = (eventId: string, viewerId?: string | null, signal?: AbortSignal, occurrenceId?: string | null) =>
+    request<DvizhEvent>(`/events/${eventId}`, { query: { viewer_id: viewerId, occurrence_id: occurrenceId }, signal });
 
 export const createEvent = (body: CreateEventInput) =>
     request<DvizhEvent>("/events", { method: "POST", body });
@@ -55,17 +56,28 @@ export const updateEvent =(eventId: string, body: EventInput, actorId: string) =
 export const deleteEvent = (eventId: string, actorId: string) =>
     request<void>(`/events/${eventId}`, { method: "DELETE", query: { actor_id: actorId } });
 
-export const listParticipants = (eventId: string, signal?: AbortSignal) =>
-    request<Participant[]>(`/events/${eventId}/participants`, { signal });
+export const listParticipants = (eventId: string, signal?: AbortSignal, occurrenceId?: string | null) =>
+    request<Participant[]>(`/events/${eventId}/participants`, { query: { occurrence_id: occurrenceId }, signal });
 
-export const joinEvent = (eventId: string, userId: string) =>
-    request<Participant>(`/events/${eventId}/participants`, { method: "POST", body: { user_id: userId } });
+export const joinEvent = (eventId: string, userId: string, occurrenceId?: string, interaction?: Interaction) =>
+    request<Participant>(`/events/${eventId}/participants`, {
+        method: "POST",
+        headers: accountWriteHeaders,
+        query: { occurrence_id: occurrenceId },
+        body: { user_id: userId, interaction },
+    });
 
-export const reviewParticipation = (eventId: string, userId: string, actorId: string, accept: boolean, reason?: string) =>
+export const reviewParticipation = (eventId: string, userId: string, actorId: string, accept: boolean, reason?: string, occurrenceId?: string) =>
     request<Participant>(`/events/${eventId}/participants/${userId}`, {
         method: "PATCH",
+        headers: accountWriteHeaders,
+        query: { occurrence_id: occurrenceId },
         body: { actor_id: actorId, accept, reason },
     });
 
-export const leaveEvent = (eventId: string, userId: string) =>
-    request<void>(`/events/${eventId}/participants/${userId}`, { method: "DELETE" });
+export const leaveEvent = (eventId: string, userId: string, occurrenceId?: string) =>
+    request<void>(`/events/${eventId}/participants/${userId}`, {
+        method: "DELETE",
+        headers: accountWriteHeaders,
+        query: { occurrence_id: occurrenceId },
+    });

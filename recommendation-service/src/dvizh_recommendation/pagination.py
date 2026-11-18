@@ -1,14 +1,21 @@
 import asyncio
 import hashlib
 import json
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
 from uuid import uuid4
 
 from dvizh_logging import log_dependency
 from redis.asyncio import Redis
 
-from .recommendations import RecommendationBatch, RecommendationProvider, RecommendationQuery
+from .recommendations import (
+    BASELINE_VERSION,
+    FeatureSnapshot,
+    InvalidRequest,
+    RecommendationBatch,
+    RecommendationProvider,
+    RecommendationQuery,
+)
 
 BATCH_SIZE = 100
 SESSION_TTL_SECONDS = 30 * 60
@@ -30,7 +37,7 @@ class InvalidPageToken(Exception):
     pass
 
 
-class InvalidRequest(ValueError):
+class SessionVersionUnavailable(Exception):
     pass
 
 
@@ -42,12 +49,14 @@ class IncompleteRecommendations(Exception):
 class RecommendationPage:
     item_ids: tuple[str, ...]
     next_page_token: str | None
+    snapshots: tuple[FeatureSnapshot | None, ...] = ()
 
 
 @dataclass(frozen=True)
 class _Refill:
     generation: str
     item_ids: tuple[str, ...]
+    version: str
 
 
 _READ_PAGE = """
@@ -60,11 +69,13 @@ local ttl_seconds = ARGV[5]
 local new_generation = ARGV[6]
 local new_page_token = ARGV[7]
 local expected_generation = ARGV[8]
+local initial_version = ARGV[9]
+local baseline_version = ARGV[10]
 
 if redis.call('EXISTS', key) == 0 then
     if page_token ~= '' or expected_generation ~= '' then return {-1} end
     redis.call('HSET', key, 'user', user_id, 'parameters', parameters,
-        'generation', new_generation, 'count', 0, 'exhausted', 0)
+        'generation', new_generation, 'count', 0, 'exhausted', 0, 'version', initial_version)
 end
 if expected_generation ~= '' and redis.call('HGET', key, 'generation') ~= expected_generation then
     return {-1}
@@ -81,7 +92,8 @@ local count = tonumber(redis.call('HGET', key, 'count'))
 local exhausted = redis.call('HGET', key, 'exhausted') == '1'
 redis.call('EXPIRE', key, ttl_seconds)
 if offset + page_size > count and not exhausted then
-    local result = {0, redis.call('HGET', key, 'generation')}
+    local version = redis.call('HGET', key, 'version') or baseline_version
+    local result = {0, redis.call('HGET', key, 'generation'), version}
     for i = 0, count - 1 do
         result[#result + 1] = redis.call('HGET', key, 'item:' .. i)
     end
@@ -99,6 +111,7 @@ end
 local result = {1, token}
 for i = offset, finish - 1 do
     result[#result + 1] = redis.call('HGET', key, 'item:' .. i)
+    result[#result + 1] = redis.call('HGET', key, 'features:' .. i) or ''
 end
 return result
 """
@@ -109,17 +122,21 @@ local expected_generation = ARGV[1]
 local expected_count = tonumber(ARGV[2])
 local exhausted = ARGV[3]
 local ttl_seconds = ARGV[4]
+local version = ARGV[5]
 
 if redis.call('HGET', key, 'generation') ~= expected_generation then return -1 end
 local count = tonumber(redis.call('HGET', key, 'count'))
 if count ~= expected_count or redis.call('HGET', key, 'exhausted') == '1' then
     return 0
 end
-for i = 5, #ARGV do
+for i = 6, #ARGV, 2 do
     redis.call('HSET', key, 'item:' .. count, ARGV[i])
+    if ARGV[i + 1] ~= '' then
+        redis.call('HSET', key, 'features:' .. count, ARGV[i + 1])
+    end
     count = count + 1
 end
-redis.call('HSET', key, 'count', count, 'exhausted', exhausted)
+redis.call('HSET', key, 'count', count, 'exhausted', exhausted, 'version', version)
 redis.call('EXPIRE', key, ttl_seconds)
 return 1
 """
@@ -137,8 +154,9 @@ return 1
 
 
 class SessionStore:
-    def __init__(self, redis: Redis) -> None:
+    def __init__(self, redis: Redis, *, initial_version: str = BASELINE_VERSION) -> None:
         self.redis = redis
+        self.initial_version = initial_version
         self._read_page = redis.register_script(_READ_PAGE)
         self._append = redis.register_script(_APPEND)
         self._refresh = redis.register_script(_REFRESH)
@@ -177,6 +195,8 @@ class SessionStore:
                     uuid4().hex,
                     uuid4().hex,
                     generation or "",
+                    self.initial_version,
+                    BASELINE_VERSION,
                 ],
             )
         errors = {
@@ -188,10 +208,21 @@ class SessionStore:
         if result[0] in errors:
             raise errors[result[0]]
         if result[0] == 0:
-            return _Refill(result[1], tuple(result[2:]))
-        return RecommendationPage(tuple(result[2:]), result[1] or None)
+            return _Refill(result[1], tuple(result[3:]), result[2])
+        snapshots = tuple(
+            FeatureSnapshot.model_validate_json(value) if value else None for value in result[3::2]
+        )
+        return RecommendationPage(
+            tuple(result[2::2]), result[1] or None, snapshots if any(snapshots) else ()
+        )
 
-    async def append(self, session_id: str, state: _Refill, batch: RecommendationBatch) -> None:
+    async def append(
+        self, session_id: str, state: _Refill, batch: RecommendationBatch, version: str
+    ) -> None:
+        items = []
+        snapshots = batch.snapshots or (None,) * len(batch.item_ids)
+        for item_id, snapshot in zip(batch.item_ids, snapshots, strict=True):
+            items.extend((item_id, snapshot.model_dump_json() if snapshot else ""))
         with log_dependency("redis", "append_page"):
             result = await self._append(
                 keys=[self.key(session_id)],
@@ -200,7 +231,8 @@ class SessionStore:
                     len(state.item_ids),
                     int(batch.exhausted),
                     SESSION_TTL_SECONDS,
-                    *batch.item_ids,
+                    version,
+                    *items,
                 ],
             )
         if result == -1:
@@ -222,12 +254,19 @@ class Pagination:
         self,
         store: SessionStore,
         provider: RecommendationProvider,
-        filter_available_items: Callable[[Sequence[str]], Awaitable[tuple[str, ...]]],
+        filter_available_items: Callable[
+            [Sequence[str], RecommendationQuery, Sequence[FeatureSnapshot | None]],
+            Awaitable[tuple[str, ...]],
+        ],
         *,
         timeout_seconds: float = 5,
+        provider_version: str = BASELINE_VERSION,
+        previous_providers: Mapping[str, RecommendationProvider] | None = None,
+        resolve_provider: Callable[[str], Awaitable[RecommendationProvider | None]] | None = None,
     ) -> None:
         self.store = store
-        self.provider = provider
+        self.providers = {**(previous_providers or {}), provider_version: provider}
+        self.resolve_provider = resolve_provider
         self.filter_available_items = filter_available_items
         self.timeout_seconds = timeout_seconds
 
@@ -250,11 +289,22 @@ class Pagination:
                     query, session_id, page_token, page_size, generation
                 )
                 if isinstance(result, RecommendationPage):
-                    return RecommendationPage(
-                        await self.filter_available_items(result.item_ids), result.next_page_token
+                    available = await self.filter_available_items(
+                        result.item_ids, query, result.snapshots
                     )
+                    snapshots = ()
+                    if result.snapshots:
+                        snapshot_by_id = dict(zip(result.item_ids, result.snapshots, strict=True))
+                        snapshots = tuple(snapshot_by_id[item_id] for item_id in available)
+                    return RecommendationPage(available, result.next_page_token, snapshots)
                 generation = result.generation
-                batch = await self.provider.recommend(
+                version = result.version
+                provider = self.providers.get(version)
+                if provider is None and self.resolve_provider is not None:
+                    provider = await self.resolve_provider(version)
+                if provider is None:
+                    raise SessionVersionUnavailable
+                batch = await provider.recommend(
                     query, limit=BATCH_SIZE, exclude_ids=result.item_ids
                 )
                 ids = set(batch.item_ids)
@@ -264,9 +314,10 @@ class Pagination:
                     or ids.intersection(result.item_ids)
                     or any(not item_id for item_id in batch.item_ids)
                     or (not batch.item_ids and not batch.exhausted)
+                    or (batch.snapshots and len(batch.snapshots) != len(batch.item_ids))
                 ):
                     raise IncompleteRecommendations
-                await self.store.append(session_id, result, batch)
+                await self.store.append(session_id, result, batch, version)
 
     async def refresh(self, user_id: str, session_id: str) -> None:
         async with asyncio.timeout(self.timeout_seconds):

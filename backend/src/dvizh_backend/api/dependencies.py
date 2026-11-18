@@ -125,12 +125,16 @@ async def get_discovery_viewer(request: Request):
 
 
 async def get_discovery_service(session: DatabaseSession, settings: SettingsDep, request: Request):
-    from dvizh_backend.database.services.discovery import DiscoveryRepository
     from dvizh_backend.services.discovery_service import EventDiscoveryService
-    await DiscoveryRepository.begin_snapshot(session)
     from dvizh_backend.services.place_geocoding import ProfileCityGeocoder
 
     cities = ProfileCityGeocoder.from_settings(
         settings, request.headers.get("referer", str(request.base_url)),
     )
-    return EventDiscoveryService(session, settings, cities)
+    return EventDiscoveryService(
+        session,
+        settings,
+        cities,
+        recommendation_client=getattr(request.app.state, "recommendation_client", None),
+        manage_snapshot=True,
+    )

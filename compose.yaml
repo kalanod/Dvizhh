@@ -63,9 +63,10 @@ services:
       MINIO_TIMEOUT_SECONDS: ${MINIO_TIMEOUT_SECONDS:-10}
       MEDIA_MAX_MIB: ${MEDIA_MAX_MIB:-10}
       MEDIA_MAX_PIXELS: ${MEDIA_MAX_PIXELS:-25000000}
-      RECOMMENDATION_URL: http://recommendation-service:8001
       AUTH_URL: http://auth-api:8003
       DISCOVERY_TOKEN_SECRET: ${DISCOVERY_TOKEN_SECRET:-}
+      RECOMMENDATION_GRPC_ADDRESS: ${RECOMMENDATION_GRPC_ADDRESS-recommendation-service:8001}
+      RECOMMENDATION_GRPC_TIMEOUT_SECONDS: ${RECOMMENDATION_GRPC_TIMEOUT_SECONDS:-2}
       YANDEX_MAPS_API_KEY: ${YANDEX_MAPS_API_KEY:-}
       YANDEX_SUGGEST_API_KEY: ${YANDEX_SUGGEST_API_KEY:-}
       YANDEX_GEOCODER_API_KEY: ${YANDEX_GEOCODER_API_KEY:-}
@@ -124,6 +125,13 @@ services:
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
       REDIS_TIMEOUT_SECONDS: ${REDIS_TIMEOUT_SECONDS:-5}
       RECOMMENDATION_TIMEOUT_SECONDS: ${RECOMMENDATION_TIMEOUT_SECONDS:-5}
+      RANKER_MODEL_URI: ${RANKER_MODEL_URI:-}
+      PREVIOUS_RANKER_MODEL_URI: ${PREVIOUS_RANKER_MODEL_URI:-}
+      RANKER_MODEL_DIR: /models
+      VECTOR_MODEL_ID: ${VECTOR_MODEL_ID:-}
+      PREVIOUS_VECTOR_MODEL_ID: ${PREVIOUS_VECTOR_MODEL_ID:-}
+    volumes:
+      - ranker-models:/models:ro
     depends_on:
       database-init:
         condition: service_completed_successfully
@@ -140,6 +148,23 @@ services:
       retries: 5
       start_period: 10s
     restart: unless-stopped
+
+  prepare-ranker:
+    profiles: [tools]
+    build:
+      context: ./recommendation-service
+      additional_contexts:
+        dvizh_logging: ./packages/dvizh-logging
+    environment:
+      MLFLOW_TRACKING_URI: ${MLFLOW_TRACKING_URI:-http://mlflow:5000}
+      MLFLOW_TRACKING_USERNAME: ${MLFLOW_TRACKING_USERNAME:-}
+      MLFLOW_TRACKING_PASSWORD: ${MLFLOW_TRACKING_PASSWORD:-}
+      MLFLOW_ENABLE_PROXY_MULTIPART_DOWNLOAD: "false"
+      RANKER_MODEL_DIR: /models
+    volumes:
+      - ranker-models:/models
+    entrypoint: ["python", "-m", "dvizh_recommendation.prepare_model"]
+    command: []
 
   database-init:
     build:
@@ -261,3 +286,4 @@ volumes:
   pgvector-data:
   redis-data:
   minio-data:
+  ranker-models:

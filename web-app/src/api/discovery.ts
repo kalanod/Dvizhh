@@ -1,4 +1,4 @@
-import { ApiError, request } from "./client";
+import { accountWriteHeaders, ApiError, request } from "./client";
 import type { DvizhEvent, EventSort } from "../models";
 
 export interface DiscoveryBounds { west: number; south: number; east: number; north: number }
@@ -35,11 +35,22 @@ export interface DiscoveryMapItem {
 export interface DiscoveryResponse {
     as_of: string;
     map: { items: DiscoveryMapItem[]; total_events: number } | null;
-    feed: { items: DvizhEvent[]; total_events: number; next_cursor: string | null };
+    feed: {
+        items: DvizhEvent[];
+        total_events?: number;
+        next_cursor: string | null;
+        refresh_after_seconds?: number;
+        session_id?: string | null;
+        request_id?: string | null;
+    };
 }
 
 export const bootstrapDiscovery = (filters: DiscoveryRequest["filters"], origin: { latitude: number; longitude: number }, signal?: AbortSignal) =>
     request<{ nearest: { event_id: string; point: { latitude: number; longitude: number } } | null }>("/events/discovery/bootstrap", { method: "POST", body: { filters, origin }, signal });
+export const refreshDiscoverySession = (cursor: string, signal: AbortSignal) =>
+    request<{ next_cursor: string }>("/events/discovery/refresh", {
+        method: "POST", body: { cursor }, headers: accountWriteHeaders, signal,
+    });
 export const discoverEvents = async (body: DiscoveryRequest, signal?: AbortSignal) => {
     const response = await request<DiscoveryResponse>("/events/discovery", { method: "POST", body, signal });
     if (response.map && (response.map.items.length > 30
@@ -55,5 +66,13 @@ export const discoverEvents = async (body: DiscoveryRequest, signal?: AbortSigna
             : item.type !== "cluster" || item.count <= 1 || !item.selection_token || item.event_id !== null)))) {
         throw new ApiError("Не удалось получить корректные данные карты. Попробуйте обновить выдачу.", 502);
     }
-    return response;
+    const { session_id, request_id } = response.feed;
+    if (!session_id || !request_id) return response;
+    return {
+        ...response,
+        feed: {
+            ...response.feed,
+            items: response.feed.items.map((item) => ({ ...item, interactionOrigin: { session_id, request_id } })),
+        },
+    };
 };

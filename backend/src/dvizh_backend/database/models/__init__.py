@@ -1,5 +1,6 @@
 """ORM model registry imported by Alembic and application services."""
 
+from .discovery import DiscoveryPage, DiscoverySession
 from .engagement import (
     EventDismissal,
     EventFavorite,
@@ -24,6 +25,8 @@ from .media import EventMedia, EventStory, MediaAsset, StoryItem
 from .notifications import EventNotification
 
 __all__ = [
+    "DiscoveryPage",
+    "DiscoverySession",
     "Event",
     "EventDismissal",
     "EventFavorite",

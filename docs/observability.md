@@ -17,6 +17,15 @@ docker compose -f compose.yaml -f compose.logs.yaml up -d --build
 Trace обычно появляется через несколько секунд после завершения запроса.
 Логи в Loki и trace в Tempo хранятся 14 дней.
 
+Для `POST /api/events/discovery` trace связывает HTTP-запрос Backend и gRPC-вызов
+`GetRecommendations`. `request_id` — значение `X-Request-ID` из ответа сайта.
+`recommendation_request_id` — идентификатор страницы RecSys, а `session_id` —
+идентификатор ленты.
+
+Панель «Данные рекомендаций» показывает долю страниц в fallback и долю показов
+с ID выдачи, найденных в журнале RecSys. Значения считаются за завершённую минуту.
+Долю fallback пишет Backend, поэтому она доступна и при остановке RecSys.
+
 Для чтения агентом задать `GRAFANA_TOKEN` от служебной учётной записи Grafana
 с правами просмотра. При удалённом доступе указать HTTPS-адрес в `GRAFANA_URL`.
 

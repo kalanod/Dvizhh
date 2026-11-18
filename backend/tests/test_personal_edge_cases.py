@@ -2,6 +2,7 @@ import asyncio
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
+from integration_auth import account_headers
 from test_personal_scenarios import client, event, invite, pytestmark, user  # noqa: F401
 
 
@@ -69,6 +70,7 @@ def test_already_going_invitee_does_not_consume_another_place() -> None:
             assert (
                 await http.post(
                     f"/api/events/{card['id']}/participants",
+                    headers=account_headers(recipient),
                     json={
                         "user_id": recipient,
                     },
@@ -104,12 +106,21 @@ def test_invitation_validation_and_request_review_race() -> None:
             ):
                 assert (await http.post(path, json=body)).status_code == 422
             participation = f"/api/events/{card['id']}/participants"
-            assert (await http.post(participation, json={"user_id": recipient})).status_code == 200
+            async def request_participation():
+                return await http.post(
+                    participation,
+                    headers=account_headers(recipient),
+                    json={"user_id": recipient},
+                )
+
+            assert (await request_participation()).status_code == 200
             responses = await asyncio.wait_for(
                 asyncio.gather(
-                    http.post(participation, json={"user_id": recipient}),
+                    request_participation(),
                     http.patch(
-                        f"{participation}/{recipient}", json={"actor_id": owner, "accept": True}
+                        f"{participation}/{recipient}",
+                        headers=account_headers(owner),
+                        json={"actor_id": owner, "accept": True},
                     ),
                 ),
                 timeout=10,
