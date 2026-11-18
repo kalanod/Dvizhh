@@ -1,7 +1,7 @@
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import DateTime, ForeignKey, Text
+from sqlalchemy import DateTime, ForeignKey, Text, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -26,3 +26,6 @@ class DiscoveryPage(Base):
     request_id: Mapped[UUID | None]
     next_page_token: Mapped[str | None] = mapped_column(Text)
     fallback_after: Mapped[list[object] | None] = mapped_column(JSONB(none_as_null=True))
+    served_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), server_default=func.clock_timestamp(), index=True,
+    )
