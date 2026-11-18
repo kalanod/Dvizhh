@@ -101,7 +101,7 @@ class HnswCandidates:
                     excluded + [row["item_id"] for row in rows],
                     eligible,
                 )
-        scored = (ScoredItem.model_validate(dict(row)) for row in rows)
+        scored = (ScoredItem(**row) for row in rows)
         return CandidateBatch(
             tuple(Candidate(item.item_id, item.retrieval_score) for item in scored),
             exhausted=not has_more,
