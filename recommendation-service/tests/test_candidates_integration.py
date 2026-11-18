@@ -6,7 +6,7 @@ from uuid import uuid4
 import asyncpg
 import pytest
 
-from dvizh_recommendation.candidates import LatestRecommendations, get_candidates
+from dvizh_recommendation.candidates import LatestRecommendations
 from dvizh_recommendation.catalog import filter_available_items
 from dvizh_recommendation.recommendations import RecommendationQuery
 
@@ -27,6 +27,9 @@ def test_latest_recommendations_filter_and_paginate(integration_databases):
         past = now - timedelta(days=5)
 
         profile_id = uuid4()
+        pool = TestPool()
+        provider = LatestRecommendations(pool)
+        query = RecommendationQuery(user_id=str(profile_id), context={}, filters={})
 
         cases = [
             ("valid", "PUBLISHED", "PUBLIC", False, future, "SCHEDULED"),
@@ -45,6 +48,9 @@ def test_latest_recommendations_filter_and_paginate(integration_databases):
         try:
             await transaction.start()
             transaction_started = True
+            existing_ids = [
+                str(row["id"]) for row in await connection.fetch("SELECT id FROM events")
+            ]
 
             await connection.execute(
                 """
@@ -117,34 +123,16 @@ def test_latest_recommendations_filter_and_paginate(integration_databases):
                 future + timedelta(days=1, hours=2),
             )
 
-            result = await get_candidates(
-                TestPool(),
-                limit=10000,
+            valid = str(ids["valid"])
+            result = await provider.recommend(query, limit=100, exclude_ids=existing_ids)
+            assert result.item_ids == (valid,)
+
+            without_valid = await provider.recommend(
+                query, limit=100, exclude_ids=[*existing_ids, valid]
             )
+            assert without_valid.item_ids == ()
 
-            result_ids = set(result)
-
-            assert ids["valid"] in result_ids
-
-            for name in (
-                "private",
-                "draft",
-                "deleted",
-                "past",
-                "cancelled",
-            ):
-                assert ids[name] not in result_ids, f"Event {name} should not be returned"
-
-            assert result.count(ids["valid"]) == 1
-
-            without_valid = await get_candidates(
-                TestPool(), limit=10000, exclude_ids=[ids["valid"]]
-            )
-            assert ids["valid"] not in without_valid
-
-            existing_ids = [
-                str(row["id"]) for row in await connection.fetch("SELECT id FROM events")
-            ]
+            existing_ids.extend(map(str, ids.values()))
             item_ids = [uuid4() for _ in range(101)]
             await connection.executemany(
                 """
@@ -169,8 +157,6 @@ def test_latest_recommendations_filter_and_paginate(integration_databases):
                 """,
                 [(uuid4(), item_id, future, future + timedelta(hours=2)) for item_id in item_ids],
             )
-            provider = LatestRecommendations(TestPool())
-            query = RecommendationQuery(user_id=str(profile_id), context={}, filters={})
             expected = tuple(str(item_id) for item_id in item_ids)
 
             page_ids = [
@@ -179,7 +165,7 @@ def test_latest_recommendations_filter_and_paginate(integration_databases):
                 str(uuid4()),
                 expected[5],
             ]
-            available = await filter_available_items(TestPool(), page_ids)
+            available = await filter_available_items(pool, page_ids)
             assert available == (expected[42], str(ids["valid"]), expected[5])
 
             first = await provider.recommend(query, limit=100, exclude_ids=existing_ids)
