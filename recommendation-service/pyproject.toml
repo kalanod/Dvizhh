@@ -16,6 +16,12 @@ dependencies = [
 
 [tool.uv.sources]
 dvizh-logging = { path = "../packages/dvizh-logging" }
+torch = { index = "pytorch-cpu" }
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
 
 [dependency-groups]
 dev = [
@@ -25,6 +31,10 @@ dev = [
 ]
 train = [
     "scikit-learn>=1.7,<2",
+]
+encoder = [
+    "safetensors>=0.7,<1",
+    "torch>=2.11,<3",
 ]
 
 [build-system]

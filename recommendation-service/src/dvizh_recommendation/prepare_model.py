@@ -3,6 +3,7 @@ import os
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
+from .artifacts import write_artifact
 from .config import DEFAULT_RANKER_MODEL_DIR
 from .model_registry import (
     MODEL_FILE,
@@ -25,24 +26,15 @@ def prepare_ranker(uri: str, directory: Path) -> Path:
     validate_ranker_features(model)
     prepared = PreparedRanker(uri=uri, model=model)
 
+    def validate_existing(path: Path) -> None:
+        if PreparedRanker.model_validate_json(path.read_bytes()) != prepared:
+            raise ValueError(f"Prepared ranker {uri} has different contents") from None
+
     directory.mkdir(parents=True, exist_ok=True)
-    with TemporaryDirectory(dir=directory) as staging_dir:
-        staging = Path(staging_dir) / MODEL_FILE
-        with staging.open("wb") as file:
-            file.write(prepared.model_dump_json().encode())
-            file.flush()
-            os.fsync(file.fileno())
-        try:
-            os.link(staging, destination)
-        except FileExistsError:
-            existing = PreparedRanker.model_validate_json(destination.read_bytes())
-            if existing != prepared:
-                raise ValueError(f"Prepared ranker {uri} has different contents") from None
-        directory_fd = os.open(directory, os.O_RDONLY)
-        try:
-            os.fsync(directory_fd)
-        finally:
-            os.close(directory_fd)
+    write_artifact(
+        destination, prepared.model_dump_json().encode(), mode=0o666,
+        validate_existing=validate_existing,
+    )
     return destination
 
 

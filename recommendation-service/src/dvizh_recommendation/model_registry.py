@@ -1,6 +1,6 @@
 import asyncio
 import re
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from hashlib import sha256
 from pathlib import Path
 from typing import Literal
@@ -25,9 +25,35 @@ class PreparedRanker(BaseModel, extra="forbid", frozen=True, hide_input_in_error
     model: LinearModel
 
 
-def ranker_artifact_path(uri: str, directory: Path) -> Path:
+def validate_model_uri(uri: str) -> None:
     if re.fullmatch(r"models:/[^/@\s]+/[1-9][0-9]*", uri) is None:
         raise ValueError("Use an exact MLflow model URI: models:/<name>/<version>")
+
+
+def register_model_version(
+    experiment: str, name: str, artifact_path: str, tags: dict[str, str],
+    log_run: Callable[[str], None],
+) -> str:
+    import mlflow
+    from mlflow.exceptions import MlflowException
+
+    mlflow.set_experiment(experiment)
+    client = mlflow.MlflowClient()
+    try:
+        client.create_registered_model(name)
+    except MlflowException as error:
+        if error.error_code != "RESOURCE_ALREADY_EXISTS":
+            raise
+    with mlflow.start_run(tags=tags) as run:
+        log_run(artifact_path)
+        version = client.create_model_version(
+            name, mlflow.get_artifact_uri(artifact_path), run_id=run.info.run_id, tags=tags,
+        )
+    return f"models:/{version.name}/{version.version}"
+
+
+def ranker_artifact_path(uri: str, directory: Path) -> Path:
+    validate_model_uri(uri)
     return directory / f"{sha256(uri.encode()).hexdigest()}.json"
 
 
