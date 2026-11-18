@@ -33,6 +33,25 @@
 Оценка остаётся внутри сервиса и может использоваться как признак ранкера.
 `limit` задаёт число найденных айтемов, `page_size` — размер страницы выдачи.
 
+Команды из каталога `recommendation-service` выгружают историю подтверждённых
+записей, обучают Two-Tower, сохраняют версию в MLflow и считают векторы пакетами.
+Для обучения используются только записи пользователя, сделанные до целевой
+записи. Текст и темы мероприятий берутся из каталога на момент выгрузки.
+
+```shell
+uv run python -m dvizh_recommendation.encoder_data retrieval.json \
+  --history-start "$HISTORY_START" --as-of "$TRAIN_AS_OF"
+uv run --group encoder python -m dvizh_recommendation.encoder_training retrieval.json \
+  --validation-start "$VALIDATION_START" --experiment dvizh-retrieval \
+  --model dvizh-two-tower --git-sha "$(git rev-parse HEAD)"
+uv run --group encoder python -m dvizh_recommendation.generate_embeddings \
+  "$MODEL_URI" embeddings.json --history-start "$HISTORY_START" --as-of "$INDEX_AS_OF"
+```
+
+`MODEL_URI` — точный `models:/имя/версия` из команды обучения. Выгрузке нужны
+`SOURCE_DATABASE_URL`, обучению и генерации — `MLFLOW_TRACKING_URI`.
+PyTorch используется только в командах обучения и генерации векторов.
+
 ## pgvector
 
 Данные `IndexedItem` соответствуют схеме `event_embeddings`
