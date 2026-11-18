@@ -11,6 +11,7 @@ const baseClass = "w-full rounded-lg border-2 px-4 text-body outline-none transi
 type ValidationProps = {
     state?: InputState;
     errorMessage?: string;
+    errorDisplay?: "tooltip" | "inline";
     validate?: (value: string) => string | null;
     validateAsync?: AsyncFieldValidator;
     successMessage?: string;
@@ -35,41 +36,49 @@ type ControlProps = Omit<InputProps, keyof DOMAttributes<HTMLInputElement>> & Om
     rows?: number;
 };
 function TextControl({ state = "default", value, onChange, className = "", errorMessage,
-    type = "text", variant, validate, validateAsync, successMessage, multiline, rows = 4, onFocus, onBlur, ...rest }: ControlProps) {
+    type = "text", variant, validate, validateAsync, successMessage, multiline, rows = 4, onFocus, onBlur, onInvalid, errorDisplay = "tooltip", ...rest }: ControlProps) {
     const field = useContext(FieldContext);
     const context = field && (!field.htmlFor || rest.id === field.htmlFor) ? field : null;
     const floating = (variant ?? (context ? "floating" : "compact")) === "floating";
     const [revealed, setRevealed] = useState(false);
     const [focused, setFocused] = useState(false);
     const [touched, setTouched] = useState(false);
+    const [nativeError, setNativeError] = useState<{ value: string; message: string } | null>(null);
     const statusId = useId();
     const required = rest.required ?? context?.required;
     const isPassword = type === "password";
     const localError = fieldError(value, { ...rest, type, required }, validate);
     const remote = useFieldValidation(value, !!value && !localError && !rest.disabled && !rest.readOnly, validateAsync);
-    const error = state === "error" ? errorMessage || "Проверьте значение." : (value || touched) ? localError || remote.error : null;
+    const error = state === "error" ? errorMessage || "Проверьте значение." : (value || touched) ? localError || (nativeError?.value === value ? nativeError.message : null) || remote.error : null;
     const success = !error && !!value && !remote.pending && !remote.unavailable && state !== "error" && (floating || state === "success");
     const status = error ? "error" : remote.pending ? "pending" : remote.unavailable ? "unavailable" : success ? "success" : "default";
     const message = error || (remote.pending ? "Проверяем…" : remote.unavailable ? "Не удалось проверить. Проверим при сохранении." : successMessage && success ? successMessage : context?.hint);
     const temporal = ["date", "datetime-local", "time", "month", "week"].includes(type);
     const color = error ? "var(--color-bordererror)" : success ? "#25834b" : remote.pending ? "var(--color-borderfocus)" : "var(--color-secondary)";
     const label = context?.label ?? rest["aria-label"] ?? rest.placeholder;
-    return <Tooltip title={message || ""} placement="top-start" arrow open={focused && !!message} onClose={() => setFocused(false)} disableHoverListener disableTouchListener>
+    const tooltip = error && errorDisplay === "inline" ? "" : message;
+    return <Tooltip title={tooltip || ""} placement="top-start" arrow open={focused && !!tooltip} onClose={() => setFocused(false)} disableHoverListener disableTouchListener>
         <div className={`dvizh-text-control relative w-full ${floating ? "dvizh-floating" : ""} ${className}`} data-validation={status}>
             <TextField
                 id={rest.id} name={rest.name} type={isPassword && revealed ? "text" : type}
-                value={value} onChange={(event) => onChange(event.target.value)}
+                value={value} onChange={(event) => { setNativeError(null); onChange(event.target.value); }}
                 onFocus={(event) => { setFocused(true); onFocus?.(event); }}
                 onBlur={(event) => { setFocused(false); setTouched(true); setRevealed(false); onBlur?.(event); }}
                 label={floating ? label : undefined} placeholder={floating ? undefined : rest.placeholder ?? label}
                 variant="filled" fullWidth hiddenLabel={!floating} size={floating ? "medium" : "small"}
                 multiline={multiline} rows={multiline ? rows : undefined} required={required} disabled={rest.disabled}
                 error={!!error}
+                helperText={errorDisplay === "inline" ? error : undefined}
                 inputRef={(node: HTMLInputElement | HTMLTextAreaElement | null) => node?.setCustomValidity(error || "")}
                 slotProps={{
-                    htmlInput: { ...rest, required, "aria-label": rest["aria-label"] ?? label, "aria-invalid": !!error, "aria-describedby": [rest["aria-describedby"], statusId].filter(Boolean).join(" ") },
+                    htmlInput: { ...rest, required, onInvalid: (event: React.InvalidEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+                        setTouched(true);
+                        if (!event.currentTarget.validity.customError) setNativeError({ value, message: event.currentTarget.validationMessage });
+                        onInvalid?.(event);
+                    }, "aria-label": rest["aria-label"] ?? label, "aria-invalid": !!error, "aria-describedby": [rest["aria-describedby"], statusId, errorDisplay === "inline" && error ? `${statusId}-error` : null].filter(Boolean).join(" ") },
                     inputLabel: { shrink: floating && temporal ? true : undefined },
                     input: { disableUnderline: true },
+                    formHelperText: { id: `${statusId}-error` },
                 }}
                 sx={{
                     fontFamily: "inherit",
@@ -91,7 +100,7 @@ function TextControl({ state = "default", value, onChange, className = "", error
 }
 
 function fieldError(value: string, props: Pick<InputProps, "type" | "required" | "minLength" | "maxLength" | "pattern" | "min" | "max" | "step">, validate?: (value: string) => string | null): string | null {
-    if (!value) return props.required ? "Заполните поле." : null;
+    if (!value) return props.required ? "Заполните поле." : validate?.(value) ?? null;
     if (props.required && props.type !== "password" && !value.trim()) return "Заполните поле.";
     if (props.minLength && value.length < props.minLength) return `Минимум ${props.minLength} символов.`;
     if (props.maxLength && value.length > props.maxLength) return `Максимум ${props.maxLength} символов.`;

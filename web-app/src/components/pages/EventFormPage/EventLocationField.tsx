@@ -9,6 +9,7 @@ import { YandexMap } from "../../widgets/EventLocation/YandexMap";
 import { placeCoordinates, placeFromGeocode, pointPlace, textPlace, type EventPlaceValue } from "./eventPlace";
 
 interface Props {
+    validation?: Pick<React.ComponentProps<typeof Input>, "state" | "errorMessage" | "errorDisplay" | "validate">;
     value: EventPlaceValue;
     profileCity?: string | null;
     disabled: boolean;
@@ -16,7 +17,7 @@ interface Props {
     onPendingChange: (pending: boolean) => void;
 }
 
-export const EventLocationField = ({ value, profileCity, disabled, onChange, onPendingChange }: Props) => {
+export const EventLocationField = ({ value, profileCity, disabled, onChange, onPendingChange, validation }: Props) => {
     const config = useAsync(getMapsConfig, "yandex-maps-config");
     const [open, setOpen] = useState(false);
     const [active, setActive] = useState(-1);
@@ -132,6 +133,7 @@ export const EventLocationField = ({ value, profileCity, disabled, onChange, onP
                 <FormField label="Адрес или заведение" htmlFor="event-address" hint="Введите адрес, название или тип места — например, «антикафе»">
                     <div className="flex w-full min-w-0 items-stretch gap-2">
                         <Input
+                            {...validation}
                             className="min-w-0 flex-1"
                             id="event-address"
                             disabled={disabled}

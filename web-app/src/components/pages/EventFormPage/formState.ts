@@ -91,25 +91,32 @@ const money = (value: string) => {
 };
 
 /** Проверки, которые удобнее показать до отправки; остальное валидирует backend. */
-export const validateForm = (form: EventFormState, timezone = form.timezone): string | null => {
-    if (new Set(form.tags.map((tag) => tag.id)).size > MAX_EVENT_TAGS) return "Можно выбрать не больше пяти тематик.";
-    try {
-        new Intl.DateTimeFormat("en", { timeZone: timezone }).format();
-        fromDateTimeLocal(form.startsAt, timezone);
-        fromDateTimeLocal(form.endsAt, timezone);
-    } catch { return "Проверьте часовой пояс и время: выбранное время может не существовать при переходе на летнее время."; }
-    if (!form.title.trim()) return "Укажите название.";
-    if (!form.startsAt) return "Укажите, когда начинается событие.";
-    if (form.endsAt && form.endsAt <= form.startsAt) return "Окончание должно быть позже начала.";
+export type EventFormErrors = Partial<Record<keyof EventFormState, string>>;
+
+export const validateFormFields = (form: EventFormState, timezone = form.timezone): EventFormErrors => {
+    const errors: EventFormErrors = {};
+    if (!form.title.trim()) errors.title = "Укажите название.";
+    if (new Set(form.tags.map((tag) => tag.id)).size > MAX_EVENT_TAGS) errors.tags = "Можно выбрать не больше пяти тематик.";
+    if (!form.startsAt) errors.startsAt = "Укажите, когда начинается событие.";
+    for (const key of ["startsAt", "endsAt"] as const) {
+        try {
+            new Intl.DateTimeFormat("en", { timeZone: timezone }).format();
+            fromDateTimeLocal(form[key], timezone);
+        } catch { errors[key] = "Проверьте время: оно может не существовать при переходе на летнее время."; }
+    }
+    if (form.endsAt && form.endsAt <= form.startsAt) errors.endsAt = "Окончание должно быть позже начала.";
     const location = placeToLocation(form.place);
     if (form.format !== "ONLINE" && !location?.address_line && !placeCoordinates(form.place)) {
-        return "Укажите адрес или выберите место события на карте.";
+        errors.place = "Укажите адрес или выберите место события на карте.";
     }
-    if (form.format !== "ONLINE" && form.place.kind === "text" && form.place.text.trim().length > 500) return "Описание места должно быть не длиннее 500 символов.";
-    if (form.format !== "ONLINE" && form.place.kind === "resolved" && (form.place.location.latitude || form.place.location.longitude) && !placeCoordinates(form.place)) return "Проверьте точку места события на карте.";
-    if (form.format !== "OFFLINE" && !form.onlineUrl.trim()) return "Добавьте ссылку на трансляцию.";
-    return null;
+    if (form.format !== "ONLINE" && form.place.kind === "text" && form.place.text.trim().length > 500) errors.place = "Описание места должно быть не длиннее 500 символов.";
+    if (form.format !== "ONLINE" && form.place.kind === "resolved" && (form.place.location.latitude || form.place.location.longitude) && !placeCoordinates(form.place)) errors.place = "Проверьте точку места события на карте.";
+    if (form.format !== "OFFLINE" && !form.onlineUrl.trim()) errors.onlineUrl = "Добавьте ссылку на трансляцию.";
+    return errors;
 };
+
+export const validateForm = (form: EventFormState, timezone = form.timezone): string | null =>
+    Object.values(validateFormFields(form, timezone))[0] ?? null;
 
 export const formToInput = (form: EventFormState, timezone = form.timezone): EventInput => {
     const capacity = form.capacity.trim() === "" ? null : Number(form.capacity);

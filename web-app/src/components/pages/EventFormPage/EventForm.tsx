@@ -1,10 +1,11 @@
 import type { ReactNode } from "react";
 import { useState } from "react";
+import { flushSync } from "react-dom";
 import { errorText } from "../../../api";
 import type { EventFormat, EventInput, EventJoinPolicy, EventVisibility } from "../../../models";
 import { Button, FormField, Input, Notice, Select, Textarea, Toggle } from "../../ui";
 import { FORMAT_LABELS, JOIN_POLICY_LABELS, VISIBILITY_LABELS } from "../../../utils/format";
-import { emptyForm, formToInput, updateEventSchedule, validateForm, type EventFormState } from "./formState";
+import { emptyForm, formToInput, updateEventSchedule, validateFormFields, type EventFormState } from "./formState";
 import type { EventCoverChange } from "../../../utils/media";
 import { EventCoverField } from "./EventCoverField";
 import { EventLocationField } from "./EventLocationField";
@@ -38,9 +39,18 @@ export const EventForm = ({ title, submitLabel, initial, allowDraft, userId, ini
     const [cover, setCover] = useState<EventCoverChange>({ kind: "keep" });
     const [coverError, setCoverError] = useState<string | null>(null);
     const [locationPending, setLocationPending] = useState(false);
+    const [attempted, setAttempted] = useState(false);
     const [deviceTimezone] = useState(browserTimeZone);
     const { user } = useCurrentUser();
     const timezone = initial?.timezone ?? deviceTimezone;
+    const problems = validateFormFields(form, timezone);
+    if (locationPending) problems.place = "Дождитесь определения места.";
+    const validation = (key: keyof EventFormState) => ({
+        errorDisplay: "inline" as const,
+        state: attempted && problems[key] ? "error" as const : "default" as const,
+        errorMessage: problems[key],
+        validate: () => problems[key] ?? null,
+    });
     const timezoneHint = initial
         ? "Время в часовом поясе сохранённого события."
         : "Время указано по часовому поясу вашего браузера.";
@@ -50,13 +60,18 @@ export const EventForm = ({ title, submitLabel, initial, allowDraft, userId, ini
         (value: EventFormState[K]) =>
             setForm((prev) => ({ ...prev, [key]: value }));
 
-    const handleSubmit = async (e: React.FormEvent) => {
+    const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
         e.preventDefault();
         if (submitting || coverError) return;
-        if (locationPending) { setError("Дождитесь определения места."); return; }
-        const problem = validateForm(form, timezone);
-        if (problem) {
-            setError(problem);
+        const element = e.currentTarget;
+        // Commit domain errors before checking native validity, so both follow DOM order.
+        flushSync(() => { setAttempted(true); setError(null); });
+        if (!element.checkValidity() || Object.keys(problems).length) {
+            requestAnimationFrame(() => {
+                const first = element.querySelector<HTMLElement>("input:invalid, textarea:invalid, select:invalid, [data-field-error='true']");
+                first?.focus({ preventScroll: true });
+                first?.scrollIntoView({ block: "center", behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth" });
+            });
             return;
         }
         setSubmitting(true);
@@ -96,28 +111,31 @@ export const EventForm = ({ title, submitLabel, initial, allowDraft, userId, ini
                     onError={setCoverError}
                 />
                 <FormField label="Название" htmlFor="title" hint="Добавьте #хештег, например #испанские_слизни: по нажатию на него можно найти события с таким же хештегом." required>
-                    <Input id="title" maxLength={200} placeholder="Поход в Выборг" value={form.title} onChange={set("title")} />
+                    <Input id="title" {...validation("title")} maxLength={200} placeholder="Поход в Выборг" value={form.title} onChange={set("title")} />
                 </FormField>
                 <FormField label="Описание" htmlFor="description">
                     <Textarea
-                        id="description"
+                        id="description" {...validation("description")}
                         rows={5}
                         placeholder="Что будет, что взять с собой, кого ждём"
                         value={form.description}
                         onChange={set("description")}
                     />
                 </FormField>
-                <EventTagField selected={form.tags} initialTags={initial?.tags} disabled={submitting} onChange={set("tags")} />
+                <div tabIndex={-1} data-field-error={attempted && !!problems.tags} className={attempted && problems.tags ? "rounded-lg border-2 border-bordererror p-2" : undefined}>
+                    <EventTagField selected={form.tags} initialTags={initial?.tags} disabled={submitting} onChange={set("tags")} />
+                    {attempted && problems.tags && <p role="alert" className="text-small text-texterror">{problems.tags}</p>}
+                </div>
             </Section>
 
             <Section title="Когда">
                 <div className="grid gap-4 sm:grid-cols-2">
                     <FormField label="Начало" htmlFor="starts-at" required>
-                        <Input id="starts-at" type="datetime-local" value={form.startsAt} onChange={(value) => setForm((previous) => updateEventSchedule(previous, { field: "startsAt", value }))} />
+                        <Input id="starts-at" {...validation("startsAt")} type="datetime-local" value={form.startsAt} onChange={(value) => setForm((previous) => updateEventSchedule(previous, { field: "startsAt", value }))} />
                     </FormField>
                     <FormField label="Окончание" htmlFor="ends-at">
                         <Input
-                            id="ends-at"
+                            id="ends-at" {...validation("endsAt")}
                             type="datetime-local"
                             min={form.startsAt || undefined}
                             value={form.endsAt}
@@ -136,6 +154,7 @@ export const EventForm = ({ title, submitLabel, initial, allowDraft, userId, ini
 
                 {form.format !== "ONLINE" && (
                         <EventLocationField
+                            validation={validation("place")}
                             value={form.place}
                             profileCity={user?.id === userId ? user.city : null}
                             disabled={submitting}
@@ -146,7 +165,7 @@ export const EventForm = ({ title, submitLabel, initial, allowDraft, userId, ini
 
                 {form.format !== "OFFLINE" && (
                     <FormField label="Ссылка на трансляцию" htmlFor="online-url" required>
-                        <Input id="online-url" type="url" placeholder="https://" value={form.onlineUrl} onChange={set("onlineUrl")} />
+                        <Input id="online-url" {...validation("onlineUrl")} type="url" placeholder="https://" value={form.onlineUrl} onChange={set("onlineUrl")} />
                     </FormField>
                 )}
             </Section>
@@ -154,10 +173,10 @@ export const EventForm = ({ title, submitLabel, initial, allowDraft, userId, ini
             <Section title="Участие">
                 <div className="grid gap-4 sm:grid-cols-2">
                     <FormField label="Цена, ₽" htmlFor="price" hint="Пусто или 0 — бесплатно">
-                        <Input id="price" type="number" min={0} step="0.01" inputMode="decimal" value={form.price} onChange={set("price")} />
+                        <Input id="price" {...validation("price")} type="number" min={0} max={100_000_000} step="0.01" inputMode="decimal" value={form.price} onChange={set("price")} />
                     </FormField>
                     <FormField label="Мест" htmlFor="capacity" hint="Пусто — без лимита">
-                        <Input id="capacity" type="number" min={1} inputMode="numeric" value={form.capacity} onChange={set("capacity")} />
+                        <Input id="capacity" {...validation("capacity")} type="number" min={1} inputMode="numeric" value={form.capacity} onChange={set("capacity")} />
                     </FormField>
                 </div>
                 <div className="grid gap-4 sm:grid-cols-2">

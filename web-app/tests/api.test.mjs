@@ -87,7 +87,19 @@ const { currentCoordinates } = require(join(output, "utils/geolocation.js"));
 const { SortMenu } = require(join(output, "components/widgets/SortMenu/SortMenu.js"));
 const { Input } = require(join(output, "components/ui/Input/Input.js"));
 const { locationCoordinates, loadYandexMaps, reportMapError } = require(join(output, "utils/yandexMaps.js"));
-const { emptyForm, formToInput, formFromEvent, updateEventSchedule, validateForm } = require(join(output, "components/pages/EventFormPage/formState.js"));
+const { emptyForm, formToInput, formFromEvent, updateEventSchedule, validateForm, validateFormFields } = require(join(output, "components/pages/EventFormPage/formState.js"));
+
+test("event validation associates simultaneous errors with fields and follows format changes", () => {
+    const form = { ...emptyForm(), timezone: "Europe/Moscow" };
+    assert.deepEqual(Object.keys(validateFormFields(form)), ["title", "startsAt", "place"]);
+    const online = { ...form, title: "Meeting", startsAt: "2030-06-12T10:00", format: "ONLINE" };
+    assert.deepEqual(Object.keys(validateFormFields(online)), ["onlineUrl"]);
+    assert.deepEqual(validateFormFields({ ...online, onlineUrl: "https://example.com" }), {});
+    const hybrid = { ...online, format: "HYBRID", endsAt: "2030-06-12T09:00" };
+    assert.deepEqual(Object.keys(validateFormFields(hybrid)), ["endsAt", "place", "onlineUrl"]);
+    const dstGap = { ...online, onlineUrl: "https://example.com", timezone: "Europe/Berlin", startsAt: "2030-03-31T02:30" };
+    assert.deepEqual(Object.keys(validateFormFields(dstGap)), ["startsAt"]);
+});
 const originalWindow = globalThis.window;
 globalThis.window = { location: { origin: "http://localhost:8080" } };
 after(() => {

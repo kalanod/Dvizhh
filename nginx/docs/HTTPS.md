@@ -6,7 +6,7 @@ Start with the same command in either mode:
 docker compose up -d --build
 ```
 
-HTTP always works on NGINX_PORT (default 8080).
+HTTP listens on NGINX_PORT (default 8080).
 HTTPS additionally works on NGINX_HTTPS_PORT (default 8021) when all three nonempty files exist in the project-root certs directory:
 
 - certificate.crt: domain certificate
@@ -30,7 +30,10 @@ NGINX_HTTPS_PORT=8021
 Router forwarding: public TCP 443 -> server TCP 8021; public TCP 80 -> server TCP 8020.
 Nginx uses ports 80/443 inside its container; Docker maps these to server ports.
 The application does not need to know the router's external ports.
-There is no automatic HTTP-to-HTTPS redirect.
+When TLS is enabled, HTTP requests redirect to https://dvizzh.space using status 308,
+preserving the path, query string and request method. The target uses public port 443,
+not the internal Docker host port. The exact /health endpoint remains available over
+HTTP for container health checks. Without certificates, HTTP continues serving the app.
 
 DNS for dvizzh.space and www.dvizzh.space must point to the public server address.
 The public URL with this router configuration is https://dvizzh.space without a port.
