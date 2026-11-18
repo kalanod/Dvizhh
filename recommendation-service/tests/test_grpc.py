@@ -107,11 +107,13 @@ def test_concurrent_grpc_requests_keep_ids_and_log_safe_failures(
 
         pagination = SimpleNamespace(get_page=get_page, refresh=refresh)
         async with grpc_client(pagination) as client:
-            get_call = client.GetRecommendations(valid_request(), timeout=5)
+            get_call = client.GetRecommendations(
+                valid_request(), metadata=(("x-request-id", "http-request-1"),), timeout=5,
+            )
             await asyncio.wait_for(get_entered.wait(), timeout=2)
             refresh_call = client.RefreshSession(
                 pb.RefreshSessionRequest(user_id="user-1", session_id="session-2"),
-                metadata=(("x-request-id", "request-2"),),
+                metadata=(("x-request-id", "http-request-2"),),
                 timeout=5,
             )
             assert isinstance(await get_call, pb.GetRecommendationsResponse)
@@ -136,11 +138,14 @@ def test_concurrent_grpc_requests_keep_ids_and_log_safe_failures(
     completed = {record["operation"]: record for record in records if "operation" in record}
     assert len(records) == 3
     page_read = next(record for record in records if record.get("message") == "Page read")
-    assert page_read["request_id"] == completed["GetRecommendations"]["request_id"] == "request-1"
-    assert page_read["session_id"] == completed["GetRecommendations"]["session_id"] == "session-1"
-    assert completed["GetRecommendations"]["status"] == "OK"
+    page_log = completed["GetRecommendations"]
+    for log in (page_read, page_log):
+        assert (log["request_id"], log["session_id"]) == ("http-request-1", "session-1")
+        assert log["recommendation_request_id"] == "request-1"
+    assert page_log["status"] == "OK"
     refresh_log = completed["RefreshSession"]
-    assert (refresh_log["request_id"], refresh_log["session_id"]) == ("request-2", "session-2")
+    assert (refresh_log["request_id"], refresh_log["session_id"]) == ("http-request-2", "session-2")
+    assert "recommendation_request_id" not in refresh_log
     assert refresh_log["status"] == "INTERNAL"
     assert refresh_log["error_type"] == "RuntimeError"
     assert refresh_log["error_stack"]
@@ -217,7 +222,7 @@ def test_grpc_does_not_return_unchecked_items_when_availability_check_fails(fail
         store = SimpleNamespace(read_page=AsyncMock(return_value=page))
         provider = SimpleNamespace(recommend=AsyncMock())
 
-        async def unavailable(item_ids):
+        async def unavailable(item_ids, query, snapshots):
             if failure == "connection":
                 raise asyncpg.PostgresConnectionError("database unavailable")
             await asyncio.Event().wait()
@@ -233,7 +238,10 @@ def test_grpc_does_not_return_unchecked_items_when_availability_check_fails(fail
             response = await client.GetRecommendations(valid_request(), timeout=2)
             assert [item.item_id for item in response.items] == ["item-2"]
             assert response.next_page_token == page.next_page_token
-            assert all(call.args == (page.item_ids,) for call in check_availability.await_args_list)
+            assert all(
+                call.args == (page.item_ids, RecommendationQuery("user-1", {}, {}), ())
+                for call in check_availability.await_args_list
+            )
             provider.recommend.assert_not_awaited()
 
     asyncio.run(run())

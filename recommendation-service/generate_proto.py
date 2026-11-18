@@ -8,6 +8,7 @@ import grpc_tools
 
 ROOT = Path(__file__).resolve().parent
 PACKAGE = Path("dvizh_recommendation/generated")
+BACKEND_OUTPUT = ROOT.parent / "backend" / "src" / "dvizh_backend" / "generated"
 
 
 def generate(output: Path) -> None:
@@ -30,19 +31,31 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--check", action="store_true")
     args = parser.parse_args()
-    if not args.check:
-        generate(ROOT / "src")
-        return
     with tempfile.TemporaryDirectory() as directory:
         output = Path(directory)
         generate(output)
         for generated in (output / PACKAGE).glob("*.py"):
-            expected = ROOT / "src" / PACKAGE / generated.name
-            if (
-                not expected.exists()
-                or expected.read_text(encoding="utf-8") != generated.read_text(encoding="utf-8")
+            source = generated.read_text(encoding="utf-8")
+            # Keep the protobuf descriptor identical in both packages.
+            backend_source = source.replace(
+                "from dvizh_recommendation.generated import recommendation_service_pb2",
+                "from . import recommendation_service_pb2",
+            ).replace(
+                "'dvizh_recommendation.generated.recommendation_service_pb2'",
+                "'dvizh_backend.generated.recommendation_service_pb2'",
+            )
+            for target, code in (
+                (ROOT / "src" / PACKAGE / generated.name, source),
+                (BACKEND_OUTPUT / generated.name, backend_source),
             ):
-                raise SystemExit("Generated code is outdated; run uv run python generate_proto.py")
+                if args.check:
+                    if not target.exists() or target.read_text(encoding="utf-8") != code:
+                        raise SystemExit(
+                            f"{target.name} is outdated; run uv run python generate_proto.py"
+                        )
+                else:
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    target.write_text(code, encoding="utf-8")
 
 
 if __name__ == "__main__":

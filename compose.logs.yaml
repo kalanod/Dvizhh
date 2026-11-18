@@ -60,6 +60,13 @@ services:
       - ./observability/alloy/config.alloy:/etc/alloy/config.alloy:ro
       - alloy-data:/var/lib/alloy/data
     networks: [default, logs, docker-api]
+    depends_on:
+      docker-api:
+        condition: service_healthy
+      loki:
+        condition: service_started
+      tempo:
+        condition: service_started
     restart: unless-stopped
 
   loki:
@@ -99,6 +106,11 @@ services:
       - ./observability/grafana/dashboards:/etc/grafana/dashboards:ro
       - grafana-data:/var/lib/grafana
     networks: [logs]
+    depends_on:
+      loki:
+        condition: service_started
+      tempo:
+        condition: service_started
     healthcheck:
       test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:3000/api/health"]
       interval: 10s

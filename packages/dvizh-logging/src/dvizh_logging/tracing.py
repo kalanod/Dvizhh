@@ -78,6 +78,28 @@ def server_span(
 
 
 @contextmanager
+def client_span(dependency: str, operation: str, **attributes: str) -> Iterator[Span]:
+    if _tracer is None or not get_current_span().is_recording():
+        yield INVALID_SPAN
+        return
+
+    with _tracer.start_as_current_span(
+        f"{dependency} {operation}",
+        kind=SpanKind.CLIENT,
+        attributes={"dependency": dependency, **attributes},
+        record_exception=False,
+        set_status_on_exception=False,
+    ) as span:
+        yield span
+
+
+def trace_headers() -> dict[str, str]:
+    carrier: dict[str, str] = {}
+    _propagator.inject(carrier)
+    return carrier
+
+
+@contextmanager
 def dependency_span(
     dependency: str, operation: str, duration: float | None, *, end_time: int
 ) -> Iterator[Span]:

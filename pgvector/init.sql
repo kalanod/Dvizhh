@@ -25,7 +25,14 @@ CREATE INDEX IF NOT EXISTS event_embeddings_dates_idx    -- быстрый фи�
 CREATE INDEX IF NOT EXISTS event_embeddings_topics_gin   -- быстрый фильтр по темам (topic_ids && ARRAY[...])
     ON event_embeddings USING gin (topic_ids);
 
+CREATE TABLE IF NOT EXISTS recommendation_pages (
+    request_id text PRIMARY KEY,
+    session_id text NOT NULL,
+    user_id text NOT NULL,
+    parameters_hash text NOT NULL,
+    served_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+    items jsonb NOT NULL CHECK (jsonb_typeof(items) = 'array')
+);
 
-
-
-    
+CREATE INDEX IF NOT EXISTS recommendation_pages_served_idx
+    ON recommendation_pages (served_at, request_id);

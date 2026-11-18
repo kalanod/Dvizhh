@@ -34,4 +34,6 @@ message GetRecommendationsResponse {
 message RecommendationItem {
   // Backend events.id.
   optional string item_id = 1;
+  // The selected Backend event_occurrences.id.
+  optional string occurrence_id = 2;
 }

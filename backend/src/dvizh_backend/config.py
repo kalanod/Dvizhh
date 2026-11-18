@@ -10,7 +10,6 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+asyncpg://dvizh:change-me@localhost:5432/dvizh"
     # Если False, приложение стартует и без БД — удобно, чтобы локально открыть Swagger.
     require_database: bool = False
-    vector_database_url: str = "postgresql+asyncpg://dvizh:change-me@localhost:5433/dvizh_vectors"
     minio_endpoint: str = "localhost:9000"
     minio_access_key: str = "dvizh"
     minio_secret_key: str = "change-me-please"
@@ -19,9 +18,10 @@ class Settings(BaseSettings):
     minio_timeout_seconds: float = Field(10, gt=0, le=120)
     media_max_mib: int = Field(10, ge=1, le=128)
     media_max_pixels: int = Field(25_000_000, ge=1, le=100_000_000)
-    recommendation_url: str = "http://recommendation-service:8001"
     discovery_token_secret: str = Field(default_factory=lambda: token_urlsafe(48), min_length=32)
     discovery_token_ttl_seconds: int = Field(default=600, ge=60, le=3600)
+    recommendation_grpc_address: str = ""
+    recommendation_grpc_timeout_seconds: float = Field(2, gt=0, allow_inf_nan=False)
 
     @field_validator("discovery_token_secret", mode="before")
     @classmethod

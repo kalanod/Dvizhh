@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 
 export interface FeedFilters {
@@ -22,20 +22,27 @@ const PARAM_BY_FILTER: Record<keyof FeedFilters, string> = {
 };
 
 /** Фильтры ленты хранятся в URL, как в шаблоне: ссылкой с фильтрами можно поделиться. */
-export const useEventFilters = () => {
+export const useEventFilters = (active: boolean) => {
     const [searchParams, setSearchParams] = useSearchParams();
+    const routeSearch = searchParams.toString();
+    const [lastFeedSearch, setLastFeedSearch] = useState(routeSearch);
+    if (active && routeSearch !== lastFeedSearch) setLastFeedSearch(routeSearch);
+    const feedSearch = active ? routeSearch : lastFeedSearch;
 
     const filters = useMemo<FeedFilters>(
-        () => ({
-            q: searchParams.get("q") ?? "",
-            tagId: searchParams.get("tag_id") ?? "",
-            from: searchParams.get("from") ?? "",
-            to: searchParams.get("to") ?? "",
-            freeOnly: searchParams.get("free") === "1",
-            availableOnly: searchParams.get("available") === "1",
-            withFriends: searchParams.get("friends") === "1",
-        }),
-        [searchParams],
+        () => {
+            const params = new URLSearchParams(feedSearch);
+            return {
+                q: params.get("q") ?? "",
+                tagId: params.get("tag_id") ?? "",
+                from: params.get("from") ?? "",
+                to: params.get("to") ?? "",
+                freeOnly: params.get("free") === "1",
+                availableOnly: params.get("available") === "1",
+                withFriends: params.get("friends") === "1",
+            };
+        },
+        [feedSearch],
     );
 
     const setFilters = (patch: Partial<FeedFilters>) => {

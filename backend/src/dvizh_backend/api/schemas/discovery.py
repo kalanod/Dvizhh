@@ -79,6 +79,14 @@ class DiscoveryBootstrapRequest(DiscoveryModel):
     origin: MapPoint
 
 
+class DiscoveryRefreshRequest(DiscoveryModel):
+    cursor: str = Field(min_length=1, max_length=16000)
+
+
+class DiscoveryRefreshResponse(DiscoveryModel):
+    next_cursor: str
+
+
 class DiscoveryAnchor(DiscoveryModel):
     event_id: UUID
     point: MapPoint
@@ -108,8 +116,11 @@ class DiscoveryMap(DiscoveryModel):
 
 class DiscoveryFeed(DiscoveryModel):
     items: list[EventDTO]
-    total_events: int = Field(ge=0)
+    total_events: int | None = Field(default=None, ge=0, exclude_if=lambda value: value is None)
     next_cursor: str | None = None
+    refresh_after_seconds: int | None = Field(default=None, exclude_if=lambda value: value is None)
+    session_id: UUID | None = Field(default=None, exclude_if=lambda value: value is None)
+    request_id: UUID | None = Field(default=None, exclude_if=lambda value: value is None)
 
 
 class DiscoveryResponse(DiscoveryModel):

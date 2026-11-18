@@ -2,7 +2,7 @@ import asyncio
 import logging
 import signal
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager, suppress
+from contextlib import asynccontextmanager
 from functools import partial
 
 import grpc
@@ -15,6 +15,7 @@ from .catalog import filter_available_items
 from .config import Settings, get_settings
 from .database import Databases, connect_databases
 from .generated import recommendation_service_pb2_grpc
+from .journal import RecommendationJournal
 from .pagination import Pagination, SessionStore
 from .redis import connect_redis
 from .service import SERVICE_NAME, RecommendationService
@@ -23,43 +24,54 @@ HEALTH_CHECK_INTERVAL_SECONDS = 5
 logger = logging.getLogger(__name__)
 
 
+async def _update_readiness(
+    settings: Settings,
+    databases: Databases,
+    redis: Redis,
+    health_service: health.aio.HealthServicer,
+    unavailable: set[str],
+) -> None:
+    results = await asyncio.gather(
+        asyncio.wait_for(redis.ping(), timeout=settings.redis_timeout_seconds),
+        asyncio.wait_for(
+            databases.source.fetchval(
+                "SELECT 1 FROM public.recsys_catalog CROSS JOIN public.recsys_dismissals LIMIT 0"
+            ),
+            timeout=settings.database_timeout_seconds,
+        ),
+        asyncio.wait_for(
+            databases.vector.fetchval("SELECT 1 FROM public.recommendation_pages LIMIT 0"),
+            timeout=settings.database_timeout_seconds,
+        ),
+        return_exceptions=True,
+    )
+    for dependency, result in zip(("redis", "postgres", "pgvector"), results, strict=True):
+        if isinstance(result, BaseException) and dependency not in unavailable:
+            logger.warning(
+                "Dependency unavailable", extra={"dependency": dependency, **error_fields(result)}
+            )
+            unavailable.add(dependency)
+        elif not isinstance(result, BaseException) and dependency in unavailable:
+            logger.info("Dependency recovered", extra={"dependency": dependency})
+            unavailable.remove(dependency)
+    if unavailable:
+        status = health_pb2.HealthCheckResponse.NOT_SERVING
+    else:
+        status = health_pb2.HealthCheckResponse.SERVING
+    await health_service.set("", status)
+    await health_service.set(SERVICE_NAME, status)
+
+
 async def _monitor_dependencies(
     settings: Settings,
     databases: Databases,
     redis: Redis,
     health_service: health.aio.HealthServicer,
+    unavailable: set[str],
 ) -> None:
-    unavailable: set[str] = set()
     while True:
-        results = await asyncio.gather(
-            asyncio.wait_for(redis.ping(), timeout=settings.redis_timeout_seconds),
-            asyncio.wait_for(
-                databases.source.fetchval("SELECT 1"), timeout=settings.database_timeout_seconds
-            ),
-            asyncio.wait_for(
-                databases.vector.fetchval("SELECT 1"), timeout=settings.database_timeout_seconds
-            ),
-            return_exceptions=True,
-        )
-        for dependency, result in zip(("redis", "postgres", "pgvector"), results, strict=True):
-            if isinstance(result, BaseException):
-                if dependency not in unavailable:
-                    logger.warning(
-                        "Dependency unavailable",
-                        extra={"dependency": dependency, "error_type": type(result).__name__},
-                    )
-                    unavailable.add(dependency)
-            elif dependency in unavailable:
-                logger.info("Dependency recovered", extra={"dependency": dependency})
-                unavailable.remove(dependency)
-
-        if unavailable:
-            status = health_pb2.HealthCheckResponse.NOT_SERVING
-        else:
-            status = health_pb2.HealthCheckResponse.SERVING
-        await health_service.set("", status)
-        await health_service.set(SERVICE_NAME, status)
         await asyncio.sleep(HEALTH_CHECK_INTERVAL_SECONDS)
+        await _update_readiness(settings, databases, redis, health_service, unavailable)
 
 
 @asynccontextmanager
@@ -83,7 +95,10 @@ async def running_server(
             availability_filter,
             timeout_seconds=settings.recommendation_timeout_seconds,
         )
-        async with _grpc_server(settings, pagination, redis, databases) as server:
+        journal = RecommendationJournal(
+            databases.vector, timeout_seconds=settings.database_timeout_seconds
+        )
+        async with _grpc_server(settings, pagination, redis, databases, journal) as server:
             yield server
 
 
@@ -93,32 +108,36 @@ async def _grpc_server(
     pagination: Pagination,
     redis: Redis,
     databases: Databases,
+    journal: RecommendationJournal | None = None,
 ) -> AsyncIterator[tuple[grpc.aio.Server, int]]:
     server = grpc.aio.server()
     recommendation_service_pb2_grpc.add_RecommendationServiceServicer_to_server(
-        RecommendationService(pagination), server
+        RecommendationService(
+            pagination, journal, timeout_seconds=settings.recommendation_timeout_seconds
+        ),
+        server,
     )
     health_service = health.aio.HealthServicer()
     health_pb2_grpc.add_HealthServicer_to_server(health_service, server)
-    health_task = None
+    background_tasks: list[asyncio.Task[None]] = []
+    unavailable: set[str] = set()
 
     try:
         port = server.add_insecure_port(settings.grpc_bind_address)
         if not port:
             raise RuntimeError(f"Cannot bind gRPC server to {settings.grpc_bind_address}")
+        await _update_readiness(settings, databases, redis, health_service, unavailable)
         await server.start()
-        await health_service.set("", health_pb2.HealthCheckResponse.SERVING)
-        await health_service.set(SERVICE_NAME, health_pb2.HealthCheckResponse.SERVING)
-        health_task = asyncio.create_task(
-            _monitor_dependencies(settings, databases, redis, health_service)
-        )
+        background_tasks.append(asyncio.create_task(
+            _monitor_dependencies(settings, databases, redis, health_service, unavailable)
+        ))
         yield server, port
     finally:
         await health_service.enter_graceful_shutdown()
-        if health_task is not None:
-            health_task.cancel()
-            with suppress(asyncio.CancelledError):
-                await health_task
+        for task in background_tasks:
+            task.cancel()
+        if background_tasks:
+            await asyncio.gather(*background_tasks, return_exceptions=True)
         await server.stop(settings.shutdown_grace_seconds)
 
 

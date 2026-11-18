@@ -1,6 +1,8 @@
 """Real PostGIS discovery; use only a separately migrated disposable TEST_DATABASE_URL."""
 
 import asyncio
+import json
+import logging
 import os
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
@@ -8,6 +10,8 @@ from unittest.mock import AsyncMock
 from uuid import uuid4
 
 import pytest
+from dvizh_logging import JsonFormatter, request_context
+from grpc import StatusCode, aio
 from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from test_event_sorting import Catalog, run_in_rollback
@@ -23,8 +27,62 @@ from dvizh_backend.database.models import (
     Profile,
 )
 from dvizh_backend.database.services.discovery import DiscoveryRepository
+from dvizh_backend.generated.recommendation_service_pb2_grpc import (
+    RecommendationServiceServicer,
+    add_RecommendationServiceServicer_to_server,
+)
 from dvizh_backend.services.discovery_service import EventDiscoveryService
 from dvizh_backend.services.event_service import EventService
+from dvizh_backend.services.recommendation_client import RecommendationClient
+
+
+@pytest.mark.skipif(not os.getenv("TEST_DATABASE_URL"), reason="Requires disposable PostGIS")
+def test_discovery_fallback_logs_the_failed_rpc_with_the_request_id(monkeypatch, caplog) -> None:
+    private_details = "internal upstream details"
+
+    class Unavailable(RecommendationServiceServicer):
+        async def GetRecommendations(self, request, context):
+            await context.abort(StatusCode.UNAVAILABLE, private_details)
+
+    async def scenario(catalog: Catalog, _queries) -> None:
+        viewer = await catalog.profile()
+        tag = await catalog.tag()
+        event, _ = await catalog.event(viewer, (tag,))
+        request_id = uuid4().hex
+        server = aio.server()
+        add_RecommendationServiceServicer_to_server(Unavailable(), server)
+        port = server.add_insecure_port("127.0.0.1:0")
+        await server.start()
+        try:
+            async with aio.insecure_channel(
+                f"127.0.0.1:{port}", options=(("grpc.enable_http_proxy", 0),)
+            ) as channel:
+                with request_context(request_id=request_id):
+                    service = EventDiscoveryService(
+                        catalog.session,
+                        Settings(_env_file=None, discovery_token_secret="fallback-log-test-" * 2),
+                        recommendation_client=RecommendationClient(channel, timeout_seconds=2),
+                    )
+                    request = DiscoveryRequest(
+                        filters={"tag_id": tag}, sort="relevance", include_map=False
+                    )
+                    feed = (await service.discover(request, viewer)).feed
+        finally:
+            await server.stop(0)
+        assert [item.id for item in feed.items] == [event]
+        assert feed.request_id is None
+
+        records = [json.loads(line) for line in caplog.text.splitlines()]
+        fallback, = [record for record in records if record.get("error_reason") == "UNAVAILABLE"]
+        assert fallback["request_id"] == request_id
+        assert fallback["operation"] == "GetRecommendations"
+        assert fallback["upstream"] == "recommendation-service"
+        assert fallback["upstream_status"] == "UNAVAILABLE"
+        assert private_details not in caplog.text
+
+    monkeypatch.setattr(caplog.handler, "formatter", JsonFormatter("backend"))
+    caplog.set_level(logging.INFO, logger="dvizh_backend.services.recommendation_discovery")
+    run_in_rollback(scenario)
 
 
 @pytest.mark.skipif(not os.getenv("TEST_DATABASE_URL"), reason="Requires disposable PostGIS")
@@ -184,7 +242,8 @@ def test_hashtags_share_map_feed_selection_and_pagination(sort):
         )
         scoped = DiscoveryRequest(**{**request.model_dump(), "viewport": viewport})
         page = await service.discover(scoped, None)
-        assert page.feed.total_events == page.map.total_events == 2
+        assert page.map.total_events == 2
+        assert page.feed.total_events == (None if sort == "relevance" else 2)
         assert len(page.map.items) == 1
         assert page.map.items[0].count == 2
         seen = [item.id for item in page.feed.items]
@@ -286,16 +345,19 @@ def test_discovery_postgis_counts_clusters_filters_recurrence_and_keyset(sort):
                             )
                         )
             first = await discover(viewport=world, limit=7)
-            assert first.map.total_events == first.feed.total_events == 160
+            assert first.map.total_events == 160
+            assert first.feed.total_events == (None if sort == "relevance" else 160)
             assert 1 <= len(first.map.items) <= 30
             assert sum(item.count for item in first.map.items) == 160
             free = await discover(viewport=world, filters={"free_only": True})
-            assert free.map.total_events == free.feed.total_events == 159
+            assert free.map.total_events == 159
+            assert free.feed.total_events == (None if sort == "relevance" else 159)
             later = await discover(
                 viewport=world,
                 filters={"date_from": (now + timedelta(days=3)).date()},
             )
-            assert later.map.total_events == later.feed.total_events == 1
+            assert later.map.total_events == 1
+            assert later.feed.total_events == (None if sort == "relevance" else 1)
             assert later.feed.items[0].starts_at == now + timedelta(days=3)
             seen = [item.id for item in first.feed.items]
             cursor = first.feed.next_cursor
@@ -331,7 +393,7 @@ def test_discovery_postgis_counts_clusters_filters_recurrence_and_keyset(sort):
             assert exact.map.items[0].count == 40
             assert exact.map.items[0].type == "cluster"
             unscoped = await discover(viewport=None)
-            assert unscoped.feed.total_events == 161  # Missing coordinates still work in the feed.
+            assert unscoped.feed.total_events == (None if sort == "relevance" else 161)
             async with sessions.begin() as session:
                 location = await session.get(Location, location_ids[0])
                 location.longitude = 179.9

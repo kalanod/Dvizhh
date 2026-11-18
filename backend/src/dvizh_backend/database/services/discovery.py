@@ -1,11 +1,27 @@
 """Database projections of the shared discovery candidate set; never truncate candidates."""
 
+from collections.abc import Sequence
 from dataclasses import replace
 from datetime import datetime
 from math import pi
 from uuid import UUID
 
-from sqlalchemy import Date, Float, String, and_, case, cast, exists, func, literal, or_, select
+from sqlalchemy import (
+    Date,
+    Float,
+    String,
+    all_,
+    and_,
+    case,
+    cast,
+    exists,
+    func,
+    literal,
+    or_,
+    select,
+    tuple_,
+)
+from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.engine import RowMapping
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -24,7 +40,7 @@ from dvizh_backend.database.models.enums import (
     ParticipationStatus,
 )
 
-from .event_queries import EventQueryService, going_count
+from .event_queries import EventQueryService, EventRow, going_count
 from .event_sorting import SORTINGS, DistanceSorting, SortContext, SortKey
 from .exceptions import EventSortError
 
@@ -92,6 +108,8 @@ class DiscoveryRepository:
             statement = statement.where(
                 Location.position.is_not(None), viewport_predicate(Location.position, viewport)
             )
+        self._query = query
+        self._eligible = statement
         friends = 0
         if filters.friends_of is not None:
             user_id = filters.friends_of
@@ -173,6 +191,18 @@ class DiscoveryRepository:
         x, y = grid_expressions(self.candidates.c, cell[0])
         return and_(x == cell[1], y == cell[2])
 
+    async def eligible_rows(self, pairs: Sequence[tuple[UUID, UUID]]) -> list[EventRow]:
+        if not pairs:
+            return []
+        statement = self._eligible.where(tuple_(Event.id, EventOccurrence.id).in_(pairs))
+        return await self._query._fetch(statement)
+
+    async def count(self, cell=None) -> int:
+        statement = select(func.count()).select_from(self.candidates)
+        if cell is not None:
+            statement = statement.where(self.cell_predicate(cell))
+        return int(await self.session.scalar(statement) or 0)
+
     async def groups(self, level: int, cell=None):
         c = self.candidates.c
         x, y = grid_expressions(c, level)
@@ -216,7 +246,10 @@ class DiscoveryRepository:
         )
         return (await self.session.execute(statement)).mappings().first()
 
-    async def feed(self, sort: str, center, limit: int, after=None, cell=None, *, ranking=None):
+    async def feed(
+        self, sort: str, center, limit: int, after=None, cell=None, *,
+        ranking=None,
+    ):
         c = self.candidates.c
         context = SortContext(
             self.session,
@@ -247,17 +280,34 @@ class DiscoveryRepository:
             SortKey(c.starts_at, "datetime"),
             SortKey(c.event_id, "uuid"),
         ]
+        return await self._feed_page(keys, limit, after, cell)
+
+    async def feed_by_publication(
+        self, limit: int, after: list[object] | None, exclude_ids: Sequence[UUID],
+    ):
+        c = self.candidates.c
+        context = SortContext(
+            self.session, self.filters.viewer_id, latitude=None, longitude=None,
+            columns=c, as_of=self.as_of,
+        )
+        keys = [*await SORTINGS["novelty"].keys(context), SortKey(c.event_id, "uuid")]
+        return await self._feed_page(keys, limit, after, None, exclude_ids)
+
+    async def _feed_page(
+        self, keys: list[SortKey], limit: int, after, cell, exclude_ids: Sequence[UUID] = (),
+    ):
+        c = self.candidates.c
         statement = select(
             c.occurrence_id,
             c.event_id,
             c.starts_at,
             *(key.expression.label(f"sort_{index}") for index, key in enumerate(keys)),
         )
-        where = self.cell_predicate(cell) if cell is not None else None
-        count_query = select(func.count()).select_from(self.candidates)
-        if where is not None:
-            statement = statement.where(where)
-            count_query = count_query.where(where)
+        if cell is not None:
+            statement = statement.where(self.cell_predicate(cell))
+        if exclude_ids:
+            excluded = literal(list(exclude_ids), type_=ARRAY(c.event_id.type))
+            statement = statement.where(c.event_id != all_(excluded))
         if after is not None:
             try:
                 if len(after) != len(keys):
@@ -283,5 +333,4 @@ class DiscoveryRepository:
         rows = [dict(row) for row in (await self.session.execute(statement)).mappings()]
         for row in rows:
             row["after"] = [key.encode(row[f"sort_{index}"]) for index, key in enumerate(keys)]
-        total = await self.session.scalar(count_query)
-        return rows[:limit], int(total or 0), len(rows) > limit
+        return rows[:limit], len(rows) > limit

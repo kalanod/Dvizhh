@@ -140,7 +140,8 @@ def test_selection_freezes_feed_scope_but_map_follows_current_viewport(monkeypat
             self.scope = scope
             self.filters = filters
             self.as_of = as_of
-            self.feed = AsyncMock(return_value=([], 2, False))
+            self.feed = AsyncMock(return_value=([], False))
+            self.count = AsyncMock(return_value=2)
             repositories.append(self)
 
     marker = {
@@ -155,18 +156,22 @@ def test_selection_freezes_feed_scope_but_map_follows_current_viewport(monkeypat
 
     async def scenario():
         first_view = viewport()
-        first = await service.discover(DiscoveryRequest(viewport=first_view), None)
+        first = await service.discover(
+            DiscoveryRequest(viewport=first_view, sort="relevance"), None,
+        )
         token = first.map.items[0].selection_token
         assert token
+        repositories[0].count.assert_not_awaited()
         repositories.clear()
         current_view = viewport(80, 30)
         selected = await service.discover(
-            DiscoveryRequest(viewport=current_view, selection_token=token), None,
+            DiscoveryRequest(viewport=current_view, sort="relevance", selection_token=token), None,
         )
         feed_repository, map_repository = repositories
         assert feed_repository.scope == first_view
         assert feed_repository.feed.call_args.args[1] == first_view.center
         assert feed_repository.feed.call_args.args[-1] == [0, 0, 0]
+        feed_repository.count.assert_awaited_once_with([0, 0, 0])
         assert map_repository.scope == current_view
         assert selected.as_of == first.as_of
         assert selected.feed.total_events == 2
