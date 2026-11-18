@@ -1,8 +1,10 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useCurrentUser } from "../../../hooks";
+import { useEventImpression } from "../../../hooks/useEventImpression";
 import { EventTitle, Tag } from "../../ui";
 import type { DvizhEvent } from "../../../models";
+import { eventDetailsPath, type EventNavigationState } from "../../../utils/eventDetails";
 import {
     EVENT_STATUS_LABELS,
     formatEventDate,
@@ -36,13 +38,22 @@ export const EventCard = ({ event: initial, onTagClick, onPersonalChange, collap
     const event = updated?.from === initial ? updated.to : initial;
     const seats = seatsLeft(event);
     const isFree = event.price_type === "FREE" || !event.price_min;
+    const collapsed = Boolean(collapseDismissed && event.personal_state?.is_dismissed);
+    const visibleCard = useEventImpression(initial, userId, collapsed);
 
     const handlePersonalChange = (next: DvizhEvent) => {
-        setUpdated({ from: initial, to: next });
-        onPersonalChange?.(next);
+        const card = {
+            ...initial,
+            personal_state: next.personal_state && {
+                ...next.personal_state,
+                participation_status: initial.personal_state?.participation_status ?? null,
+            },
+        };
+        setUpdated({ from: initial, to: card });
+        onPersonalChange?.(card);
     };
 
-    if (collapseDismissed && event.personal_state?.is_dismissed) {
+    if (collapsed) {
         return (
             <div className={`flex w-full flex-wrap items-center justify-between gap-2 rounded-lg bg-cards-surface/70 px-4 py-3 ${className}`}>
                 <span className="min-w-0 truncate text-body text-textsecondary">
@@ -53,10 +64,14 @@ export const EventCard = ({ event: initial, onTagClick, onPersonalChange, collap
         );
     }
 
+    const state: EventNavigationState | undefined = userId && initial.interactionOrigin
+        ? { attribution: { userId, origin: initial.interactionOrigin } }
+        : undefined;
     return (
         <article
+            ref={visibleCard}
             className={`flex w-full cursor-pointer gap-[10px] rounded-lg bg-cards-surface p-3 sm:p-4 transition-all hover:scale-[1.01] hover:shadow-lg ${className}`}
-            onClick={() => navigate(`/events/${event.id}`)}
+            onClick={() => navigate(eventDetailsPath(event), { state })}
         >
             <div className={`h-[96px] w-[64px] flex-shrink-0 sm:h-[128px] sm:w-[86px] ${event.cover_url ? "" : "max-sm:hidden"}`}>
                 <EventCoverMicro startsAt={event.starts_at} timeZone={event.timezone} coverUrl={event.cover_url} viewerId={userId} />

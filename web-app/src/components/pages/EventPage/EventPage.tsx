@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { errorText, getEvent, listParticipants } from "../../../api";
 import { useAsync, useCurrentUser } from "../../../hooks";
@@ -14,6 +14,8 @@ import {
     JOIN_POLICY_LABELS,
     VISIBILITY_LABELS,
 } from "../../../utils/format";
+import type { EventNavigationState } from "../../../utils/eventDetails";
+import { recordInteraction } from "../../../utils/interactions";
 import { InvitePanel } from "./InvitePanel";
 import { OrganizerPanel } from "./OrganizerPanel";
 import { ParticipationPanel } from "./ParticipationPanel";
@@ -30,12 +32,22 @@ export const EventPage = () => {
     const { id = "" } = useParams();
     const navigate = useNavigate();
     const { userId } = useCurrentUser();
-    // Предупреждение от формы: событие сохранено, а обложка — нет.
-    const formNotice = (useLocation().state as { notice?: string } | null)?.notice;
+    const location = useLocation();
+    const state = location.state as EventNavigationState | null;
+    const occurrenceId = new URLSearchParams(location.search).get("occurrence_id");
+    const interactionOrigin = userId && state?.attribution?.userId === userId ? state.attribution.origin : undefined;
 
-    const eventState = useAsync((signal) => getEvent(id, userId, signal), `${id}:${userId}`);
-    const participantsState = useAsync((signal) => listParticipants(id, signal), id);
+    const eventState = useAsync((signal) => getEvent(id, userId, signal, occurrenceId), `${id}:${occurrenceId}:${userId}`);
+    const participantsState = useAsync((signal) => listParticipants(id, signal, occurrenceId), `${id}:${occurrenceId}`);
     const event = eventState.data;
+    const lastOpen = useRef<string | null>(null);
+    const itemId = event?.id;
+    useEffect(() => {
+        if (!userId || !itemId) return;
+        const key = `${location.key}:${userId}:${itemId}`;
+        if (lastOpen.current === key) return;
+        if (recordInteraction(userId, itemId, "OPEN", interactionOrigin)) lastOpen.current = key;
+    }, [location.key, userId, itemId, interactionOrigin]);
 
     const reloadAll = () => {
         eventState.reload();
@@ -57,6 +69,7 @@ export const EventPage = () => {
     const isOrganizer = Boolean(userId && event.organizer?.id === userId);
     const isFree = event.price_type === "FREE" || !event.price_min;
     const canInvite = isOrganizer && event.status === "PUBLISHED" && event.join_policy !== "EXTERNAL";
+    const recordExternalClick = () => recordInteraction(userId, event.id, "EXTERNAL_LINK_CLICK", interactionOrigin);
 
     return (
         <MainLayout>
@@ -118,7 +131,7 @@ export const EventPage = () => {
                             )}
                             {event.online_url && (
                                 <Row label="Трансляция">
-                                    <a href={event.online_url} target="_blank" rel="noreferrer" className="text-body break-all text-textghost hover:opacity-80">
+                                    <a href={event.online_url} target="_blank" rel="noreferrer" onClick={recordExternalClick} className="text-body break-all text-textghost hover:opacity-80">
                                         {event.online_url}
                                     </a>
                                 </Row>
@@ -129,6 +142,7 @@ export const EventPage = () => {
                                         href={event.registration_url}
                                         target="_blank"
                                         rel="noreferrer"
+                                        onClick={recordExternalClick}
                                         className="text-body break-all text-textghost hover:opacity-80"
                                     >
                                         {event.registration_url}
@@ -145,7 +159,7 @@ export const EventPage = () => {
                         </div>
 
                         {event.status === "CANCELLED" && <Notice tone="error">Событие отменено организатором.</Notice>}
-                        {formNotice && <Notice tone="error">{formNotice}</Notice>}
+                        {state?.notice && <Notice tone="error">{state.notice}</Notice>}
 
                         {isOrganizer && userId && <OrganizerPanel event={event} userId={userId} onChanged={reloadAll} />}
                     </div>
@@ -160,7 +174,9 @@ export const EventPage = () => {
                 )}
 
                 <ParticipationPanel
+                    key={`${event.occurrence_id}:${userId}`}
                     event={event}
+                    interactionOrigin={interactionOrigin}
                     participants={participantsState.data}
                     participantsLoading={participantsState.loading}
                     isOrganizer={isOrganizer}

@@ -3,15 +3,19 @@ import { useNavigate } from "react-router-dom";
 import { errorText, joinEvent, leaveEvent, findEventInvitation, respondToInvitation, reviewParticipation } from "../../../api";
 import { notifyInboxChanged, useAsync, useCurrentUser } from "../../../hooks";
 import type { DvizhEvent, Participant } from "../../../models";
+import type { InteractionOrigin } from "../../../models/interaction";
 import { Button, Input, Notice } from "../../ui";
 import { PeopleList } from "../../widgets";
 import { formatGoing, formatSeats, PARTICIPATION_LABELS, seatsLeft } from "../../../utils/format";
+import { eventDetailsPath } from "../../../utils/eventDetails";
+import { recordInteraction } from "../../../utils/interactions";
 
 interface ParticipationPanelProps {
     event: DvizhEvent;
     participants: Participant[] | undefined;
     participantsLoading: boolean;
     isOrganizer: boolean;
+    interactionOrigin?: InteractionOrigin;
     onChanged: () => void;
 }
 
@@ -21,6 +25,7 @@ export const ParticipationPanel = ({
     participants,
     participantsLoading,
     isOrganizer,
+    interactionOrigin,
     onChanged,
 }: ParticipationPanelProps) => {
     const navigate = useNavigate();
@@ -34,7 +39,7 @@ export const ParticipationPanel = ({
         (signal) => (userId ? findEventInvitation(userId, event.id, signal) : Promise.resolve([])),
         `${userId}:${event.id}`,
     );
-    const invitation = invitationsState.data?.find((card) => card.event.id === event.id)?.invitation;
+    const invitation = invitationsState.data?.find((card) => card.event.occurrence_id === event.occurrence_id)?.invitation;
 
     const seats = seatsLeft(event);
     const myStatus = event.personal_state?.participation_status
@@ -57,13 +62,18 @@ export const ParticipationPanel = ({
         }
     };
 
+    const join = (userId: string, message: string) => run(() => {
+        const interaction = recordInteraction(userId, event.id, "JOIN_CLICK", interactionOrigin);
+        return joinEvent(event.id, userId, event.occurrence_id, interaction);
+    }, message);
+
     const renderAction = () => {
         if (event.status !== "PUBLISHED") {
             return <span className="text-h3 text-textsecondary">Запись на это событие закрыта.</span>;
         }
         if (!userId) {
             return (
-                <Button state="hover1" onClick={() => navigate(`/login?next=/events/${event.id}`)}>
+                <Button state="hover1" onClick={() => navigate(`/login?${new URLSearchParams({ next: eventDetailsPath(event) })}`)}>
                     Войти, чтобы пойти
                 </Button>
             );
@@ -72,7 +82,7 @@ export const ParticipationPanel = ({
             return (
                 <>
                     <span className="text-h3 text-textsuccess">Вы идёте! Событие уже в вашем календаре.</span>
-                    <Button state="hover1" disabled={busy} onClick={() => run(() => leaveEvent(event.id, userId), "Участие отменено.")}>
+                    <Button state="hover1" disabled={busy} onClick={() => run(() => leaveEvent(event.id, userId, event.occurrence_id), "Участие отменено.")}>
                         Отменить участие
                     </Button>
                 </>
@@ -82,7 +92,7 @@ export const ParticipationPanel = ({
             return (
                 <>
                     <span className="text-h3 text-textprimary">Заявка отправлена — ждём решения организатора.</span>
-                    <Button state="hover1" disabled={busy} onClick={() => run(() => leaveEvent(event.id, userId), "Заявка отозвана.")}>
+                    <Button state="hover1" disabled={busy} onClick={() => run(() => leaveEvent(event.id, userId, event.occurrence_id), "Заявка отозвана.")}>
                         Отозвать заявку
                     </Button>
                 </>
@@ -118,7 +128,7 @@ export const ParticipationPanel = ({
                     <Button
                         state="hover2"
                         disabled={busy || seats === 0}
-                        onClick={() => run(() => joinEvent(event.id, userId), "Готово, вы в списке участников!")}
+                        onClick={() => join(userId, "Готово, вы в списке участников!")}
                     >
                         {seats === 0 ? "Мест нет" : "Иду"}
                     </Button>
@@ -128,7 +138,7 @@ export const ParticipationPanel = ({
                     <Button
                         state="hover2"
                         disabled={busy}
-                        onClick={() => run(() => joinEvent(event.id, userId), "Заявка отправлена организатору.")}
+                        onClick={() => join(userId, "Заявка отправлена организатору.")}
                     >
                         Подать заявку
                     </Button>
@@ -141,6 +151,7 @@ export const ParticipationPanel = ({
                         href={event.registration_url}
                         target="_blank"
                         rel="noreferrer"
+                        onClick={() => recordInteraction(userId, event.id, "EXTERNAL_LINK_CLICK", interactionOrigin)}
                         className="inline-flex h-[41px] w-fit items-center justify-center rounded-lg border-2 border-borderlight bg-bordermain px-[23px] text-buttons text-textthird transition-all hover:shadow-hover"
                     >
                         Регистрация на сайте ↗
@@ -182,7 +193,7 @@ export const ParticipationPanel = ({
                                         className="!h-[30px] !px-4"
                                         disabled={busy}
                                         onClick={() =>
-                                            userId && run(() => reviewParticipation(event.id, user.id, userId, true), "Заявка принята.")
+                                            userId && run(() => reviewParticipation(event.id, user.id, userId, true, undefined, event.occurrence_id), "Заявка принята.")
                                         }
                                     >
                                         Принять
@@ -192,7 +203,7 @@ export const ParticipationPanel = ({
                                         className="!h-[30px] !px-4"
                                         disabled={busy}
                                         onClick={() =>
-                                            userId && run(() => reviewParticipation(event.id, user.id, userId, false, reasons[user.id]?.trim() || undefined), "Заявка отклонена.")
+                                            userId && run(() => reviewParticipation(event.id, user.id, userId, false, reasons[user.id]?.trim() || undefined, event.occurrence_id), "Заявка отклонена.")
                                         }
                                     >
                                         Отклонить

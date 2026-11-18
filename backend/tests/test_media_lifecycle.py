@@ -10,6 +10,7 @@ from uuid import UUID, uuid4
 
 import httpx
 import pytest
+from integration_auth import account_gateway, account_headers
 from PIL import Image
 from sqlalchemy import func, select
 from sqlalchemy.engine import make_url
@@ -62,10 +63,11 @@ async def client() -> AsyncIterator[tuple[httpx.AsyncClient, DatabaseService, Me
     app.dependency_overrides[get_media_storage] = lambda: storage
     app.dependency_overrides[get_settings] = lambda: settings
     try:
-        async with httpx.AsyncClient(
-            transport=httpx.ASGITransport(app=app), base_url="http://test"
-        ) as http:
-            yield http, database, storage
+        with account_gateway():
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app), base_url="http://test"
+            ) as http:
+                yield http, database, storage
     finally:
         app.dependency_overrides.clear()
         app.dependency_overrides.update(overrides)
@@ -180,7 +182,9 @@ def test_avatar_replacement_and_removal_propagate_to_profiles_friends_and_partic
             assert card["organizer"]["avatar_url"] == owner_image["content_url"]
             assert (
                 await http.post(
-                    f"/api/events/{card['id']}/participants", json={"user_id": participant}
+                    f"/api/events/{card['id']}/participants",
+                    headers=account_headers(participant),
+                    json={"user_id": participant},
                 )
             ).status_code == 200
             replacement = await upload(http, participant)
@@ -269,7 +273,9 @@ def test_draft_publish_update_cancel_and_transactional_notifications() -> None:
             }
             assert (
                 await http.post(
-                    f"/api/events/{event_id}/participants", json={"user_id": participant}
+                    f"/api/events/{event_id}/participants",
+                    headers=account_headers(participant),
+                    json={"user_id": participant},
                 )
             ).status_code == 409
             assert (
@@ -282,7 +288,9 @@ def test_draft_publish_update_cancel_and_transactional_notifications() -> None:
             assert (await http.get(f"/api/users/{owner}/drafts")).json() == []
             assert (
                 await http.post(
-                    f"/api/events/{event_id}/participants", json={"user_id": participant}
+                    f"/api/events/{event_id}/participants",
+                    headers=account_headers(participant),
+                    json={"user_id": participant},
                 )
             ).status_code == 200
             async with database.session() as session:
@@ -340,7 +348,11 @@ def test_draft_publish_update_cancel_and_transactional_notifications() -> None:
                 assert response.status_code == 200, response.text
             assert (await http.get(f"/api/users/{participant}/calendar")).json() == []
             assert (
-                await http.post(f"/api/events/{event_id}/participants", json={"user_id": stranger})
+                await http.post(
+                    f"/api/events/{event_id}/participants",
+                    headers=account_headers(stranger),
+                    json={"user_id": stranger},
+                )
             ).status_code == 409
             assert len((await http.get(f"/api/users/{participant}/notifications")).json()) == 2
             assert (

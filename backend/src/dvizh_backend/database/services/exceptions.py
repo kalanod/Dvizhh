@@ -10,6 +10,14 @@ class InvalidStateTransitionError(DatabaseDomainError):
     pass
 
 
+class InteractionConflictError(DatabaseDomainError):
+    pass
+
+
+class InteractionInputError(DatabaseDomainError):
+    pass
+
+
 class PermissionDeniedError(DatabaseDomainError):
     pass
 

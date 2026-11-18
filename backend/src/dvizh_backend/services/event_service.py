@@ -15,6 +15,7 @@ from dvizh_backend.api.schemas.event import (
     UpdateEventDTO,
     UserSummaryDTO,
 )
+from dvizh_backend.api.schemas.interaction import InteractionDTO
 from dvizh_backend.api.schemas.invitation import (
     CreateInvitationDTO,
     InvitationCardDTO,
@@ -23,7 +24,7 @@ from dvizh_backend.api.schemas.invitation import (
 from dvizh_backend.config import get_settings
 from dvizh_backend.database.models import Event, EventInvitation, EventOccurrence, Profile
 from dvizh_backend.database.models.enums import EventOrigin, EventStatus, ProfileStatus
-from dvizh_backend.database.services.access import can_manage_event
+from dvizh_backend.database.services.access import can_manage_event, can_view_event
 from dvizh_backend.database.services.catalog import LocationService, ProfileService
 from dvizh_backend.database.services.engagement import EngagementService, InvitationService
 from dvizh_backend.database.services.event_queries import EventQueryService, EventRow
@@ -42,11 +43,7 @@ from .notification_service import NotificationService
 
 
 class EventService:
-    """Event and participation rules within one request-scoped database transaction.
-
-    The API works with one occurrence per event: an event is created together with its
-    occurrence, and participation is addressed through the earliest occurrence.
-    """
+    """Event and participation rules within one request-scoped database transaction."""
 
     def __init__(self, session: AsyncSession, cities: ProfileCityGeocoder | None = None) -> None:
         self.cities = cities or ProfileCityGeocoder.from_settings(get_settings())
@@ -108,11 +105,15 @@ class EventService:
             await self.queries.list_going(user_id), viewer_id=user_id
         )
 
-    async def get_event(self, event_id: UUID, viewer_id: UUID | None = None) -> EventDTO:
+    async def get_event(
+        self, event_id: UUID, viewer_id: UUID | None = None, *, occurrence_id: UUID | None = None
+    ) -> EventDTO:
         if viewer_id is not None:
             await self._require_active_profile(viewer_id)
-        row = await self._require_row(event_id)
-        if row.event.status == EventStatus.DRAFT and (
+        row = await self._require_row(event_id, occurrence_id)
+        if occurrence_id is not None:
+            await self._require_visible_occurrence(row, viewer_id)
+        elif row.event.status == EventStatus.DRAFT and (
             viewer_id is None or not await can_manage_event(self.session, row.event, viewer_id)
         ):
             raise PermissionDeniedError("Draft is only available to its managers")
@@ -294,18 +295,38 @@ class EventService:
             await self.cancel_event(event_id, actor_id)
         await self.events.update(row.event, deleted_at=datetime.now(UTC))
 
-    async def list_participants(self, event_id: UUID) -> list[ParticipantDTO]:
-        row = await self._require_row(event_id)
+    async def list_participants(
+        self,
+        event_id: UUID,
+        *,
+        occurrence_id: UUID | None = None,
+        viewer_id: UUID | None = None,
+    ) -> list[ParticipantDTO]:
+        row = await self._require_row(event_id, occurrence_id)
+        if occurrence_id is not None:
+            await self._require_visible_occurrence(row, viewer_id)
         participants = await self.queries.list_participants(row.occurrence.id)
         return [
             ParticipantDTO(user=UserSummaryDTO.model_validate(profile), status=participation.status)
             for participation, profile in participants
         ]
 
-    async def join(self, event_id: UUID, user_id: UUID) -> ParticipantDTO:
-        row = await self._require_row(event_id)
+    async def join(
+        self,
+        event_id: UUID,
+        user_id: UUID,
+        *,
+        occurrence_id: UUID | None = None,
+        interaction: InteractionDTO | None = None,
+    ) -> ParticipantDTO:
+        row = await self._require_row(event_id, occurrence_id)
         profile = await self._require_active_profile(user_id)
-        participation = await self.participations.join(row.occurrence.id, user_id)
+        if interaction is None:
+            participation = await self.participations.join(row.occurrence.id, user_id)
+        else:
+            participation = await self.participations.join(
+                row.occurrence.id, user_id, interaction=interaction
+            )
         return ParticipantDTO(
             user=UserSummaryDTO.model_validate(profile), status=participation.status
         )
@@ -318,8 +339,9 @@ class EventService:
         *,
         accept: bool,
         reason: str | None = None,
+        occurrence_id: UUID | None = None,
     ) -> ParticipantDTO:
-        row = await self._require_row(event_id)
+        row = await self._require_row(event_id, occurrence_id)
         participation = await self.queries.get_participation(row.occurrence.id, user_id)
         if participation is None:
             raise EntityNotFoundError("Participation not found")
@@ -331,15 +353,28 @@ class EventService:
             user=UserSummaryDTO.model_validate(profile), status=participation.status
         )
 
-    async def leave(self, event_id: UUID, user_id: UUID) -> None:
-        row = await self._require_row(event_id)
+    async def leave(
+        self, event_id: UUID, user_id: UUID, *, occurrence_id: UUID | None = None
+    ) -> None:
+        row = await self._require_row(event_id, occurrence_id)
         await self.participations.cancel(row.occurrence.id, user_id)
 
-    async def _require_row(self, event_id: UUID) -> EventRow:
+    async def _require_row(self, event_id: UUID, occurrence_id: UUID | None = None) -> EventRow:
+        if occurrence_id is not None:
+            rows = await self.queries.get_occurrences([occurrence_id])
+            if not rows or rows[0].event.id != event_id:
+                raise EntityNotFoundError("Event occurrence not found")
+            return rows[0]
         row = await self.queries.get_primary(event_id)
         if row is None:
             raise EntityNotFoundError("Event not found")
         return row
+
+    async def _require_visible_occurrence(self, row: EventRow, viewer_id: UUID | None) -> None:
+        if not await can_view_event(
+            self.session, row.event, viewer_id, occurrence_id=row.occurrence.id
+        ):
+            raise EntityNotFoundError("Event occurrence not found")
 
     async def _require_profile(self, user_id: UUID) -> Profile:
         profile = await self.profiles.get_by_id(user_id)
