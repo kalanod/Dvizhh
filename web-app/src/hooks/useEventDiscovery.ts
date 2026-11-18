@@ -28,7 +28,8 @@ export function useEventDiscovery() {
     const actor = useRef(userId);
     useLayoutEffect(() => { actor.current = userId; sortRequest.current++; }, [userId]);
     useEffect(() => () => { sortRequest.current++; }, []);
-    const sort = sortChoice?.actorId === userId ? sortChoice.value : userId ? "relevance" : "novelty";
+    const chosenSort = sortChoice?.actorId === userId ? sortChoice.value : userId ? "relevance" : "novelty";
+    const sort = !mapCollapsed && chosenSort === "distance" ? userId ? "relevance" : "novelty" : chosenSort;
     const origin = point?.actorId === userId ? { latitude: point.latitude, longitude: point.longitude } : null;
     const [selection, setSelection] = useState<{ scope: string; item: DiscoveryMapItem } | null>(null);
     const [page, setPage] = useState<{ key: string; cursor: string } | null>(null);
@@ -51,9 +52,8 @@ export function useEventDiscovery() {
     }
     const selected = !mapCollapsed && selection?.scope === scope ? selection.item : null;
     const activeViewport = mapCollapsed ? null : viewport;
-    const distanceOrigin = mapCollapsed && viewport ? viewport.center : origin;
     const base = { filters: normalizedFilters, viewport: activeViewport, sort,
-        origin: sort === "distance" && !activeViewport ? distanceOrigin : null,
+        origin: sort === "distance" ? origin : null,
         selection_token: selected?.selection_token ?? null };
     const key = JSON.stringify(base);
     const cursor = page?.key === key ? page.cursor : null;
@@ -104,7 +104,7 @@ export function useEventDiscovery() {
         const actorId = userId;
         setSortNotice(null);
         const apply = () => { changeSort({ actorId, value }); setPage(null); };
-        if (value !== "distance" || viewport || selected) { apply(); return; }
+        if (value !== "distance") { apply(); return; }
         setSortNotice("Определяем местоположение…");
         try {
             const [longitude, latitude] = await currentCoordinates();

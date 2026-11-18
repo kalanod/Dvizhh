@@ -4,6 +4,7 @@ import { executeSettingsAction, SettingsProtocolError } from "../../../api/setti
 import type { SettingsDocument, SettingsRowsValues } from "../../../models/settings";
 import { Notice } from "../../ui";
 import { SettingsCardForm } from "./SettingsCardForm";
+import { UsersCard } from "./UsersCard";
 import { reconcileSettingsDrafts, type SettingsDrafts } from "./settingsState";
 
 export const SettingsWorkspace = ({ initialDocument, onAccessLost }: { initialDocument: SettingsDocument; onAccessLost: () => void }) => {
@@ -43,7 +44,9 @@ export const SettingsWorkspace = ({ initialDocument, onAccessLost }: { initialDo
             {uncertain && <Notice tone="error" className="mb-4">Сервер не подтвердил результат сохранения. Перезагрузите страницу перед повтором; несохранённый ввод будет сброшен.</Notice>}
             {selected ? <>
                 <div aria-label={`Карточки настроек: ${selected.label}`} className="flex min-w-0 flex-col gap-4">
-                    {selected.cards.length ? selected.cards.map((card) => <SettingsCardForm key={`${selected.id}:${card.id}`} card={card} drafts={drafts} busy={busy || uncertain} onChange={(rowId, fieldId, value) => setDrafts((previous) => ({ ...previous, [rowId]: { ...previous[rowId], [fieldId]: value } }))} onExecute={execute} />) : <Notice>В этом разделе пока нет настроек.</Notice>}
+                    {selected.cards.length ? selected.cards.map((card) => card.widget === "users"
+                        ? <UsersCard key={`${selected.id}:${card.id}`} card={card} onAccessLost={onAccessLost} />
+                        : <SettingsCardForm key={`${selected.id}:${card.id}`} card={card} drafts={drafts} busy={busy || uncertain} onChange={(rowId, fieldId, value) => setDrafts((previous) => ({ ...previous, [rowId]: { ...previous[rowId], [fieldId]: value } }))} onExecute={execute} />) : <Notice>В этом разделе пока нет настроек.</Notice>}
                 </div>
             </> : <Notice>Нет доступных разделов настроек.</Notice>}
         </section>

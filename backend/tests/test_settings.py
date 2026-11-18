@@ -53,18 +53,20 @@ def test_document_contains_real_catalog_and_all_primitives_without_secrets() -> 
     service, category, tag = make_service()
     document = asyncio.run(service.document())
     assert document.schema_version == 2
-    assert [tab.id for tab in document.tabs] == ["security", "categories", "tags"]
+    assert [tab.id for tab in document.tabs] == ["security", "categories", "tags", "users"]
     rows = [row for tab in document.tabs for card in tab.cards for row in card.rows]
     assert len({row.id for row in rows}) == len(rows)
     cards = [card for tab in document.tabs for card in tab.cards]
     assert len({card.id for card in cards}) == len(cards)
     assert [card.id for card in cards] == [
-        "security.password", "categories.create", "categories.edit", "tags.create", "tags.edit"
+        "security.password", "categories.create", "categories.edit", "tags.create", "tags.edit",
+        "users.manage",
     ]
     for card in cards:
         assert len({action.id for action in card.actions}) == len(card.actions)
     assert cards[2].actions[0].action_id == "category.save"
     assert cards[2].actions[0].rows == "changed"
+    assert cards[-1].widget == "users" and cards[-1].rows == [] and cards[-1].actions == []
     assert all(element.action_id.startswith("category.delete.")
                for row in cards[2].rows for element in row.elements if element.type == "button")
     assert {element.type for row in rows for element in row.elements} == {

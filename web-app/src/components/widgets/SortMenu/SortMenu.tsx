@@ -5,7 +5,7 @@ const SORT_LABELS: Record<EventSort, string> = {
     relevance: "Рекомендуем",
     novelty: "По новизне",
     title: "По названию",
-    distance: "По удалённости",
+    distance: "Рядом со мной",
     start: "По дате начала",
 };
 
@@ -14,15 +14,15 @@ const SORTS = Object.keys(SORT_LABELS) as EventSort[];
 interface SortMenuProps {
     value: EventSort;
     onChange: (sort: EventSort) => void;
-    distanceLabel?: string;
+    allowDistance?: boolean;
 }
 
 /** Квадратная кнопка рядом с поиском и выпадающий список сортировок ленты. */
-export const SortMenu = ({ value, onChange, distanceLabel = SORT_LABELS.distance }: SortMenuProps) => {
+export const SortMenu = ({ value, onChange, allowDistance = true }: SortMenuProps) => {
     const [open, setOpen] = useState(false);
     const [placement, setPlacement] = useState<{ above: boolean; maxHeight?: number }>({ above: false });
     const rootRef = useRef<HTMLDivElement>(null);
-    const labels = { ...SORT_LABELS, distance: distanceLabel };
+    const labels = SORT_LABELS;
 
     const updatePlacement = useCallback(() => {
         const bounds = rootRef.current?.getBoundingClientRect();
@@ -96,7 +96,7 @@ export const SortMenu = ({ value, onChange, distanceLabel = SORT_LABELS.distance
                     style={{ maxHeight: placement.maxHeight }}
                     className={`absolute right-0 z-20 flex min-w-[190px] flex-col gap-1 overflow-y-auto rounded-lg border border-bordermain bg-primary p-1 shadow-hover ${placement.above ? "bottom-full mb-1" : "top-full mt-1"}`}
                 >
-                    {SORTS.map((sort) => (
+                    {SORTS.filter((sort) => allowDistance || sort !== "distance").map((sort) => (
                         <li key={sort} role="none">
                             <button
                                 type="button"

@@ -8,6 +8,7 @@ from dvizh_backend.config import Settings, get_settings
 from dvizh_backend.database.database_service import DatabaseService
 from dvizh_backend.services.account_context import AccountRequestContext
 from dvizh_backend.services.account_gateway import AccountGateway
+from dvizh_backend.services.admin_user_service import AdminUserService
 from dvizh_backend.services.event_service import EventService
 from dvizh_backend.services.maps_service import MapsService
 from dvizh_backend.services.media_service import MediaService
@@ -110,6 +111,13 @@ def get_account_context(request: Request) -> AccountRequestContext:
 
 
 AccountContextDep = Annotated[AccountRequestContext, Depends(get_account_context)]
+
+
+def get_admin_user_service(settings: SettingsDep) -> AdminUserService:
+    return AdminUserService(AccountGateway(settings.auth_url))
+
+
+AdminUserServiceDep = Annotated[AdminUserService, Depends(get_admin_user_service)]
 
 
 async def get_discovery_viewer(request: Request):

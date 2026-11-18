@@ -47,6 +47,16 @@ async def require_admin(account: CurrentAccount) -> Account:
 def require_account_write(request: Request) -> None:
     if request.headers.get("x-dvizh-account") != "1":
         raise HTTPException(status_code=403, detail="Account write header required")
+    require_same_origin(request)
+
+
+def require_admin_write(request: Request) -> None:
+    if request.headers.get("x-dvizh-admin") != "1":
+        raise HTTPException(status_code=403, detail="Admin write header required")
+    require_same_origin(request)
+
+
+def require_same_origin(request: Request) -> None:
     origin = request.headers.get("origin")
     if origin:
         try:

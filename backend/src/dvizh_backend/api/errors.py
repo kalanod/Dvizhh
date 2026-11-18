@@ -71,7 +71,10 @@ def register_error_handlers(app: FastAPI) -> None:
     async def validation_error(request: Request, exc: RequestValidationError) -> JSONResponse:
         if request.url.path.startswith("/api/settings/actions/"):
             return JSONResponse({"detail": "Проверьте формат команды настроек."}, status_code=422)
-        if request.url.path == "/api/personal/password":
+        if request.url.path == "/api/personal/password" or (
+            request.url.path.startswith("/api/admin/users/")
+            and request.url.path.endswith("/password")
+        ):
             return JSONResponse({"detail": "Invalid password change request"}, status_code=422)
         return await request_validation_exception_handler(request, exc)
 

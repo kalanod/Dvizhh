@@ -80,7 +80,7 @@ export const EventSection = ({ title, discovery }: EventSectionProps) => {
                 />
             </div>
             <SortMenu value={discovery.sort} onChange={(value) => void discovery.setSort(value)}
-                distanceLabel={discovery.viewport ? "Ближе к центру карты" : "Рядом со мной"} />
+                allowDistance={discovery.mapCollapsed} />
         </>
     );
 

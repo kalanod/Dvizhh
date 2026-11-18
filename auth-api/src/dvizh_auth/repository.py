@@ -2,7 +2,7 @@
 
 from uuid import UUID
 
-from sqlalchemy import exists, select
+from sqlalchemy import exists, or_, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -15,6 +15,25 @@ class AccountRepository:
 
     async def get(self, account_id: UUID) -> Account | None:
         return await self.session.get(Account, account_id)
+
+    async def search(self, query: str, offset: int, limit: int) -> list[Account]:
+        statement = (
+            select(Account).order_by(Account.username, Account.id).offset(offset).limit(limit)
+        )
+        if query:
+            statement = statement.where(or_(
+                Account.username.icontains(query, autoescape=True),
+                Account.email.icontains(query, autoescape=True),
+            ))
+        return list((await self.session.scalars(statement)).unique())
+
+    async def lock_accounts(self, account_ids: set[UUID]) -> dict[UUID, Account]:
+        # A stable lock order also serializes administrators changing one another's roles.
+        statement = (
+            select(Account).where(Account.id.in_(account_ids)).order_by(Account.id)
+            .with_for_update(of=Account).execution_options(populate_existing=True)
+        )
+        return {account.id: account for account in (await self.session.scalars(statement)).unique()}
 
     async def find(self, identifier: str) -> Account | None:
         column = Account.email if "@" in identifier else Account.username

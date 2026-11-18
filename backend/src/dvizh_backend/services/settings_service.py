@@ -228,6 +228,12 @@ class SettingsService:
                         ),
                     ],
                 ),
+                SettingsTab(
+                    id="users", label="Пользователи",
+                    cards=[SettingsCard(
+                        id="users.manage", title="Пользователи", widget="users", rows=[],
+                    )],
+                ),
             ]
         )
 

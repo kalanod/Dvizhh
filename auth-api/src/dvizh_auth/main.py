@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from dvizh_auth.api.errors import register_error_handlers
-from dvizh_auth.api.routers import auth, system
+from dvizh_auth.api.routers import admin, auth, system
 from dvizh_auth.config import get_settings
 from dvizh_auth.database import Database
 
@@ -27,4 +27,5 @@ app = FastAPI(title=settings.app_name, lifespan=lifespan)
 
 app.include_router(system.router)
 app.include_router(auth.router)
+app.include_router(admin.router)
 register_error_handlers(app)

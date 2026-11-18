@@ -91,3 +91,22 @@ class UsernameAvailabilityResponse(BaseModel):
 
 class CurrentAccountResponse(RegisterResponse):
     role: Literal["user", "admin"]
+
+
+class AdminUserPage(BaseModel):
+    items: list[CurrentAccountResponse]
+    offset: int
+    limit: int
+    has_more: bool
+
+
+class ChangeRoleRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    role: Literal["user", "admin"]
+
+
+class ResetPasswordRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    new_password: NewPassword

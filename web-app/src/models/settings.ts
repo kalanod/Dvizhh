@@ -22,6 +22,7 @@ export type SettingsField = SettingsInput | SettingsSelect | SettingsToggle;
 export type SettingsElement = SettingsText | SettingsField | SettingsButton;
 export interface SettingsRow { id: string; elements: SettingsElement[] }
 export interface SettingsCard {
+    widget?: "users";
     id: string; title?: string; description?: string; rows: SettingsRow[]; actions: SettingsButton[];
 }
 export interface SettingsTab { id: string; label: string; cards: SettingsCard[] }

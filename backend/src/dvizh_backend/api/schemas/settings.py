@@ -79,6 +79,7 @@ class SettingsCard(SettingsModel):
     id: str
     title: str | None = None
     description: str | None = None
+    widget: Literal["users"] | None = None
     rows: list[SettingsRow]
     actions: list[ButtonElement] = Field(default_factory=list)
 

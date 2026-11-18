@@ -21,6 +21,7 @@ for (const name of [
     "api/client",
     "api/auth",
     "api/settings",
+    "api/adminUsers",
     "components/pages/AdminPanelPage/settingsState",
     "api/users",
     "api/registration",
@@ -65,6 +66,37 @@ const require = createRequire(import.meta.url);
 const personal = require(join(output, "api/personal.js"));
 const auth = require(join(output, "api/auth.js"));
 const settings = require(join(output, "api/settings.js"));
+const adminUsers = require(join(output, "api/adminUsers.js"));
+
+test("admin users use bounded search and protected account commands without trimming passwords", async (t) => {
+    const account = { id: "account-id", username: "tester", email: null, role: "user" };
+    const calls = recordFetch(t, (url) => url.pathname.endsWith("/password")
+        ? new Response(null, { status: 204 }) : Response.json(account));
+    const controller = new AbortController();
+    await adminUsers.searchAdminUsers("  tester  ", 20, controller.signal);
+    await adminUsers.changeAdminUserRole(account.id, "admin");
+    await adminUsers.resetAdminUserPassword(account.id, "  new password  ");
+    assert.equal(calls[0].url.pathname, "/api/admin/users");
+    assert.equal(calls[0].url.searchParams.get("q"), "tester");
+    assert.equal(calls[0].url.searchParams.get("offset"), "20");
+    assert.equal(calls[0].url.searchParams.get("limit"), "20");
+    assert.equal(calls[0].options.signal, controller.signal);
+    assert.equal(calls[1].options.method, "PATCH");
+    assert.equal(calls[1].options.headers["X-Dvizh-Admin"], "1");
+    assert.deepEqual(JSON.parse(calls[1].options.body), { role: "admin" });
+    assert.equal(calls[2].options.method, "POST");
+    assert.equal(calls[2].options.headers["X-Dvizh-Admin"], "1");
+    assert.deepEqual(JSON.parse(calls[2].options.body), { new_password: "  new password  " });
+});
+
+test("settings explicitly supports only the users table widget without mutable schema rows", () => {
+    const card = { id: "users.manage", widget: "users", rows: [], actions: [] };
+    const document = { schema_version: 2, tabs: [{ id: "users", label: "Users", cards: [card] }] };
+    assert.equal(settings.parseSettingsDocument(document).tabs[0].cards[0].widget, "users");
+    for (const patch of [{ widget: "unknown" }, { rows: [{ id: "row", elements: [] }] }, { widget: "https://example.com" }]) {
+        assert.throws(() => settings.parseSettingsDocument({ ...document, tabs: [{ ...document.tabs[0], cards: [{ ...card, ...patch }] }] }), settings.SettingsProtocolError);
+    }
+});
 const settingsState = require(join(output, "components/pages/AdminPanelPage/settingsState.js"));
 const { registerProfile } = require(join(output, "api/registration.js"));
 const { saveProfileWithAccount } = require(join(output, "api/profileAccount.js"));
@@ -1207,13 +1239,9 @@ test("feed sends the chosen sort and point together with filters", async (t) => 
 
 test("sort menu names the current sort", () => {
     const markup = renderToStaticMarkup(createElement(SortMenu, { value: "distance", onChange: () => undefined }));
-    assert.match(markup, /aria-label="Сортировка: По удалённости"/);
+    assert.match(markup, /aria-label="Сортировка: Рядом со мной"/);
     assert.match(markup, /aria-haspopup="menu"/);
     assert.match(markup, /aria-expanded="false"/);
-    const mapped = renderToStaticMarkup(createElement(SortMenu, {
-        value: "distance", onChange: () => undefined, distanceLabel: "Ближе к центру карты",
-    }));
-    assert.match(mapped, /aria-label="Сортировка: Ближе к центру карты"/);
     const starts = renderToStaticMarkup(createElement(SortMenu, { value: "start", onChange: () => undefined }));
     assert.match(starts, /aria-label="Сортировка: По дате начала"/);
 });

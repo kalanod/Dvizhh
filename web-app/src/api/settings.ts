@@ -32,6 +32,7 @@ export function parseSettingsDocument(value: unknown): SettingsDocument {
             const card = object(rawCard);
             if (!id(card.id) || cardIds.has(card.id) || !optionalString(card.title) || !optionalString(card.description) || !Array.isArray(card.rows) || !Array.isArray(card.actions)) return invalid();
             cardIds.add(card.id);
+            if (card.widget !== undefined && (card.widget !== "users" || card.rows.length || card.actions.length)) return invalid();
             const cardButtonIds = new Set<string>();
             for (const rawAction of card.actions) {
                 const action = object(rawAction);

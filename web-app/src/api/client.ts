@@ -80,6 +80,8 @@ function errorMessage(payload: unknown, status: number): string {
     if (detail === "Invalid password change request") return "Новый пароль не соответствует требованиям сервера: от 8 до 128 символов, минимум может быть увеличен.";
     if (detail === "Authentication service unavailable") return "Сервис авторизации недоступен. Попробуйте позже.";
     if (detail === "Administrator access required") return "Эти настройки доступны только администратору.";
+    if (detail === "Account not found") return "Пользователь больше не существует. Обновите список.";
+    if (detail === "Cannot remove your own administrator role") return "Нельзя снять роль администратора с самого себя.";
     if (detail === "Catalog entry conflicts with an existing entry") return "Запись с таким названием или кодом уже существует.";
     if (detail === "Move or delete the category's tags first") return "Сначала перенесите или удалите тематики этой категории.";
     if (detail === "Tag is used by events; deactivate it instead") return "Тематика используется в мероприятиях. Отключите её вместо удаления.";

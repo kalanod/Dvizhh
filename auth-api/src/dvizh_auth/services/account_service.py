@@ -1,4 +1,5 @@
 from secrets import token_urlsafe
+from typing import Literal
 from uuid import UUID
 
 from pwdlib import PasswordHash
@@ -7,11 +8,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.concurrency import run_in_threadpool
 
 from dvizh_auth.api.schemas.account import (
+    AdminUserPage,
     ChangePasswordRequest,
+    CurrentAccountResponse,
     RegisterRequest,
     UpdateAccountRequest,
 )
-from dvizh_auth.models import USER_ROLE_ID, Account
+from dvizh_auth.models import ADMIN_ROLE_ID, USER_ROLE_ID, Account
 from dvizh_auth.repository import AccountRepository
 
 password_hasher = PasswordHash.recommended()
@@ -32,6 +35,18 @@ class InvalidCurrentPasswordError(Exception):
     pass
 
 
+class AdminAccessDeniedError(Exception):
+    pass
+
+
+class AccountNotFoundError(Exception):
+    pass
+
+
+class SelfDemotionError(Exception):
+    pass
+
+
 class AccountService:
     """Account rules, independent of HTTP and backend profile storage.
 
@@ -43,6 +58,45 @@ class AccountService:
 
     async def username_available(self, username: str) -> bool:
         return not await self.accounts.username_exists(username)
+
+    @staticmethod
+    def summary(account: Account) -> CurrentAccountResponse:
+        return CurrentAccountResponse(
+            id=account.id, username=account.username, email=account.email,
+            role="admin" if account.role_id == ADMIN_ROLE_ID else "user",
+        )
+
+    async def search(self, query: str, offset: int, limit: int) -> AdminUserPage:
+        accounts = await self.accounts.search(query.strip().lower(), offset, limit + 1)
+        return AdminUserPage(
+            items=[self.summary(account) for account in accounts[:limit]],
+            offset=offset, limit=limit, has_more=len(accounts) > limit,
+        )
+
+    async def _admin_target(self, actor_id: UUID, target_id: UUID) -> Account:
+        accounts = await self.accounts.lock_accounts({actor_id, target_id})
+        actor = accounts.get(actor_id)
+        if actor is None or actor.role_id != ADMIN_ROLE_ID:
+            raise AdminAccessDeniedError
+        target = accounts.get(target_id)
+        if target is None:
+            raise AccountNotFoundError
+        return target
+
+    async def change_role(
+        self, actor_id: UUID, target_id: UUID, role: Literal["user", "admin"],
+    ) -> Account:
+        target = await self._admin_target(actor_id, target_id)
+        if actor_id == target_id and role != "admin":
+            raise SelfDemotionError
+        target.role_id = ADMIN_ROLE_ID if role == "admin" else USER_ROLE_ID
+        await self.accounts.flush()
+        return target
+
+    async def reset_password(self, actor_id: UUID, target_id: UUID, password: str) -> None:
+        target = await self._admin_target(actor_id, target_id)
+        target.password_hash = await run_in_threadpool(hash_password, password)
+        await self.accounts.flush()
 
     async def authenticate(self, login: str, password: str) -> Account | None:
         account = await self.accounts.find(login.strip().lower())
