@@ -25,7 +25,7 @@ MLflow используется для экспериментов и верси�
 - `nginx/` - публичная точка входа.
 - `mlflow/`, `mlflow-init/` - MLflow, резервное копирование и подготовка хранилищ;
   см. [AGENTS.md](mlflow/AGENTS.md).
-- `compose.yaml`, `compose.mlflow.prod.yaml` - конфигурации окружений.
+- `compose.yaml` - приложение, `compose.mlflow.yaml` и `compose.mlflow.prod.yaml` - MLflow.
 
 Корневые правила действуют во всём репозитории. Локальные `AGENTS.md` уточняют
 их в пределах своей директории. Перед изменением прочитай применимые инструкции.

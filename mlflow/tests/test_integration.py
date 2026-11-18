@@ -103,6 +103,7 @@ class IntegrationTests(unittest.TestCase):
     def run_command(self, command: list[str], timeout: int = 120, check: bool = True) -> str:
         result = subprocess.run(
             command, env=self.environment, capture_output=True, text=True, timeout=timeout,
+            check=False,
         )
         stdout, stderr = result.stdout, result.stderr
         for name, value in self.environment.items():
@@ -118,14 +119,14 @@ class IntegrationTests(unittest.TestCase):
 
     def source_sql(self, sql: str) -> str:
         return self.docker(
-            *self.compose, "exec", "-T", "postgres", "psql", "-X",
+            *self.app_compose, "exec", "-T", "postgres", "psql", "-X",
             "--username", "source_test", "--dbname", "source_test", "--set", "ON_ERROR_STOP=1",
             "--tuples-only", "--no-align", "--command", sql,
         )
 
     def storage(self, command: str) -> str:
         return self.docker(
-            *self.compose, "exec", "-T", "minio", "sh", "-ec",
+            *self.app_compose, "exec", "-T", "minio", "sh", "-ec",
             'mc alias set audit http://localhost:9000 "$MINIO_ROOT_USER" '
             '"$MINIO_ROOT_PASSWORD" >/dev/null\n' + command,
         )
@@ -133,9 +134,11 @@ class IntegrationTests(unittest.TestCase):
     def test_production_registry_survives_recreation_and_backup_restore(self) -> None:
         repository = Path(__file__).resolve().parents[2]
         project = "dvizh-mlflow-test-" + uuid4().hex
+        app_project = project + "-app"
         self.environment = {
             **os.environ,
             "COMPOSE_PROJECT_NAME": project,
+            "DVIZH_APP_NETWORK": app_project + "_default",
             "POSTGRES_DB": "source_test",
             "POSTGRES_USER": "source_test",
             "POSTGRES_PASSWORD": "test-postgres-" + uuid4().hex,
@@ -149,6 +152,8 @@ class IntegrationTests(unittest.TestCase):
             "MLFLOW_TRACKING_USERNAME": "admin",
             "MLFLOW_TEST_READER_PASSWORD": "test-reader-auth-" + uuid4().hex,
             "MLFLOW_DOMAIN": "mlflow.test",
+            "MLFLOW_CADDY_DATA_VOLUME": project + "-caddy-data",
+            "MLFLOW_CADDY_CONFIG_VOLUME": project + "-caddy-config",
         }
         self.environment["MLFLOW_TRACKING_PASSWORD"] = self.environment[
             "MLFLOW_AUTH_ADMIN_PASSWORD"
@@ -161,12 +166,22 @@ class IntegrationTests(unittest.TestCase):
             caddyfile.write_text(
                 "{$MLFLOW_DOMAIN} {\n  tls internal\n  reverse_proxy mlflow:5000\n}\n",
             )
-            override = directory / "compose.test.yaml"
-            override.write_text(
+            app_override = directory / "app.test.yaml"
+            app_override.write_text(
+                "services:\n"
+                "  postgres:\n"
+                "    platform: linux/amd64\n"
+                "  minio:\n"
+                "    ports: !reset []\n",
+            )
+            registry_override = directory / "registry.test.yaml"
+            registry_override.write_text(
                 "services:\n"
                 "  mlflow:\n"
                 "    environment:\n"
                 "      MLFLOW_SERVER_ALLOWED_HOSTS: mlflow.test,mlflow:5000,localhost:*\n"
+                "  mlflow-init:\n"
+                "    tmpfs: [/var/lib/postgresql/data]\n"
                 "  mlflow-gateway:\n"
                 "    ports: !override ['127.0.0.1::80', '127.0.0.1::443']\n"
                 "    volumes:\n"
@@ -177,31 +192,49 @@ class IntegrationTests(unittest.TestCase):
             )
             self.environment["COMPOSE_FILE"] = os.pathsep.join(
                 str(path) for path in (
-                    repository / "compose.yaml", repository / "compose.mlflow.prod.yaml", override,
+                    repository / "compose.mlflow.yaml",
+                    repository / "compose.mlflow.prod.yaml",
+                    registry_override,
                 )
             )
-            self.compose = (
-                "compose", "--project-directory", str(repository),
-                "--env-file", str(environment_file), "--profile", "ml",
+            compose = (
+                "compose", "--project-directory", str(repository), "--env-file", str(environment_file),
             )
+            self.app_compose = (
+                *compose, "--project-name", app_project,
+                "-f", str(repository / "compose.yaml"), "-f", str(app_override),
+            )
+            self.registry_compose = compose
             try:
                 self.docker(
-                    *self.compose, "up", "--build", "--detach", "--wait",
+                    *self.app_compose, "up", "--build", "--detach", "--wait",
+                    "--wait-timeout", "120", "postgres", "minio", timeout=600,
+                )
+                app_containers = self.docker(
+                    *self.app_compose, "ps", "--status", "running", "--quiet", "postgres", "minio",
+                ).splitlines()
+                self.assertEqual(len(app_containers), 2)
+                self.docker(
+                    *self.registry_compose, "up", "--build", "--detach", "--wait",
                     "--wait-timeout", "120", "mlflow-gateway", timeout=600,
                 )
                 certificate = directory / "root.crt"
                 self.docker(
-                    *self.compose, "cp",
+                    *self.registry_compose, "cp",
                     "mlflow-gateway:/data/caddy/pki/authorities/local/root.crt", str(certificate),
                 )
                 certificate.chmod(0o644)
-                image = self.docker(*self.compose, "images", "--quiet", "mlflow")
+                image = self.docker(*self.registry_compose, "images", "--quiet", "mlflow")
                 client = (
                     "run", "--rm", "--pull", "never", "--name", project + "-client",
                     "--network", project + "_default",
                     "--mount", f"type=bind,source={certificate},target=/tmp/root.crt,readonly",
                     "--env", "MLFLOW_TRACKING_URI=https://mlflow.test",
                     "--env", "MLFLOW_TRACKING_SERVER_CERT_PATH=/tmp/root.crt",
+                    "--env", "MLFLOW_ENABLE_PROXY_MULTIPART_DOWNLOAD=false",
+                    "--env", "MLFLOW_ENABLE_PROXY_MULTIPART_UPLOAD=false",
+                    "--env", "MLFLOW_HTTP_REQUEST_TIMEOUT=10",
+                    "--env", "MLFLOW_HTTP_REQUEST_MAX_RETRIES=0",
                     "--env", "MLFLOW_TRACKING_USERNAME", "--env", "MLFLOW_TRACKING_PASSWORD",
                     "--env", "MLFLOW_TEST_READER_PASSWORD",
                     "--entrypoint", "python", image, "-c",
@@ -217,17 +250,29 @@ class IntegrationTests(unittest.TestCase):
                     "MLFLOW_TEST_READER_PASSWORD"
                 ]
                 self.docker(*client, CONSUMER, versions)
-                self.docker(*self.compose, "run", "--rm", "--no-deps", "mlflow-init")
+                self.docker(*self.registry_compose, "run", "--rm", "--no-deps", "mlflow-init")
                 self.docker(
-                    *self.compose, "up", "--detach", "--no-deps", "--force-recreate", "--wait",
-                    "--wait-timeout", "120", "mlflow",
+                    *self.registry_compose, "down", "--timeout", "10",
+                )
+                self.assertFalse(self.docker(*self.registry_compose, "ps", "--quiet"))
+                self.assertCountEqual(
+                    self.docker(
+                        *self.app_compose, "ps", "--status", "running", "--quiet", "postgres", "minio",
+                    ).splitlines(),
+                    app_containers,
+                )
+                self.docker(
+                    *self.registry_compose, "up", "--detach", "--wait",
+                    "--wait-timeout", "120", "mlflow-gateway",
                 )
                 self.docker(*client, CONSUMER, versions)
                 self.source_sql(
                     "CREATE TABLE sentinel (value text); INSERT INTO sentinel VALUES ('kept');",
                 )
                 self.storage(
-                    "mc mb audit/neighbour; printf kept | mc pipe audit/neighbour/sentinel",
+                    "mc mb audit/neighbour\n"
+                    "printf %s kept >/tmp/neighbour-sentinel\n"
+                    "mc cp --quiet /tmp/neighbour-sentinel audit/neighbour/sentinel",
                 )
                 backup = directory / "backup"
                 backup_command = [
@@ -241,32 +286,38 @@ class IntegrationTests(unittest.TestCase):
                     )
                     self.assertIn("Another MLflow backup/restore is running.", rejected)
                     self.assertTrue(self.docker(
-                        *self.compose, "ps", "--status", "running", "--quiet", "mlflow",
+                        *self.registry_compose, "ps", "--status", "running", "--quiet", "mlflow",
                     ))
                 self.run_command([*backup_command, "backup", str(backup)], timeout=300)
-                self.docker(*self.compose, "stop", "mlflow")
+                self.docker(*self.registry_compose, "stop", "mlflow")
                 self.source_sql("DROP DATABASE mlflow WITH (FORCE);")
                 self.source_sql("CREATE DATABASE mlflow OWNER mlflow;")
                 self.storage("mc rm --recursive --force audit/mlflow-artifacts")
                 self.run_command([*backup_command, "restore", str(backup)], timeout=300)
                 self.docker(
-                    *self.compose, "up", "--detach", "--no-deps", "--wait",
+                    *self.registry_compose, "up", "--detach", "--no-deps", "--wait",
                     "--wait-timeout", "120", "mlflow",
                 )
                 self.docker(*client, ACCESS, saved["artifact_uri"])
                 self.docker(*client, CONSUMER, versions)
                 self.assertEqual(self.source_sql("SELECT value FROM sentinel;"), "kept")
                 self.assertEqual(self.storage("mc cat audit/neighbour/sentinel"), "kept")
-            except Exception as error:
+            except (AssertionError, RuntimeError, OSError, ValueError, subprocess.TimeoutExpired) as error:
                 logs = self.docker(
-                    *self.compose, "logs", "--no-color", "mlflow", "mlflow-init", "mlflow-gateway",
+                    *self.registry_compose, "logs", "--no-color", "--tail", "40", "mlflow", "mlflow-init",
+                    "mlflow-gateway",
                     check=False,
                 )
                 raise RuntimeError(f"{error}\n{logs}") from None
             finally:
                 self.docker("rm", "--force", project + "-client", check=False)
                 self.docker(
-                    *self.compose, "down", "--volumes", "--remove-orphans", "--timeout", "10",
+                    *self.registry_compose, "down", "--volumes", "--timeout", "10",
+                    check=False,
+                )
+                self.docker(
+                    *self.app_compose, "down", "--volumes", "--timeout", "10",
+                    check=False,
                 )
 
 
