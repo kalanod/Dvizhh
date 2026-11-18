@@ -23,7 +23,15 @@ from dvizh_recommendation.generated.recommendation_service_pb2_grpc import (
 from dvizh_recommendation.main import running_server
 from dvizh_recommendation.pagination import SessionStore
 from dvizh_recommendation.prepare_model import prepare_ranker
+from dvizh_recommendation.retrieval import EmbeddingSpace
 from dvizh_recommendation.train import train_and_register
+from dvizh_recommendation.vector_index import (
+    EmbeddingSnapshot,
+    ItemVector,
+    UserVector,
+    catalog_content_hash,
+    refresh_index,
+)
 
 if TYPE_CHECKING:
     from conftest import IntegrationDatabases
@@ -77,9 +85,10 @@ def test_prepared_model_version_controls_the_live_order_without_mlflow(
 
     monkeypatch.setenv("MLFLOW_TRACKING_URI", registry)
     profile = uuid4()
-    new_event, popular_event = uuid4(), uuid4()
+    new_event, popular_event, unindexed_event = uuid4(), uuid4(), uuid4()
     marker = f"model{profile.hex}"
     experiment = f"pipeline-{profile}"
+    vector_version = f"vectors-{profile}"
     prepared_directory = tmp_path / "prepared"
     version = write_learning_fixture(tmp_path / "popular", mark_popular_positive=True)
     write_learning_fixture(tmp_path / "newest", mark_popular_positive=False)
@@ -89,6 +98,7 @@ def test_prepared_model_version_controls_the_live_order_without_mlflow(
         source = await asyncpg.connect(integration_databases.source_admin_url)
         journal = await asyncpg.connect(integration_databases.vector_url)
         session_ids = [str(uuid4()), str(uuid4())]
+        revision = None
         try:
             async with source.transaction():
                 await source.execute(
@@ -100,6 +110,7 @@ def test_prepared_model_version_controls_the_live_order_without_mlflow(
                 for event_id, publication in (
                     (new_event, now),
                     (popular_event, now - timedelta(days=1)),
+                    (unindexed_event, now),
                 ):
                     await source.execute(
                         """
@@ -133,6 +144,20 @@ def test_prepared_model_version_controls_the_live_order_without_mlflow(
                             profile,
                         )
 
+            nearest = (1.0, 0.0) + (0.0,) * 382
+            distant = (0.0, 1.0) + (0.0,) * 382
+            content_hash = catalog_content_hash(marker, marker, ())
+            snapshot = EmbeddingSnapshot(
+                space=EmbeddingSpace(model_id=vector_version, dimension=384, metric="cosine"),
+                generated_at=now,
+                users=(UserVector(user_id=profile, values=nearest),),
+                items=(
+                    ItemVector(item_id=new_event, content_hash=content_hash, values=nearest),
+                    ItemVector(item_id=popular_event, content_hash=content_hash, values=distant),
+                ),
+            )
+            revision = (await refresh_index(source, journal, snapshot))["revision"]
+
             for uri, session_id, expected in (
                 (first_uri, session_ids[0], [popular_event, new_event]),
                 (second_uri, session_ids[1], [new_event, popular_event]),
@@ -144,6 +169,7 @@ def test_prepared_model_version_controls_the_live_order_without_mlflow(
                     redis_url=integration_redis_url,
                     ranker_model_uri=uri,
                     ranker_model_dir=prepared_directory,
+                    vector_model_id=vector_version,
                     _env_file=None,
                 )
                 async with (
@@ -161,13 +187,28 @@ def test_prepared_model_version_controls_the_live_order_without_mlflow(
         finally:
             await source.execute(
                 "DELETE FROM events WHERE id = ANY($1::uuid[])",
-                [popular_event, new_event],
+                [popular_event, new_event, unindexed_event],
             )
             await source.execute("DELETE FROM profiles WHERE id = $1", profile)
             await source.close()
             await journal.execute(
                 "DELETE FROM recommendation_pages WHERE session_id = ANY($1::text[])", session_ids
             )
+            if revision is not None:
+                for table in ("user_embeddings", "event_embeddings", "embedding_index_versions"):
+                    await journal.execute(
+                        f"DELETE FROM public.{table} WHERE model_name = $1", revision
+                    )
+                index = await journal.fetchval(
+                    """
+                    SELECT quote_ident(indexname) FROM pg_indexes
+                    WHERE schemaname = 'public' AND tablename = 'event_embeddings'
+                      AND indexdef LIKE $1
+                    """,
+                    f"%'{revision}'%",
+                )
+                if index is not None:
+                    await journal.execute(f"DROP INDEX public.{index}")
             await journal.close()
             async with Redis.from_url(integration_redis_url) as redis:
                 await redis.delete(*(SessionStore.key(session_id) for session_id in session_ids))

@@ -26,7 +26,7 @@ from .pagination import (
     SessionParametersMismatch,
     SessionVersionUnavailable,
 )
-from .recommendations import InvalidRequest, RecommendationQuery
+from .recommendations import InvalidRequest, NoUserVector, RecommendationQuery
 
 SERVICE_NAME = pb.DESCRIPTOR.services_by_name["RecommendationService"].full_name
 logger = logging.getLogger(__name__)
@@ -62,6 +62,8 @@ def _rpc_error(exc: Exception) -> tuple[grpc.StatusCode, str]:
             return grpc.StatusCode.INVALID_ARGUMENT, "Invalid page_token"
         case PageChanged():
             return grpc.StatusCode.ABORTED, "Page changed. Retry with a new request_id."
+        case NoUserVector():
+            return grpc.StatusCode.FAILED_PRECONDITION, "User vector is unavailable"
         case InvalidRequest():
             return grpc.StatusCode.INVALID_ARGUMENT, str(exc)
         case NotImplementedError():
@@ -124,7 +126,10 @@ async def _rpc_request(
                 record_span_error(span, exc, fields=details)
             else:
                 details = {"error_reason": message}
-            await context.abort(status, message)
+            trailers = (
+                (("recsys-reason", "no-user-vector"),) if isinstance(exc, NoUserVector) else ()
+            )
+            await context.abort(status, message, trailing_metadata=trailers)
         finally:
             failed = status in _DEPENDENCY_FAILURES
             finish_span(span, status.name, failed=failed)

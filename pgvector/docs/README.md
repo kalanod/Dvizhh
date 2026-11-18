@@ -43,12 +43,13 @@ pgvector/
     └── README.md   # описание и эксплуатация
 ```
 
-`init.sql` выполняется только при первом запуске с пустым volume. Чтобы применить изменения схемы, нужно пересоздать volume (см. «Сброс базы»).
+`init.sql` выполняется на новом volume при первом старте базы. Сервис
+`pgvector-init` применяет тот же скрипт на новых и существующих volumes.
 
 ## Быстрый старт
 
 ```shell
-docker compose up -d --build pgvector
+docker compose up -d --build pgvector-init
 docker compose ps pgvector          # статус должен быть healthy
 ```
 
@@ -71,37 +72,32 @@ docker compose exec pgvector psql -U dvizh -d dvizh_vectors -c "\d event_embeddi
 | `VECTOR_USER` | `dvizh` | пользователь |
 | `VECTOR_PASSWORD` | `change-me` | пароль (замените в `.env`) |
 
-Настройка при подключении из сервиса, чтобы фильтры не обрезали выдачу:
-
-```sql
-SET hnsw.iterative_scan = relaxed_order;
-SET hnsw.ef_search = 100;
-```
-
 ## Модель данных
 
-Размерность вектора: **384** (модель `intfloat/multilingual-e5-small`). При смене модели таблицу нужно пересоздать.
+Текущая схема использует векторы размерности **384** и косинусное расстояние.
 
 ### `event_embeddings`
 
-Одна строка на событие (не на каждый сеанс), чтобы повторяющееся событие не занимало ленту копиями.
+В каждой опубликованной ревизии одна строка на мероприятие. Первичный ключ состоит
+из `model_name` и `event_id`.
 
 | Поле | Откуда в `postgres` | Зачем |
 |---|---|---|
-| `event_id` (PK, uuid) | `events.id` | связь с основной БД |
+| `event_id` | `events.id` | связь с основной БД |
 | `embedding` | считается из текста события | поиск по смыслу |
-| `model_name`, `content_hash` | служебные | пересчитывать вектор только при изменении текста или модели |
+| `model_name`, `content_hash` | служебные | ключ опубликованной ревизии и хэш источника вектора |
 | `is_candidate` | `status = PUBLISHED`, `visibility = PUBLIC`, не удалено | попадает ли событие в поиск |
 | `next_starts_at`, `last_ends_at` | `event_occurrences` | фильтр по времени |
 | `price_type`, `format` | `events` | фильтры |
 | `city`, `latitude`, `longitude` | `locations` | география |
-| `topic_ids` | `event_topics` | фильтр по тематикам |
-| `source_updated_at` | `events.updated_at` | не принять устаревшее обновление поверх свежего |
-| `indexed_at` | служебное | когда строка была записана |
+| `topic_ids` | `event_tags` | тематики мероприятия |
+| `source_updated_at` | `recsys_catalog` | время обновления исходных данных |
 
-### `indexer_state`
+### Остальные таблицы
 
-Служебная таблица: до какого момента (`watermark`) индексатор уже прочитал `events`.
+- `embedding_index_versions` связывает опубликованные ревизии с версиями энкодера.
+- `user_embeddings` хранит векторы пользователей для каждой ревизии.
+- `recommendation_pages` хранит журнал выдач и рассчитанные признаки.
 
 ### Что в `pgvector` не хранится
 
@@ -114,62 +110,17 @@ SET hnsw.ef_search = 100;
 
 | Индекс | Тип | Для чего |
 |---|---|---|
-| `event_embeddings_hnsw` | HNSW по `embedding`, косинусное расстояние | поиск ближайших событий |
-| `event_embeddings_candidate_idx` | B-tree `(is_candidate, last_ends_at)` | отбор актуальных кандидатов |
+| `event_embeddings_hnsw_*` | HNSW по `embedding`, косинусное расстояние | поиск в конкретной ревизии |
+| `event_embeddings_dates_idx` | B-tree по `last_ends_at` | отбор по времени |
 | `event_embeddings_topics_gin` | GIN по `topic_ids` | фильтр по тематикам |
 
 HNSW ищет приближённо: быстрее полного перебора, но может изредка пропустить подходящий результат. При небольшом числе событий (до нескольких тысяч) точный перебор тоже достаточно быстр.
 
-## Эмбеддинги
+## Публикация векторов
 
-| Параметр | Значение |
-|---|---|
-| Модель | `intfloat/multilingual-e5-small` |
-| Размерность | 384 |
-| Метрика | косинусное расстояние (`<=>`), векторы нормализованы |
-| Кто считает | `recommendation-service` |
-
-Текст события для вектора начинается с `passage: `, поисковый запрос с `query: ` (особенность моделей E5). Даты, цена и вместимость в текст не входят: это поля-фильтры.
-
-## Контракт запросов
-
-Параметры подставляет `recommendation-service`.
-
-**Кандидаты** (`$1` вектор пользователя или запроса):
-
-```sql
-SELECT event_id, 1 - (embedding <=> $1) AS similarity
-FROM event_embeddings
-WHERE is_candidate
-  AND last_ends_at > now()
-ORDER BY embedding <=> $1
-LIMIT 200;
-```
-
-**Добавление или обновление** (повтор безопасен, устаревшее обновление не затирает свежее):
-
-```sql
-INSERT INTO event_embeddings
-    (event_id, embedding, model_name, content_hash, is_candidate,
-     next_starts_at, last_ends_at, source_updated_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-ON CONFLICT (event_id) DO UPDATE SET
-    embedding         = EXCLUDED.embedding,
-    model_name        = EXCLUDED.model_name,
-    content_hash      = EXCLUDED.content_hash,
-    is_candidate      = EXCLUDED.is_candidate,
-    next_starts_at    = EXCLUDED.next_starts_at,
-    last_ends_at      = EXCLUDED.last_ends_at,
-    source_updated_at = EXCLUDED.source_updated_at,
-    indexed_at        = now()
-WHERE event_embeddings.source_updated_at <= EXCLUDED.source_updated_at;
-```
-
-**Удаление** отменённого или удалённого события:
-
-```sql
-DELETE FROM event_embeddings WHERE event_id = $1;
-```
+Сервис публикует новый неизменяемый набор через [команду индексации RecSys](../../recommendation-service/docs/README.md#pgvector).
+Открытые сессии продолжают использовать прежний набор. Доступность мероприятий
+проверяется по каталогу Backend перед выдачей.
 
 ## Быстрая проверка
 
@@ -177,7 +128,7 @@ DELETE FROM event_embeddings WHERE event_id = $1;
 
 ### 1. Проверка за минуту (без модели)
 
-Три события с вручную заданными векторами. Всё выполняется в транзакции и откатывается, таблица остаётся пустой.
+Три события с вручную заданными векторами. Тестовые записи откатываются в конце транзакции.
 
 ```shell
 docker compose exec -T pgvector psql -U dvizh -d dvizh_vectors <<'SQL'
@@ -197,7 +148,7 @@ VALUES
 
 SELECT event_id, round((1 - (embedding <=> pg_temp.v('{1,0}')))::numeric, 3) AS similarity
 FROM event_embeddings
-WHERE is_candidate AND last_ends_at > now()
+WHERE model_name = 'test' AND is_candidate AND last_ends_at > now()
 ORDER BY embedding <=> pg_temp.v('{1,0}')
 LIMIT 3;
 
@@ -207,58 +158,19 @@ SQL
 
 Ожидаемый результат: две строки, первой идёт `...0001` (similarity около 0.995), второй `...0002` (0.000). Событие `...0003` не попало в выдачу, потому что `is_candidate = false`.
 
-### 2. Проверка с настоящей моделью
+Публикацию ревизий и выдачу проверяет [интеграционный тест RecSys](../../recommendation-service/tests/test_vector_index_integration.py).
 
-Нужен доступ к базе с вашей машины: временно добавьте в сервис `pgvector` в `compose.yaml`
+## Обновление схемы
 
-```yaml
-    ports:
-      - "5433:5432"
-```
-
-и перезапустите `docker compose up -d pgvector`. После проверки уберите эти строки.
-
-Зависимости ставятся в локальный venv (в кавычках, иначе zsh воспримет `[binary]` как шаблон):
+Для применения обновлённого `init.sql` запустите подготовку базы повторно:
 
 ```shell
-python3 -m venv .venv && source .venv/bin/activate
-pip install "psycopg[binary]" pgvector sentence-transformers
-```
-
-Скрипт `seed_demo.py` записывает в базу демо-события с настоящими векторами и выводит ближайших для двух запросов:
-
-```shell
-PGVECTOR_DSN="postgresql://dvizh:change-me@localhost:5433/dvizh_vectors" python seed_demo.py
-```
-
-Признак успеха: на запрос «хочу сыграть в падел» первым выходит событие про теннис, на «что-нибудь послушать вечером» событие про джаз-оркестр.
-
-### 3. Автотесты
-
-Тесты на базу лежат в `recommendation-service/tests/test_pgvector.py`. Без переменной `PGVECTOR_DSN` они пропускаются, поэтому остальные тесты не ломаются.
-
-```shell
-cd recommendation-service
-PGVECTOR_DSN="postgresql://dvizh:change-me@localhost:5433/dvizh_vectors" uv run pytest tests/test_pgvector.py -v
-```
-
-Тесты очищают `event_embeddings`, поэтому запускайте их только на локальной базе.
-
-## Сброс базы
-
-Данные можно пересчитать из `postgres`. Чтобы пересоздать базу и заново выполнить `init.sql`:
-
-```shell
-docker compose rm -sf pgvector
-docker volume rm dvizh_pgvector-data
-docker compose up -d --build pgvector
+docker compose run --rm --build pgvector-init
 ```
 
 ## Типичные проблемы
 
 | Симптом | Причина и решение |
 |---|---|
-| `no pq wrapper available` | Установлен `psycopg` без бинарной части: `pip install "psycopg[binary]"`. |
-| Изменил `init.sql`, ничего не поменялось | Скрипт выполняется только на пустом volume: см. «Сброс базы». |
+| Изменил `init.sql`, ничего не поменялось | Пересоберите и запустите `pgvector-init`, см. «Обновление схемы». |
 | `different vector dimensions` | Размерность вектора не равна 384: проверьте модель и колонку. |
-| Подключение с машины отказывает | Порт не опубликован: временно добавьте `5433:5432` (см. выше). |

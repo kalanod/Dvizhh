@@ -12,6 +12,10 @@ class InvalidRequest(ValueError):
     pass
 
 
+class NoUserVector(Exception):
+    pass
+
+
 class FeatureSnapshot(BaseModel, extra="forbid", frozen=True, allow_inf_nan=False):
     occurrence_id: UUID
     feature_version: str
@@ -59,3 +63,26 @@ class Ranker(Protocol):
     def feature_version(self) -> str: ...
 
     async def score(self, items: Sequence[Mapping[str, JsonValue]]) -> Sequence[float]: ...
+
+
+@dataclass(frozen=True)
+class Candidate:
+    item_id: UUID
+    score: float | None = None
+
+
+@dataclass(frozen=True)
+class CandidateBatch:
+    items: tuple[Candidate, ...]
+    exhausted: bool
+
+
+class CandidateGenerator(Protocol):
+    async def generate(
+        self,
+        query: RecommendationQuery,
+        *,
+        limit: int,
+        exclude_ids: Sequence[UUID],
+        eligible_ids: Sequence[UUID] | None = None,
+    ) -> CandidateBatch: ...

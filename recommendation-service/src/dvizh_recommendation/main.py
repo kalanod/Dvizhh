@@ -1,4 +1,5 @@
 import asyncio
+import json
 import logging
 import signal
 from collections.abc import AsyncIterator
@@ -20,18 +21,42 @@ from .generated import recommendation_service_pb2_grpc
 from .journal import RecommendationJournal
 from .model_registry import load_ranker
 from .pagination import Pagination, SessionStore
+from .recommendations import BASELINE_VERSION, Ranker, RecommendationProvider
 from .redis import connect_redis
 from .service import SERVICE_NAME, RecommendationService
+from .vector_index import HnswCandidates
 
 HEALTH_CHECK_INTERVAL_SECONDS = 5
 logger = logging.getLogger(__name__)
 
 
 async def _load_provider(
-    databases: Databases, settings: Settings, ranker_uri: str | None
+    databases: Databases,
+    settings: Settings,
+    ranker_uri: str | None,
+    vector_model_id: str | None,
+    *,
+    vector_index_revision: str | None,
 ) -> LatestRecommendations:
     ranker = await load_ranker(ranker_uri, settings.ranker_model_dir) if ranker_uri else None
-    return LatestRecommendations(databases.source, settings.database_timeout_seconds, ranker=ranker)
+    if not vector_model_id:
+        return LatestRecommendations(
+            databases.source, settings.database_timeout_seconds, ranker=ranker
+        )
+
+    generator = HnswCandidates(databases.vector, vector_model_id, vector_index_revision or None)
+    if not await generator.check_ready():
+        raise ValueError("No compatible published HNSW index for the configured model")
+    version = json.dumps(
+        [ranker.version if ranker else BASELINE_VERSION, generator.model_id, generator.revision]
+    )
+    return LatestRecommendations(
+        databases.source,
+        settings.database_timeout_seconds,
+        ranker=ranker,
+        generators=(generator,),
+        version=version,
+    )
 
 
 async def _update_readiness(
@@ -93,16 +118,61 @@ async def running_server(
         connect_redis(settings) as redis,
     ):
         baseline = LatestRecommendations(databases.source, settings.database_timeout_seconds)
-        provider = (
-            await _load_provider(databases, settings, settings.ranker_model_uri)
-            if settings.ranker_model_uri else baseline
+        provider = await _load_provider(
+            databases,
+            settings,
+            settings.ranker_model_uri,
+            settings.vector_model_id,
+            vector_index_revision=settings.vector_index_revision,
         )
         previous_providers = {baseline.version: baseline}
-        if settings.previous_ranker_model_uri:
+        if settings.previous_ranker_model_uri or settings.previous_vector_model_id:
             previous_provider = await _load_provider(
-                databases, settings, settings.previous_ranker_model_uri
+                databases,
+                settings,
+                settings.previous_ranker_model_uri,
+                settings.previous_vector_model_id,
+                vector_index_revision=settings.previous_vector_index_revision,
             )
             previous_providers[previous_provider.version] = previous_provider
+
+        vector_rankers: dict[tuple[str, str], Ranker | None] = {
+            (
+                candidate.ranker.version if candidate.ranker else BASELINE_VERSION,
+                generator.model_id,
+            ): candidate.ranker
+            for candidate in (provider, *previous_providers.values())
+            for generator in candidate.generators
+            if isinstance(generator, HnswCandidates)
+        }
+
+        async def resolve_provider(version: str) -> RecommendationProvider | None:
+            try:
+                parts = json.loads(version)
+            except ValueError:
+                return None
+            if (
+                not isinstance(parts, list)
+                or len(parts) not in (2, 3)
+                or not all(isinstance(part, str) for part in parts)
+            ):
+                return None
+            ranker_version, model_id, *revisions = parts
+            key = (ranker_version, model_id)
+            if key not in vector_rankers:
+                return None
+            revision = revisions[0] if revisions else model_id
+            generator = HnswCandidates(databases.vector, model_id, revision)
+            if not await generator.check_ready():
+                return None
+            return LatestRecommendations(
+                databases.source,
+                settings.database_timeout_seconds,
+                ranker=vector_rankers[key],
+                generators=(generator,),
+                version=version,
+            )
+
         store = SessionStore(redis, initial_version=provider.version)
         availability_filter = partial(
             filter_available_items,
@@ -116,6 +186,7 @@ async def running_server(
             timeout_seconds=settings.recommendation_timeout_seconds,
             provider_version=provider.version,
             previous_providers=previous_providers,
+            resolve_provider=resolve_provider,
         )
         journal = RecommendationJournal(
             databases.vector, timeout_seconds=settings.database_timeout_seconds

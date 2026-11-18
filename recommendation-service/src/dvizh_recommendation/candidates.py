@@ -8,6 +8,7 @@ import asyncpg
 from .catalog import CatalogFilters, catalog_items
 from .recommendations import (
     BASELINE_VERSION,
+    CandidateGenerator,
     FeatureSnapshot,
     Ranker,
     RecommendationBatch,
@@ -72,13 +73,18 @@ class LatestRecommendations:
         timeout_seconds: float = 5,
         *,
         ranker: Ranker | None = None,
+        generators: Sequence[CandidateGenerator] = (),
+        version: str | None = None,
     ) -> None:
         if ranker is not None and ranker.feature_version != FEATURE_VERSION:
             raise ValueError("Ranker feature schema is incompatible")
+        if generators and version is None:
+            raise ValueError("A version is required when using candidate generators")
         self.pool = pool
         self.timeout_seconds = timeout_seconds
         self.ranker = ranker
-        self.version = ranker.version if ranker is not None else BASELINE_VERSION
+        self.generators = tuple(generators)
+        self.version = version or (ranker.version if ranker is not None else BASELINE_VERSION)
 
     async def recommend(
         self,
@@ -96,9 +102,23 @@ class LatestRecommendations:
             as_of=as_of,
             user_id=query.viewer_id,
             exclude_ids=excluded,
-            limit=limit + 1,
+            limit=limit + 1 if not self.generators else None,
             timeout_seconds=self.timeout_seconds,
         )
+        exhausted = True
+        if self.generators and rows:
+            eligible = {row["item_id"]: row for row in rows}
+            eligible_ids = tuple(eligible)
+            selected = {}
+            for generator in self.generators:
+                result = await generator.generate(
+                    query, limit=limit + 1, exclude_ids=excluded, eligible_ids=eligible_ids
+                )
+                exhausted = exhausted and result.exhausted
+                for item in result.items:
+                    if item.item_id in eligible:
+                        selected.setdefault(item.item_id, eligible[item.item_id])
+            rows = list(selected.values())
         snapshots = [_snapshot(row, as_of, self.version) for row in rows]
         order = list(range(len(rows)))
         if self.ranker is not None and snapshots:
@@ -108,6 +128,6 @@ class LatestRecommendations:
             order.sort(key=lambda index: -scores[index])
         return RecommendationBatch(
             item_ids=tuple(str(rows[index]["item_id"]) for index in order[:limit]),
-            exhausted=len(rows) <= limit,
+            exhausted=exhausted and len(rows) <= limit,
             snapshots=tuple(snapshots[index] for index in order[:limit]),
         )
