@@ -15,28 +15,6 @@ from .recommendations import (
 FEATURE_VERSION = "catalog-v1"
 
 
-async def get_candidates(
-    pool: asyncpg.Pool,
-    limit: int = 20,
-    *,
-    exclude_ids: Sequence[UUID] = (),
-    timeout_seconds: float = 5,
-) -> list[UUID]:
-    if type(limit) is not int:
-        raise TypeError("limit must be an integer")
-    if limit <= 0:
-        raise ValueError("limit must be positive")
-    rows = await catalog_items(
-        pool,
-        CatalogFilters(),
-        as_of=datetime.now(UTC),
-        exclude_ids=exclude_ids,
-        limit=limit,
-        timeout_seconds=timeout_seconds,
-    )
-    return [row["item_id"] for row in rows]
-
-
 def _snapshot(row: asyncpg.Record, as_of: datetime, algorithm_version: str) -> FeatureSnapshot:
     publication = row["published_at"] or row["created_at"]
     return FeatureSnapshot(
