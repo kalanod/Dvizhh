@@ -19,6 +19,55 @@ from uuid import UUID, uuid4
 ROOT = Path(__file__).resolve().parents[2]
 RECSYS = "recommendation-service"
 
+FEEDBACK_COUNTS = """
+import asyncio
+import json
+import sys
+from datetime import datetime
+
+from dvizh_recommendation.config import get_settings
+from dvizh_recommendation.database import connect_databases
+from dvizh_recommendation.feedback_health import measure_feedback
+
+
+async def main():
+    start, end = map(datetime.fromisoformat, sys.argv[1:])
+    async with (
+        connect_databases(get_settings()) as databases,
+        databases.source.acquire() as source,
+        databases.vector.acquire() as journal,
+    ):
+        print(json.dumps(await measure_feedback(source, journal, start, end)))
+
+
+asyncio.run(main())
+"""
+
+FEED_OUTCOMES = """
+import asyncio
+import json
+import sys
+from datetime import datetime
+
+from dvizh_backend.config import get_settings
+from dvizh_backend.database.database_service import DatabaseService
+from dvizh_backend.services.recommendation_health import measure_feed_outcomes
+
+
+async def main():
+    start, end = map(datetime.fromisoformat, sys.argv[1:])
+    database = DatabaseService(get_settings().database_url)
+    try:
+        async with database.session() as session:
+            print(json.dumps(await measure_feed_outcomes(session, start, end)))
+    finally:
+        await database.dispose()
+
+
+asyncio.run(main())
+"""
+
+
 def check_trace(grafana_url: str, request_id: str, trace_id: str, origin: dict) -> None:
     # The synthetic parent is not exported, so the collector can use its full 75-second wait.
     deadline = time.monotonic() + 95
@@ -185,6 +234,12 @@ def run(command: list[str], *, observability: bool = False) -> None:
     assert sample["features"]["format"] == "ONLINE", sample
     print("HTTP recommendation, selected occurrence and confirmed signup reached the dataset.")
 
+    other_impressions = [
+        {**feedback("IMPRESSION"), "item_id": older["id"]},
+        {**feedback("IMPRESSION"), "session_id": None, "request_id": None},
+    ]
+    post(viewer, "/api/interactions", {"interactions": other_impressions}, actor=actor)
+
     refresh = f"{discovery}/refresh"
     original_cursor = first["next_cursor"]
     post(host, refresh, {"cursor": original_cursor}, 409, organizer)
@@ -263,6 +318,18 @@ def run(command: list[str], *, observability: bool = False) -> None:
     assert not fallback["next_cursor"], fallback
     assert "refresh_after_seconds" not in fallback, fallback
     print("The same HTTP feed continued without duplicates during outage and after recovery.")
+    end = datetime.now(UTC).isoformat()
+
+    def measure(service: str, statement: str) -> dict:
+        return json.loads(compose(
+            "exec", "-T", service, "python", "-", start.isoformat(), end, stdin=statement,
+        ))
+
+    pages = measure("backend", FEED_OUTCOMES)
+    assert pages == {"total_pages": 5, "fallback_pages": 3}, pages
+    impressions = measure(RECSYS, FEEDBACK_COUNTS)
+    assert impressions == {"attributed_impressions": 2, "matched_impressions": 1}, impressions
+    print("Feedback health distinguished fallback, matched and unmatched impressions.")
     if traced:
         check_trace(address("grafana", "3000"), *traced, origin)
 

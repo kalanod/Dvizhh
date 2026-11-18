@@ -1,6 +1,7 @@
 import logging
 from collections.abc import AsyncIterator
 from contextlib import AsyncExitStack, asynccontextmanager
+from os import getenv
 
 import uvicorn
 from dvizh_logging import error_fields
@@ -27,6 +28,7 @@ from dvizh_backend.api.routers import settings as settings_router
 from dvizh_backend.config import get_settings
 from dvizh_backend.database.database_service import DatabaseService
 from dvizh_backend.services.recommendation_client import RecommendationClient
+from dvizh_backend.services.recommendation_health import monitor_feed_outcomes
 from dvizh_backend.storage import MediaStorage
 
 settings = get_settings()
@@ -56,6 +58,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             logger.warning(
                 "Database unavailable", extra={"dependency": "postgresql", **error_fields(exc)}
             )
+        if getenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"):
+            await resources.enter_async_context(monitor_feed_outcomes(database_service))
         yield
 
 

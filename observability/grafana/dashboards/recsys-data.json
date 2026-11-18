@@ -1,0 +1,86 @@
+{
+  "uid": "dvizh-recsys-data",
+  "title": "Данные рекомендаций",
+  "schemaVersion": 41,
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "refresh": "1m",
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Страницы в резервной выдаче",
+      "description": "Доля сохранённых страниц, отданных Backend через fallback, за последнюю завершённую минуту.",
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "dvizh-loki"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "editorMode": "code",
+          "queryType": "range",
+          "expr": "100 * last_over_time({service_name=\"backend\"} |= \"recsys.feedback_health\" | json measurement=\"fallback_pages\" | unwrap measurement | __error__=\"\" [2m]) by (service_name) / (last_over_time({service_name=\"backend\"} |= \"recsys.feedback_health\" | json measurement=\"total_pages\" | unwrap measurement | __error__=\"\" [2m]) by (service_name) > 0)"
+        }
+      ],
+      "options": {
+        "legend": {
+          "showLegend": false
+        }
+      }
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Показы с найденной выдачей",
+      "description": "Доля показов с идентификаторами рекомендаций, для которых найдено то же мероприятие в журнале RecSys.",
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "dvizh-loki"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "editorMode": "code",
+          "queryType": "range",
+          "expr": "100 * last_over_time({service_name=\"recommendation-service\"} |= \"recsys.feedback_health\" | json measurement=\"matched_impressions\" | unwrap measurement | __error__=\"\" [2m]) by (service_name) / (last_over_time({service_name=\"recommendation-service\"} |= \"recsys.feedback_health\" | json measurement=\"attributed_impressions\" | unwrap measurement | __error__=\"\" [2m]) by (service_name) > 0)"
+        }
+      ],
+      "options": {
+        "legend": {
+          "showLegend": false
+        }
+      }
+    }
+  ]
+}

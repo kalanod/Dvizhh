@@ -4,6 +4,7 @@ import signal
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from functools import partial
+from os import getenv
 
 import grpc
 from dvizh_logging import configure_logging, error_fields
@@ -14,6 +15,7 @@ from .candidates import LatestRecommendations
 from .catalog import filter_available_items
 from .config import Settings, get_settings
 from .database import Databases, connect_databases
+from .feedback_health import monitor_feedback
 from .generated import recommendation_service_pb2_grpc
 from .journal import RecommendationJournal
 from .model_registry import load_ranker
@@ -151,6 +153,10 @@ async def _grpc_server(
         background_tasks.append(asyncio.create_task(
             _monitor_dependencies(settings, databases, redis, health_service, unavailable)
         ))
+        if getenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"):
+            background_tasks.append(asyncio.create_task(
+                monitor_feedback(databases, settings.database_timeout_seconds)
+            ))
         yield server, port
     finally:
         await health_service.enter_graceful_shutdown()
