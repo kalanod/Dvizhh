@@ -1,6 +1,8 @@
 """Real PostGIS discovery; use only a separately migrated disposable TEST_DATABASE_URL."""
 
 import asyncio
+import json
+import logging
 import os
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
@@ -8,6 +10,8 @@ from unittest.mock import AsyncMock
 from uuid import uuid4
 
 import pytest
+from dvizh_logging import JsonFormatter, request_context
+from grpc import StatusCode, aio
 from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from test_event_sorting import Catalog, run_in_rollback
@@ -23,8 +27,62 @@ from dvizh_backend.database.models import (
     Profile,
 )
 from dvizh_backend.database.services.discovery import DiscoveryRepository
+from dvizh_backend.generated.recommendation_service_pb2_grpc import (
+    RecommendationServiceServicer,
+    add_RecommendationServiceServicer_to_server,
+)
 from dvizh_backend.services.discovery_service import EventDiscoveryService
 from dvizh_backend.services.event_service import EventService
+from dvizh_backend.services.recommendation_client import RecommendationClient
+
+
+@pytest.mark.skipif(not os.getenv("TEST_DATABASE_URL"), reason="Requires disposable PostGIS")
+def test_discovery_fallback_logs_the_failed_rpc_with_the_request_id(monkeypatch, caplog) -> None:
+    private_details = "internal upstream details"
+
+    class Unavailable(RecommendationServiceServicer):
+        async def GetRecommendations(self, request, context):
+            await context.abort(StatusCode.UNAVAILABLE, private_details)
+
+    async def scenario(catalog: Catalog, _queries) -> None:
+        viewer = await catalog.profile()
+        tag = await catalog.tag()
+        event, _ = await catalog.event(viewer, (tag,))
+        request_id = uuid4().hex
+        server = aio.server()
+        add_RecommendationServiceServicer_to_server(Unavailable(), server)
+        port = server.add_insecure_port("127.0.0.1:0")
+        await server.start()
+        try:
+            async with aio.insecure_channel(
+                f"127.0.0.1:{port}", options=(("grpc.enable_http_proxy", 0),)
+            ) as channel:
+                with request_context(request_id=request_id):
+                    service = EventDiscoveryService(
+                        catalog.session,
+                        Settings(_env_file=None, discovery_token_secret="fallback-log-test-" * 2),
+                        recommendation_client=RecommendationClient(channel, timeout_seconds=2),
+                    )
+                    request = DiscoveryRequest(
+                        filters={"tag_id": tag}, sort="relevance", include_map=False
+                    )
+                    feed = (await service.discover(request, viewer)).feed
+        finally:
+            await server.stop(0)
+        assert [item.id for item in feed.items] == [event]
+        assert feed.request_id is None
+
+        records = [json.loads(line) for line in caplog.text.splitlines()]
+        fallback, = [record for record in records if record.get("error_reason") == "UNAVAILABLE"]
+        assert fallback["request_id"] == request_id
+        assert fallback["operation"] == "GetRecommendations"
+        assert fallback["upstream"] == "recommendation-service"
+        assert fallback["upstream_status"] == "UNAVAILABLE"
+        assert private_details not in caplog.text
+
+    monkeypatch.setattr(caplog.handler, "formatter", JsonFormatter("backend"))
+    caplog.set_level(logging.INFO, logger="dvizh_backend.services.recommendation_discovery")
+    run_in_rollback(scenario)
 
 
 @pytest.mark.skipif(not os.getenv("TEST_DATABASE_URL"), reason="Requires disposable PostGIS")
