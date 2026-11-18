@@ -20,7 +20,7 @@ from dvizh_backend.database.models.enums import (
     MediaStatus,
     ProfileStatus,
 )
-from dvizh_backend.database.services.access import can_view_event_media
+from dvizh_backend.database.services.access import can_view_event
 from dvizh_backend.database.services.exceptions import (
     EntityNotFoundError,
     InvalidStateTransitionError,
@@ -154,7 +154,7 @@ class MediaService:
                 )
             ).all()
             for event in events:
-                if await can_view_event_media(self.session, event, viewer_id):
+                if await can_view_event(self.session, event, viewer_id):
                     allowed = True
                     break
         if not allowed:

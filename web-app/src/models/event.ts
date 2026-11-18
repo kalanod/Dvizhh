@@ -1,5 +1,6 @@
 import type { UserSummary } from "./user";
 import type { EventTag } from "./tag";
+import type { InteractionOrigin } from "./interaction";
 
 export type EventFormat = "OFFLINE" | "ONLINE" | "HYBRID";
 export type EventPriceType = "FREE" | "PAID";
@@ -54,6 +55,7 @@ export interface DvizhEvent {
     cover_media_id: string | null;
     cover_url: string | null;
     personal_state: EventPersonalState | null;
+    interactionOrigin?: InteractionOrigin;
 }
 
 export interface EventLocationInput {

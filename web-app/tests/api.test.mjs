@@ -21,6 +21,7 @@ for (const name of [
     "api/client",
     "api/auth",
     "api/settings",
+    "api/interactions",
     "components/pages/AdminPanelPage/settingsState",
     "api/users",
     "api/registration",
@@ -41,6 +42,7 @@ for (const name of [
     "api/maps",
     "api/discovery",
     "utils/discovery",
+    "utils/interactions",
     "utils/discoveryCamera",
     "utils/mapMarkers",
     "utils/yandexMaps",
@@ -69,6 +71,7 @@ const settingsState = require(join(output, "components/pages/AdminPanelPage/sett
 const { registerProfile } = require(join(output, "api/registration.js"));
 const { saveProfileWithAccount } = require(join(output, "api/profileAccount.js"));
 const api = require(join(output, "api/events.js"));
+const { recordInteraction, startInteractionDelivery } = require(join(output, "utils/interactions.js"));
 const catalog = require(join(output, "api/tags.js"));
 const { toggleEventTag, MAX_EVENT_TAGS, tagColorStyle } = require(join(output, "utils/tags.js"));
 const { splitHashtags, isHashtag, hashtagSearchUrl } = require(join(output, "utils/hashtags.js"));
@@ -96,6 +99,93 @@ after(() => {
     assert.equal(dirname(output), resolve(testRoot));
     assert.ok(basename(output).startsWith("dvizh-api-test-"));
     rmSync(output, { recursive: true, force: true });
+});
+
+test("interaction delivery preserves account and payload across retry, auth and invalid actions", async (t) => {
+    const previousWindow = globalThis.window;
+    const pending = new Map();
+    let nextTimer = 0;
+    globalThis.window = Object.assign(new EventTarget(), previousWindow, {
+        setTimeout: (callback) => {
+            pending.set(++nextTimer, callback);
+            return nextTimer;
+        },
+        clearTimeout: (id) => pending.delete(id),
+    });
+    let stopDelivery = () => {};
+    t.after(() => {
+        stopDelivery();
+        globalThis.window = previousWindow;
+    });
+    const deliverNextBatch = async () => {
+        const [id, run] = pending.entries().next().value;
+        pending.delete(id);
+        run();
+        await new Promise(setImmediate);
+    };
+    const viewer = crypto.randomUUID();
+    const anotherViewer = crypto.randomUUID();
+    const item = crypto.randomUUID();
+    const origin = { session_id: crypto.randomUUID(), request_id: crypto.randomUUID() };
+    const impression = recordInteraction(viewer, item, "IMPRESSION", origin);
+    const outsideFeed = recordInteraction(anotherViewer, item, "OPEN");
+    let nextStatus;
+    let rejectedId;
+    const calls = recordFetch(t, (_url, { body }) => {
+        const ids = JSON.parse(body).interactions.map(({ interaction_id }) => interaction_id);
+        if (nextStatus) {
+            const status = nextStatus;
+            nextStatus = undefined;
+            return Response.json({ detail: "Delivery failed" }, { status });
+        }
+        if (rejectedId && ids.includes(rejectedId)) {
+            return Response.json({ detail: "Event unavailable" }, { status: 422 });
+        }
+        return Response.json({ accepted_interaction_ids: ids });
+    });
+
+    stopDelivery = startInteractionDelivery(viewer);
+    await deliverNextBatch();
+    const click = recordInteraction(viewer, item, "JOIN_CLICK", origin);
+    nextStatus = 503;
+    await deliverNextBatch();
+    stopDelivery();
+    stopDelivery = startInteractionDelivery(anotherViewer);
+    await deliverNextBatch();
+    stopDelivery();
+    stopDelivery = startInteractionDelivery(viewer);
+    nextStatus = 401;
+    await deliverNextBatch();
+    assert.equal(pending.size, 0);
+    window.dispatchEvent(new Event("focus"));
+    await deliverNextBatch();
+
+    assert.deepEqual(calls.map(({ url, options }) => [url.pathname, options.headers["X-Dvizh-Account-Id"]]), [
+        ["/api/interactions", viewer],
+        ["/api/interactions", viewer],
+        ["/api/interactions", anotherViewer],
+        ["/api/interactions", viewer],
+        ["/api/interactions", viewer],
+    ]);
+    assert.deepEqual(calls.map(({ body }) => JSON.parse(body).interactions), [
+        [impression],
+        [click],
+        [outsideFeed],
+        [click],
+        [click],
+    ]);
+
+    const invalid = recordInteraction(viewer, crypto.randomUUID(), "OPEN");
+    rejectedId = invalid.interaction_id;
+    const valid = recordInteraction(viewer, item, "OPEN", origin);
+    const firstRejection = calls.length;
+    await deliverNextBatch();
+    assert.deepEqual(calls.slice(firstRejection).map(({ body }) => JSON.parse(body).interactions), [
+        [invalid, valid],
+        [invalid],
+        [valid],
+    ]);
+    assert.equal(pending.size, 0);
 });
 
 test("title hashtags support Unicode, underscores, punctuation and safe search URLs", () => {

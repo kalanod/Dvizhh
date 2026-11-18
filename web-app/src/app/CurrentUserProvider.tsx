@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { ApiError, getAccount, getUser, logoutAccount } from "../api";
 import { CurrentUserContext } from "../hooks";
 import type { Profile } from "../models";
+import { resumeInteractionDelivery, startInteractionDelivery } from "../utils/interactions";
 
 export const CurrentUserProvider = ({ children }: { children: ReactNode }) => {
     const [user, setUser] = useState<Profile | null>(null);
@@ -15,7 +16,10 @@ export const CurrentUserProvider = ({ children }: { children: ReactNode }) => {
         ).finally(() => { if (!cancelled) setLoading(false); });
         return () => { cancelled = true; };
     }, []);
-    const signIn = useCallback((profile: Profile) => { setUser(profile); }, []);
+    const signIn = useCallback((profile: Profile) => {
+        setUser(profile);
+        resumeInteractionDelivery(profile.id);
+    }, []);
     const signOut = useCallback(async () => {
         try {
             await logoutAccount();
@@ -27,6 +31,8 @@ export const CurrentUserProvider = ({ children }: { children: ReactNode }) => {
     const updateUser = useCallback((profile: Profile) => {
         setUser((current) => current?.id === profile.id ? profile : current);
     }, []);
+    const userId = user?.id ?? null;
+    useEffect(() => userId ? startInteractionDelivery(userId) : undefined, [userId]);
     const value = useMemo(() => ({ userId: user?.id ?? null, user, loading, signIn, signOut, updateUser }),
         [user, loading, signIn, signOut, updateUser]);
     return <CurrentUserContext.Provider value={value}>{children}</CurrentUserContext.Provider>;

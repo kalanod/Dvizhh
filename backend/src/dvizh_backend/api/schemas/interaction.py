@@ -33,7 +33,7 @@ class InteractionDTO(BaseModel):
 class InteractionBatchDTO(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    interactions: list[InteractionDTO] = Field(min_length=1)
+    interactions: list[InteractionDTO] = Field(min_length=1, max_length=100)
 
     @model_validator(mode="after")
     def validate_repeated_ids(self) -> "InteractionBatchDTO":

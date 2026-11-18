@@ -22,16 +22,25 @@ from ..models.enums import (
 )
 
 
-async def can_view_event_media(session: AsyncSession, event: Event, user_id: UUID | None) -> bool:
+async def can_view_event(
+    session: AsyncSession,
+    event: Event,
+    user_id: UUID | None,
+    *,
+    occurrence_id: UUID | None = None,
+) -> bool:
     if event.deleted_at is not None:
         return False
-    if user_id is not None and await can_manage_event(session, event, user_id):
-        return True
-    if event.status == EventStatus.DRAFT:
-        return False
-    if event.visibility in {EventVisibility.PUBLIC, EventVisibility.UNLISTED}:
+    if event.status != EventStatus.DRAFT and event.visibility in {
+        EventVisibility.PUBLIC,
+        EventVisibility.UNLISTED,
+    }:
         return True
     if user_id is None:
+        return False
+    if await can_manage_event(session, event, user_id):
+        return True
+    if event.status == EventStatus.DRAFT:
         return False
     if event.visibility == EventVisibility.FRIENDS and event.organizer_user_id is not None:
         low, high = sorted([event.organizer_user_id, user_id], key=lambda value: value.int)
@@ -59,6 +68,9 @@ async def can_view_event_media(session: AsyncSession, event: Event, user_id: UUI
             EventOccurrence.event_id == event.id,
             EventParticipation.status == ParticipationStatus.GOING,
         )
+        if occurrence_id is not None:
+            invited = invited.where(EventInvitation.occurrence_id == occurrence_id)
+            attending = attending.where(EventParticipation.occurrence_id == occurrence_id)
         return bool(await session.scalar(select(or_(invited, attending))))
     return False
 

@@ -83,6 +83,10 @@ class EventParticipation(Base, TimestampMixin):
     joined_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     rejection_reason: Mapped[str | None] = mapped_column(String(500))
+    origin_interaction_id: Mapped[UUID | None] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("event_interactions.interaction_id", ondelete="SET NULL"),
+        index=True,
+    )
 
 
 class ParticipationStatusHistory(Base):
@@ -108,6 +112,11 @@ class ParticipationStatusHistory(Base):
         PGUUID(as_uuid=True), ForeignKey("profiles.id", ondelete="SET NULL")
     )
     reason: Mapped[str | None] = mapped_column(String(500))
+    origin_interaction_id: Mapped[UUID | None] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("event_interactions.interaction_id", ondelete="SET NULL"),
+        index=True,
+    )
     changed_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

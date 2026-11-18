@@ -13,6 +13,7 @@ from dvizh_backend.api.routers import (
     discovery,
     events,
     friends,
+    interactions,
     lifecycle,
     maps,
     media,
@@ -70,6 +71,7 @@ app.include_router(users.router)
 app.include_router(friends.router)
 app.include_router(discovery.router)
 app.include_router(events.router)
+app.include_router(interactions.router)
 app.include_router(lifecycle.router)
 app.include_router(media.router)
 app.include_router(maps.router)

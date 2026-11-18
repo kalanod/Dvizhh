@@ -14,6 +14,7 @@ from dvizh_backend.api.schemas.event import (
     ReviewParticipationDTO,
     UpdateEventDTO,
 )
+from dvizh_backend.api.security import OccurrenceViewer, ParticipationWriteActor
 
 router = APIRouter(prefix="/api/events", tags=["events"])
 
@@ -132,9 +133,17 @@ async def create_event(body: CreateEventDTO, events: EventServiceDep) -> EventDT
     description="Работает для событий с любой видимостью.",
 )
 async def get_event(
-    event_id: uuid.UUID, events: EventServiceDep, viewer_id: uuid.UUID | None = None
+    event_id: uuid.UUID,
+    events: EventServiceDep,
+    actor_id: OccurrenceViewer,
+    viewer_id: uuid.UUID | None = None,
+    occurrence_id: uuid.UUID | None = None,
 ) -> EventDTO:
-    return await events.get_event(event_id, viewer_id=viewer_id)
+    if occurrence_id is not None:
+        if viewer_id is not None and viewer_id != actor_id:
+            raise HTTPException(403, "Viewer must match the authenticated account")
+        viewer_id = actor_id
+    return await events.get_event(event_id, viewer_id=viewer_id, occurrence_id=occurrence_id)
 
 
 @router.put(
@@ -163,8 +172,15 @@ async def delete_event(event_id: uuid.UUID, events: EventServiceDep, actor_id: u
     summary="Список участников события.",
     description="Возвращает участников (GOING) и ожидающие решения заявки (REQUESTED).",
 )
-async def list_participants(event_id: uuid.UUID, events: EventServiceDep) -> list[ParticipantDTO]:
-    return await events.list_participants(event_id)
+async def list_participants(
+    event_id: uuid.UUID,
+    events: EventServiceDep,
+    actor_id: OccurrenceViewer,
+    occurrence_id: uuid.UUID | None = None,
+) -> list[ParticipantDTO]:
+    return await events.list_participants(
+        event_id, occurrence_id=occurrence_id, viewer_id=actor_id
+    )
 
 
 @router.post(
@@ -178,9 +194,17 @@ async def list_participants(event_id: uuid.UUID, events: EventServiceDep) -> lis
     ),
 )
 async def join_event(
-    event_id: uuid.UUID, body: JoinEventDTO, events: EventServiceDep
+    event_id: uuid.UUID,
+    body: JoinEventDTO,
+    events: EventServiceDep,
+    actor_id: ParticipationWriteActor,
+    occurrence_id: uuid.UUID | None = None,
 ) -> ParticipantDTO:
-    return await events.join(event_id, body.user_id)
+    if body.user_id != actor_id:
+        raise HTTPException(403, "Participant must match the authenticated account")
+    return await events.join(
+        event_id, actor_id, occurrence_id=occurrence_id, interaction=body.interaction
+    )
 
 
 @router.patch(
@@ -192,10 +216,18 @@ async def join_event(
     ),
 )
 async def review_participation(
-    event_id: uuid.UUID, user_id: uuid.UUID, body: ReviewParticipationDTO, events: EventServiceDep
+    event_id: uuid.UUID,
+    user_id: uuid.UUID,
+    body: ReviewParticipationDTO,
+    events: EventServiceDep,
+    actor_id: ParticipationWriteActor,
+    occurrence_id: uuid.UUID | None = None,
 ) -> ParticipantDTO:
+    if body.actor_id != actor_id:
+        raise HTTPException(403, "Organizer must match the authenticated account")
     return await events.review_participation(
-        event_id, user_id, body.actor_id, accept=body.accept, reason=body.reason
+        event_id, user_id, actor_id, accept=body.accept, reason=body.reason,
+        occurrence_id=occurrence_id,
     )
 
 
@@ -204,5 +236,13 @@ async def review_participation(
     status_code=status.HTTP_204_NO_CONTENT,
     summary="Отменить участие или отозвать заявку.",
 )
-async def leave_event(event_id: uuid.UUID, user_id: uuid.UUID, events: EventServiceDep) -> None:
-    await events.leave(event_id, user_id)
+async def leave_event(
+    event_id: uuid.UUID,
+    user_id: uuid.UUID,
+    events: EventServiceDep,
+    actor_id: ParticipationWriteActor,
+    occurrence_id: uuid.UUID | None = None,
+) -> None:
+    if user_id != actor_id:
+        raise HTTPException(403, "Participant must match the authenticated account")
+    await events.leave(event_id, actor_id, occurrence_id=occurrence_id)
