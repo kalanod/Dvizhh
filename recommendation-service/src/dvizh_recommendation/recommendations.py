@@ -49,3 +49,13 @@ class RecommendationProvider(Protocol):
         limit: int,
         exclude_ids: Sequence[str],
     ) -> RecommendationBatch: ...
+
+
+class Ranker(Protocol):
+    @property
+    def version(self) -> str: ...
+
+    @property
+    def feature_version(self) -> str: ...
+
+    async def score(self, items: Sequence[Mapping[str, JsonValue]]) -> Sequence[float]: ...
