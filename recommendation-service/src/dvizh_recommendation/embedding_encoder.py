@@ -1,4 +1,3 @@
-import os
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -8,6 +7,7 @@ from uuid import UUID
 
 from pydantic import BaseModel
 
+from .artifacts import write_artifact as write_artifact
 from .model_registry import register_model_version, validate_model_uri
 from .retrieval import EmbeddingSpace
 
@@ -35,22 +35,6 @@ class EmbeddingEncoder(Protocol):
     def encode_items(self, items: Sequence[ItemEncoderInput]) -> Sequence[Sequence[float]]: ...
 
     def encode_users(self, users: Sequence[UserEncoderInput]) -> Sequence[Sequence[float]]: ...
-
-
-def write_artifact(output: Path, payload: bytes) -> None:
-    with TemporaryDirectory(dir=output.parent) as directory:
-        staging = Path(directory) / output.name
-        fd = os.open(staging, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-        with os.fdopen(fd, "wb") as stream:
-            stream.write(payload)
-            stream.flush()
-            os.fsync(stream.fileno())
-        os.link(staging, output)
-        directory_fd = os.open(output.parent, os.O_RDONLY)
-        try:
-            os.fsync(directory_fd)
-        finally:
-            os.close(directory_fd)
 
 
 class _EncoderKind(BaseModel, hide_input_in_errors=True):
