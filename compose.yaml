@@ -55,7 +55,6 @@ services:
       APP_NAME: Dvizh API
       REQUIRE_DATABASE: "true"
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-dvizh_app}:${POSTGRES_PASSWORD:-change-me}@postgres:5432/${POSTGRES_DB:-dvizh_data}
-      VECTOR_DATABASE_URL: postgresql+asyncpg://${VECTOR_USER:-dvizh}:${VECTOR_PASSWORD:-change-me}@pgvector:5432/${VECTOR_DB:-dvizh_vectors}
       MINIO_ENDPOINT: minio:9000
       MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-dvizh}
       MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-change-me-please}
@@ -76,14 +75,10 @@ services:
         condition: service_completed_successfully
       postgres:
         condition: service_healthy
-      pgvector:
-        condition: service_healthy
       minio:
         condition: service_healthy
       minio-init:
         condition: service_completed_successfully
-      recommendation-service:
-        condition: service_healthy
       auth-api:
         condition: service_healthy
     healthcheck:
@@ -134,8 +129,8 @@ services:
         condition: service_completed_successfully
       postgres:
         condition: service_healthy
-      pgvector:
-        condition: service_healthy
+      pgvector-init:
+        condition: service_completed_successfully
       redis:
         condition: service_healthy
     healthcheck:
@@ -155,13 +150,8 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-dvizh_app}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
       RECSYS_READER_PASSWORD: ${RECSYS_READER_PASSWORD:-change-me}
-      VECTOR_DB: ${VECTOR_DB:-dvizh_vectors}
-      VECTOR_USER: ${VECTOR_USER:-dvizh}
-      VECTOR_PASSWORD: ${VECTOR_PASSWORD:-change-me}
     depends_on:
       postgres:
-        condition: service_healthy
-      pgvector:
         condition: service_healthy
     restart: "no"
 
@@ -239,6 +229,26 @@ services:
       timeout: 5s
       retries: 10
     restart: unless-stopped
+
+  pgvector-init:
+    build:
+      context: ./pgvector
+    environment:
+      PGHOST: pgvector
+      PGDATABASE: ${VECTOR_DB:-dvizh_vectors}
+      PGUSER: ${VECTOR_USER:-dvizh}
+      PGPASSWORD: ${VECTOR_PASSWORD:-change-me}
+      PGCONNECT_TIMEOUT: "10"
+    depends_on:
+      pgvector:
+        condition: service_healthy
+    entrypoint: ["psql"]
+    command:
+      - -X
+      - --set=ON_ERROR_STOP=1
+      - --single-transaction
+      - --file=/docker-entrypoint-initdb.d/01-vector.sql
+    restart: "no"
 
   redis:
     image: redis:8.2.11-alpine
