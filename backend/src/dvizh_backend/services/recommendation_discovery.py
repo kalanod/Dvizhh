@@ -113,7 +113,17 @@ class RecommendationDiscovery:
             )
         else:
             if failure is not None:
-                logger.info("Recommendation feed fallback: %s", failure)
+                logger.info(
+                    "Recommendation feed fallback: %s",
+                    failure,
+                    extra={
+                        "operation": "GetRecommendations",
+                        "upstream": "recommendation-service",
+                        "upstream_status": failure.upstream_status,
+                        "session_id": str(session_id),
+                        "error_reason": str(failure),
+                    },
+                )
             exclude = (
                 await self.state.delivered_recommendations(session_id, position) if position else ()
             )
