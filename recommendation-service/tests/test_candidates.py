@@ -2,20 +2,8 @@ import asyncio
 
 import pytest
 
-from dvizh_recommendation.candidates import LatestRecommendations, get_candidates
+from dvizh_recommendation.candidates import LatestRecommendations
 from dvizh_recommendation.recommendations import RecommendationQuery
-
-
-@pytest.mark.parametrize(
-    ("limit", "error"),
-    [(0, ValueError), (-1, ValueError), (True, TypeError), (1.5, TypeError)],
-)
-def test_get_candidates_rejects_invalid_limit(limit, error):
-    async def check():
-        with pytest.raises(error):
-            await get_candidates(None, limit=limit)
-
-    asyncio.run(check())
 
 
 def test_latest_recommendations_reject_unsupported_filters():

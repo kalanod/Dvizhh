@@ -2,43 +2,14 @@ import asyncio
 import re
 from collections.abc import Mapping, Sequence
 from hashlib import sha256
-from math import isfinite
 from pathlib import Path
 from typing import Literal
 
 from pydantic import BaseModel, FiniteFloat, JsonValue
 
-from .candidates import FEATURE_SCHEMA, FEATURE_VERSION
+from .features import FEATURE_SCHEMA, FEATURE_VERSION, FeatureType, encode_features
 
 MODEL_FILE = "ranker.json"
-type FeatureType = Literal["number", "category"]
-
-
-def feature_type(value: JsonValue) -> FeatureType:
-    if isinstance(value, str):
-        return "category"
-    if type(value) in {int, float}:
-        return "number"
-    raise ValueError("Ranking features must be numbers or strings")
-
-
-def encode_features(
-    features: Mapping[str, JsonValue], schema: Mapping[str, FeatureType]
-) -> dict[str, float]:
-    if features.keys() != schema.keys():
-        raise ValueError("Ranking features do not match the model schema")
-    encoded = {}
-    for name, value in features.items():
-        if feature_type(value) != schema[name]:
-            raise ValueError(f"Wrong type for ranking feature {name}")
-        if isinstance(value, str):
-            encoded[f"{name}={value}"] = 1.0
-        else:
-            number = float(value)
-            if not isfinite(number):
-                raise ValueError(f"Non-finite ranking feature {name}")
-            encoded[name] = number
-    return encoded
 
 
 class LinearModel(BaseModel, extra="forbid", frozen=True, hide_input_in_errors=True):

@@ -6,63 +6,13 @@ from uuid import UUID
 import asyncpg
 
 from .catalog import CatalogFilters, catalog_items
+from .features import FEATURE_VERSION, catalog_feature_snapshot
 from .recommendations import (
     BASELINE_VERSION,
-    FeatureSnapshot,
     Ranker,
     RecommendationBatch,
     RecommendationQuery,
 )
-
-FEATURE_VERSION = "catalog-v1"
-FEATURE_SCHEMA = {
-    "hours_until_start": "number",
-    "hours_since_publication": "number",
-    "participants_count": "number",
-    "price_type": "category",
-    "format": "category",
-    "join_policy": "category",
-}
-
-
-async def get_candidates(
-    pool: asyncpg.Pool,
-    limit: int = 20,
-    *,
-    exclude_ids: Sequence[UUID] = (),
-    timeout_seconds: float = 5,
-) -> list[UUID]:
-    if type(limit) is not int:
-        raise TypeError("limit must be an integer")
-    if limit <= 0:
-        raise ValueError("limit must be positive")
-    rows = await catalog_items(
-        pool,
-        CatalogFilters(),
-        as_of=datetime.now(UTC),
-        exclude_ids=exclude_ids,
-        limit=limit,
-        timeout_seconds=timeout_seconds,
-    )
-    return [row["item_id"] for row in rows]
-
-
-def _snapshot(row: asyncpg.Record, as_of: datetime, algorithm_version: str) -> FeatureSnapshot:
-    publication = row["published_at"] or row["created_at"]
-    return FeatureSnapshot(
-        occurrence_id=row["occurrence_id"],
-        feature_version=FEATURE_VERSION,
-        features={
-            "hours_until_start": (row["starts_at"] - as_of).total_seconds() / 3600,
-            "hours_since_publication": (as_of - publication).total_seconds() / 3600,
-            "participants_count": row["participants_count"],
-            "price_type": row["price_type"],
-            "format": row["format"],
-            "join_policy": row["join_policy"],
-        },
-        calculated_at=as_of,
-        algorithm_version=algorithm_version,
-    )
 
 
 class LatestRecommendations:
@@ -99,7 +49,7 @@ class LatestRecommendations:
             limit=limit + 1,
             timeout_seconds=self.timeout_seconds,
         )
-        snapshots = [_snapshot(row, as_of, self.version) for row in rows]
+        snapshots = [catalog_feature_snapshot(row, as_of, self.version) for row in rows]
         order = list(range(len(rows)))
         if self.ranker is not None and snapshots:
             scores = await self.ranker.score([snapshot.features for snapshot in snapshots])
