@@ -1,0 +1,12 @@
+[project]
+name = "dvizh-logging"
+version = "0.1.0"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "opentelemetry-sdk>=1.45.2,<2",
+    "opentelemetry-exporter-otlp-proto-http>=1.45.2,<2",
+]
+
+[build-system]
+requires = ["uv_build>=0.12.19,<0.13"]
+build-backend = "uv_build"

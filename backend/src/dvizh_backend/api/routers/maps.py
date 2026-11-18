@@ -29,11 +29,8 @@ async def event_timezone(
 
 
 @router.post("/client-error", status_code=204, summary="Ошибка карты из браузера в логи backend.")
-async def client_error(body: MapClientError, request: Request, service: MapsServiceDep) -> Response:
-    service.report_client_error(
-        stage=body.stage, online=body.online, message=body.message,
-        origin=request.headers.get("origin", request.headers.get("referer", "")),
-    )
+async def client_error(body: MapClientError, service: MapsServiceDep) -> Response:
+    service.report_client_error(stage=body.stage, online=body.online)
     return Response(status_code=204)
 
 

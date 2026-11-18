@@ -33,6 +33,7 @@ class ProfileCityGeocoder:
                     "geocode": city, "kind": "locality",
                 },
                 self.referer,
+                operation="geocode",
             )
             members = data["response"]["GeoObjectCollection"]["featureMember"]
             if not members:

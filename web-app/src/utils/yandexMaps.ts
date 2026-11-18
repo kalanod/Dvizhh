@@ -8,8 +8,8 @@ export function reportMapError(stage: MapErrorStage, error: unknown, apiKey = ""
     let message = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
     if (apiKey) message = message.replaceAll(apiKey, "[REDACTED]");
     message = message.replace(/(apikey|api_key|key)=[^\s&#"']+/gi, "$1=[REDACTED]").slice(0, 2000);
-    const body = { stage, message, online: typeof navigator === "undefined" ? null : navigator.onLine };
-    console.error("[Yandex Maps]", { ...body, origin: window.location.origin });
+    const body = { stage, online: typeof navigator === "undefined" ? null : navigator.onLine };
+    console.error("[Yandex Maps]", { ...body, message, origin: window.location.origin });
     void request<void>("/maps/client-error", { method: "POST", body }).catch(() => {
         console.warn("[Yandex Maps] Не удалось отправить ошибку в логи backend.");
     });

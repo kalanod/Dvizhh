@@ -7,9 +7,9 @@ from urllib.parse import urlsplit
 from dvizh_backend.config import Settings
 
 from .maps_errors import InvalidPlaceQueryError, MapsUnavailableError, PlaceNotFoundError
-from .yandex_maps_client import YandexMapsClient, redact
+from .yandex_maps_client import YandexMapsClient
 
-logger = logging.getLogger("uvicorn.error")
+logger = logging.getLogger(__name__)
 
 
 class MapsService:
@@ -19,12 +19,6 @@ class MapsService:
 
     def configuration(self) -> dict[str, str | bool]:
         settings = self.settings
-        logger.info(
-            "Yandex Maps config: map_key_present=%s suggest_key_present=%s geocoder_key_present=%s",
-            bool(settings.yandex_maps_api_key),
-            bool(settings.yandex_suggest_api_key),
-            bool(settings.yandex_geocoder_api_key or settings.yandex_maps_api_key),
-        )
         return {
             "api_key": settings.yandex_maps_api_key,
             "search_enabled": bool(
@@ -33,23 +27,8 @@ class MapsService:
             ),
         }
 
-    def report_client_error(
-        self, *, stage: str, online: bool | None, message: str, origin: str
-    ) -> None:
-        settings = self.settings
-        logger.error(
-            "Yandex Maps browser error: stage=%s origin=%s online=%s message=%r",
-            stage,
-            urlsplit(origin).netloc,
-            online,
-            redact(
-                message,
-                settings.yandex_maps_api_key,
-                settings.yandex_suggest_api_key,
-                settings.yandex_geocoder_api_key,
-                settings.yandex_search_api_key,
-            ),
-        )
+    def report_client_error(self, *, stage: str, online: bool | None) -> None:
+        logger.error("Yandex Maps browser error", extra={"stage": stage, "online": online})
 
     async def suggest(
         self, text: str, city: str, latitude: float | None, longitude: float | None,
@@ -76,6 +55,7 @@ class MapsService:
                 ),
             },
             referer,
+            operation="suggest",
         )
         return [
             {
@@ -111,7 +91,7 @@ class MapsService:
                 if settings.yandex_geocoder_api_key
                 else "YANDEX_MAPS_API_KEY"
             )
-            logger.info("Yandex organization lookup: key_source=%s", key_source)
+            logger.info("Yandex organization lookup", extra={"key_source": key_source})
             data = await asyncio.to_thread(
                 self.client.fetch_json,
                 "https://search-maps.yandex.ru/v1/",
@@ -123,6 +103,7 @@ class MapsService:
                     "type": "biz",
                 },
                 referer,
+                operation="search_organization",
             )
             features = data.get("features", [])
             if not features:
@@ -148,6 +129,7 @@ class MapsService:
                 **({"uri": uri} if uri else {"geocode": query}),
             },
             referer,
+            operation="geocode",
         )
         members = data["response"]["GeoObjectCollection"]["featureMember"]
         if not members:

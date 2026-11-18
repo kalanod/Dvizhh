@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager, suppress
 from functools import partial
 
 import grpc
+from dvizh_logging import configure_logging, error_fields
 from grpc_health.v1 import health, health_pb2, health_pb2_grpc
 from redis.asyncio import Redis
 
@@ -19,6 +20,7 @@ from .redis import connect_redis
 from .service import SERVICE_NAME, RecommendationService
 
 HEALTH_CHECK_INTERVAL_SECONDS = 5
+logger = logging.getLogger(__name__)
 
 
 async def _monitor_dependencies(
@@ -27,6 +29,7 @@ async def _monitor_dependencies(
     redis: Redis,
     health_service: health.aio.HealthServicer,
 ) -> None:
+    unavailable: set[str] = set()
     while True:
         results = await asyncio.gather(
             asyncio.wait_for(redis.ping(), timeout=settings.redis_timeout_seconds),
@@ -38,7 +41,19 @@ async def _monitor_dependencies(
             ),
             return_exceptions=True,
         )
-        if any(isinstance(result, BaseException) for result in results):
+        for dependency, result in zip(("redis", "postgres", "pgvector"), results, strict=True):
+            if isinstance(result, BaseException):
+                if dependency not in unavailable:
+                    logger.warning(
+                        "Dependency unavailable",
+                        extra={"dependency": dependency, "error_type": type(result).__name__},
+                    )
+                    unavailable.add(dependency)
+            elif dependency in unavailable:
+                logger.info("Dependency recovered", extra={"dependency": dependency})
+                unavailable.remove(dependency)
+
+        if unavailable:
             status = health_pb2.HealthCheckResponse.NOT_SERVING
         else:
             status = health_pb2.HealthCheckResponse.SERVING
@@ -116,7 +131,7 @@ async def serve() -> None:
         loop.add_signal_handler(signum, stop.set)
     try:
         async with running_server(settings):
-            logging.info("%s listening on %s", settings.app_name, settings.grpc_bind_address)
+            logger.info("%s listening on %s", settings.app_name, settings.grpc_bind_address)
             await stop.wait()
     finally:
         for signum in signals:
@@ -124,8 +139,12 @@ async def serve() -> None:
 
 
 def main() -> None:
-    logging.basicConfig(level=logging.INFO)
-    asyncio.run(serve())
+    configure_logging("recommendation-service")
+    try:
+        asyncio.run(serve())
+    except Exception as exc:
+        logger.error("Recommendation service stopped unexpectedly", extra=error_fields(exc))
+        raise SystemExit(1) from None
 
 
 if __name__ == "__main__":

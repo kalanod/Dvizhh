@@ -5,6 +5,7 @@ from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from uuid import uuid4
 
+from dvizh_logging import log_dependency
 from redis.asyncio import Redis
 
 from .recommendations import RecommendationBatch, RecommendationProvider, RecommendationQuery
@@ -164,19 +165,20 @@ class SessionStore:
         except (TypeError, ValueError) as exc:
             raise InvalidRequest("context and filters must contain valid JSON values") from exc
         fingerprint = hashlib.sha256(parameters.encode()).hexdigest()
-        result = await self._read_page(
-            keys=[self.key(session_id)],
-            args=[
-                query.user_id,
-                fingerprint,
-                page_token or "",
-                page_size,
-                SESSION_TTL_SECONDS,
-                uuid4().hex,
-                uuid4().hex,
-                generation or "",
-            ],
-        )
+        with log_dependency("redis", "read_page"):
+            result = await self._read_page(
+                keys=[self.key(session_id)],
+                args=[
+                    query.user_id,
+                    fingerprint,
+                    page_token or "",
+                    page_size,
+                    SESSION_TTL_SECONDS,
+                    uuid4().hex,
+                    uuid4().hex,
+                    generation or "",
+                ],
+            )
         errors = {
             -1: SessionNotFound,
             -2: SessionOwnerMismatch,
@@ -190,23 +192,25 @@ class SessionStore:
         return RecommendationPage(tuple(result[2:]), result[1] or None)
 
     async def append(self, session_id: str, state: _Refill, batch: RecommendationBatch) -> None:
-        result = await self._append(
-            keys=[self.key(session_id)],
-            args=[
-                state.generation,
-                len(state.item_ids),
-                int(batch.exhausted),
-                SESSION_TTL_SECONDS,
-                *batch.item_ids,
-            ],
-        )
+        with log_dependency("redis", "append_page"):
+            result = await self._append(
+                keys=[self.key(session_id)],
+                args=[
+                    state.generation,
+                    len(state.item_ids),
+                    int(batch.exhausted),
+                    SESSION_TTL_SECONDS,
+                    *batch.item_ids,
+                ],
+            )
         if result == -1:
             raise SessionNotFound
 
     async def refresh(self, user_id: str, session_id: str) -> None:
-        result = await self._refresh(
-            keys=[self.key(session_id)], args=[user_id, SESSION_TTL_SECONDS]
-        )
+        with log_dependency("redis", "refresh_session"):
+            result = await self._refresh(
+                keys=[self.key(session_id)], args=[user_id, SESSION_TTL_SECONDS]
+            )
         if result == -1:
             raise SessionNotFound
         if result == -2:

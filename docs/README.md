@@ -6,6 +6,7 @@
 - [Границы HTTP и бизнес-сервисов](architecture.md).
 - [Обзор проекта](../README.md).
 - [Запуск, проверки и эксплуатация](../RUNNING.md).
+- [Сбор логов и трасс, запуск Grafana](observability.md).
 - [Концепция продукта](about_project.txt).
 - [Backend: API, события, взаимодействия и настройки](../backend/docs/README.md).
 - [Auth API: учётные записи](../auth-api/docs/README.md).

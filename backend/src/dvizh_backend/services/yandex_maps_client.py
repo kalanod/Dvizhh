@@ -1,43 +1,42 @@
 """Yandex HTTP transport; credentials and provider failures never leak to API responses."""
 
 import json
-import logging
-import re
+from time import perf_counter
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode, urlsplit
 from urllib.request import Request as UrlRequest
 from urllib.request import urlopen
 
+from dvizh_logging import record_dependency
+
 from .maps_errors import MapsUnavailableError
-
-logger = logging.getLogger("uvicorn.error")
-
-
-def redact(message: str, *keys: str) -> str:
-    for key in keys:
-        if key:
-            message = message.replace(key, "[REDACTED]")
-    return re.sub(r"(?i)(apikey|api_key|key)=([^\s&#\"']+)", r"\1=[REDACTED]", message)[:2000]
 
 
 class YandexMapsClient:
-    def fetch_json(self, url: str, params: dict[str, str], referer: str) -> Any:
+    def fetch_json(
+        self, url: str, params: dict[str, str], referer: str, *, operation: str
+    ) -> Any:
         request = UrlRequest(f"{url}?{urlencode(params)}", headers={"Referer": referer})
+        upstream = urlsplit(url).netloc
+        upstream_status = None
+        started = perf_counter()
         try:
             with urlopen(request, timeout=10) as response:
-                return json.load(response)
+                upstream_status = getattr(response, "status", None)
+                data = json.load(response)
         except HTTPError as exc:
-            detail = exc.read(2048).decode("utf-8", errors="replace") if exc.fp else ""
-            logger.warning(
-                "Yandex Maps API error: service=%s status=%s referer_host=%s response=%r",
-                urlsplit(url).netloc,
-                exc.code,
-                urlsplit(referer).netloc,
-                redact(detail, params.get("apikey", "")),
+            exc.close()
+            record_dependency(
+                "yandex_maps",
+                operation,
+                started,
+                error=exc,
+                upstream=upstream,
+                upstream_status=exc.code,
             )
             if exc.code in (401, 403):
-                if urlsplit(url).netloc == "search-maps.yandex.ru":
+                if upstream == "search-maps.yandex.ru":
                     message = (
                         "Яндекс отклонил доступ к API Поиска по организациям. "
                         "Подсказки доступны, но получить точку выбранного заведения пока нельзя."
@@ -53,10 +52,16 @@ class YandexMapsClient:
                 message = "Поиск Яндекс Карт временно недоступен. Попробуйте ещё раз."
             raise MapsUnavailableError(message) from None
         except (URLError, TimeoutError, OSError, ValueError) as exc:
-            logger.warning(
-                "Yandex Maps request failed: service=%s error_type=%s detail=%r",
-                urlsplit(url).netloc,
-                type(exc).__name__,
-                redact(str(exc), params.get("apikey", "")),
+            record_dependency(
+                "yandex_maps",
+                operation,
+                started,
+                error=exc,
+                upstream=upstream,
+                upstream_status=upstream_status,
             )
             raise MapsUnavailableError("Не удалось получить ответ Яндекс Карт.") from None
+        record_dependency(
+            "yandex_maps", operation, started, upstream=upstream, upstream_status=upstream_status
+        )
+        return data

@@ -1,11 +1,15 @@
 import asyncio
+import json
+import logging
 from contextlib import asynccontextmanager
+from io import StringIO
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import asyncpg
 import grpc
 import pytest
+from dvizh_logging import JsonFormatter
 from redis.exceptions import ConnectionError as RedisConnectionError
 
 from dvizh_recommendation.config import Settings
@@ -80,6 +84,66 @@ def test_grpc_preserves_query_page_and_renewal_contract() -> None:
             pagination.refresh.assert_awaited_once_with("user-1", "session-1")
 
     asyncio.run(run())
+
+
+def test_concurrent_grpc_requests_keep_ids_and_log_safe_failures(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    async def run():
+        get_entered = asyncio.Event()
+        refresh_entered = asyncio.Event()
+        finish_refresh = asyncio.Event()
+
+        async def get_page(*args, **kwargs):
+            get_entered.set()
+            await refresh_entered.wait()
+            logger.info("Page read")
+            return RecommendationPage((), None)
+
+        async def refresh(*args):
+            refresh_entered.set()
+            await finish_refresh.wait()
+            raise RuntimeError("redis://:test-secret@redis.invalid")
+
+        pagination = SimpleNamespace(get_page=get_page, refresh=refresh)
+        async with grpc_client(pagination) as client:
+            get_call = client.GetRecommendations(valid_request(), timeout=5)
+            await asyncio.wait_for(get_entered.wait(), timeout=2)
+            refresh_call = client.RefreshSession(
+                pb.RefreshSessionRequest(user_id="user-1", session_id="session-2"),
+                metadata=(("x-request-id", "request-2"),),
+                timeout=5,
+            )
+            assert isinstance(await get_call, pb.GetRecommendationsResponse)
+            finish_refresh.set()
+            with pytest.raises(grpc.aio.AioRpcError) as error:
+                await refresh_call
+            assert error.value.code() == grpc.StatusCode.INTERNAL
+
+    logger = logging.getLogger("dvizh_recommendation")
+    output = StringIO()
+    handler = logging.StreamHandler(output)
+    handler.setFormatter(JsonFormatter("recommendation-service"))
+    logger.addHandler(handler)
+    try:
+        with caplog.at_level(logging.INFO, logger.name):
+            asyncio.run(run())
+    finally:
+        logger.removeHandler(handler)
+
+    assert "test-secret" not in output.getvalue()
+    records = [json.loads(line) for line in output.getvalue().splitlines()]
+    completed = {record["operation"]: record for record in records if "operation" in record}
+    assert len(records) == 3
+    page_read = next(record for record in records if record.get("message") == "Page read")
+    assert page_read["request_id"] == completed["GetRecommendations"]["request_id"] == "request-1"
+    assert page_read["session_id"] == completed["GetRecommendations"]["session_id"] == "session-1"
+    assert completed["GetRecommendations"]["status"] == "OK"
+    refresh_log = completed["RefreshSession"]
+    assert (refresh_log["request_id"], refresh_log["session_id"]) == ("request-2", "session-2")
+    assert refresh_log["status"] == "INTERNAL"
+    assert refresh_log["error_type"] == "RuntimeError"
+    assert refresh_log["error_stack"]
 
 
 @pytest.mark.parametrize("field", ["user_id", "session_id", "request_id"])

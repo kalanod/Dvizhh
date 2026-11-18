@@ -1,0 +1,147 @@
+discovery.docker "application" {
+  host             = "http://docker-api:2375"
+  refresh_interval = "5s"
+
+  filter {
+    name   = "label"
+    values = ["com.docker.compose.project=" + sys.env("COMPOSE_PROJECT_NAME")]
+  }
+}
+
+discovery.relabel "application" {
+  targets = discovery.docker.application.targets
+
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+    regex         = "nginx|web-app|backend|auth-api|recommendation-service"
+    action        = "keep"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+    target_label  = "service_name"
+  }
+}
+
+loki.source.docker "application" {
+  host       = "http://docker-api:2375"
+  targets    = discovery.relabel.application.output
+  forward_to = [loki.process.application.receiver]
+}
+
+loki.process "application" {
+  stage.json {
+    expressions    = { level = "level" }
+    drop_malformed = true
+  }
+
+  stage.template {
+    source   = "level"
+    template = "{{ ToLower .Value }}"
+  }
+
+  stage.labels {
+    values = { level = "level" }
+  }
+
+  stage.match {
+    selector = "{service_name=~\".+\",level!~\"debug|info|warning|error|critical\"}"
+    action   = "drop"
+  }
+
+  forward_to = [loki.write.local.receiver]
+}
+
+loki.write "local" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+}
+
+otelcol.receiver.otlp "application" {
+  grpc {
+    endpoint = "0.0.0.0:4317"
+  }
+
+  http {
+    endpoint = "0.0.0.0:4318"
+  }
+
+  output {
+    traces = [otelcol.processor.attributes.application_traces.input]
+  }
+}
+
+otelcol.processor.attributes "application_traces" {
+  action {
+    key    = "http.target"
+    action = "delete"
+  }
+  action {
+    key    = "http.user_agent"
+    action = "delete"
+  }
+  action {
+    key    = "net.sock.peer.addr"
+    action = "delete"
+  }
+
+  output {
+    traces = [otelcol.processor.tail_sampling.application.input]
+  }
+}
+
+otelcol.processor.tail_sampling "application" {
+  decision_wait                     = "75s"
+  decision_wait_after_root_received = "6s"
+  num_traces                        = 100000
+  expected_new_traces_per_sec       = 1000
+
+  policy {
+    name = "errors"
+    type = "status_code"
+
+    status_code {
+      status_codes = ["ERROR"]
+    }
+  }
+
+  policy {
+    name = "slow"
+    type = "latency"
+
+    latency {
+      // The policy compares whole milliseconds with a strict greater-than.
+      threshold_ms = 999
+    }
+  }
+
+  policy {
+    name = "request-diagnostics-or-sample"
+    type = "ottl_condition"
+
+    ottl_condition {
+      error_mode = "ignore"
+      span = [
+        "attributes[\"http.response.status_code\"] != nil and attributes[\"http.response.status_code\"] >= 400",
+        "attributes[\"http.status_code\"] != nil and attributes[\"http.status_code\"] >= 400",
+        "attributes[\"status\"] == \"CANCELLED\"",
+        // Same trace ID cutoff (0x0ccc) as request logging.
+        "IsMatch(trace_id.string, \"^0([0-9ab][0-9a-f]{2}|c[0-9ab][0-9a-f]|cc[0-9ab])\")",
+      ]
+    }
+  }
+
+  output {
+    traces = [otelcol.exporter.otlp.tempo.input]
+  }
+}
+
+otelcol.exporter.otlp "tempo" {
+  client {
+    endpoint = "tempo:4317"
+    tls {
+      insecure = true
+    }
+  }
+}

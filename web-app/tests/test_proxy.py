@@ -1,4 +1,4 @@
-"""Build and test the isolated nginx -> web-app -> backend proxy chain."""
+"""Build and test the isolated nginx -> web-app proxy routes."""
 
 import http.client
 import json
@@ -20,15 +20,22 @@ def docker(*args: str) -> str:
     return result.stdout.strip()
 
 
-class Backend(BaseHTTPRequestHandler):
+class Upstream(BaseHTTPRequestHandler):
     posts = 0
 
     def do_GET(self) -> None:
-        self.respond({"status": "ok", "posts": Backend.posts, "path": self.path})
+        self.respond({
+            "status": "ok",
+            "posts": Upstream.posts,
+            "path": self.path,
+            "port": self.server.server_port,
+            "request_id": self.headers.get("X-Request-ID"),
+            "traceparent": self.headers.get("traceparent"),
+        })
 
     def do_POST(self) -> None:
         size = len(self.rfile.read(int(self.headers.get("Content-Length", "0"))))
-        Backend.posts += 1
+        Upstream.posts += 1
         self.respond({"bytes": size, "path": self.path})
 
     def respond(self, value: dict) -> None:
@@ -60,14 +67,15 @@ class ProxyTests(unittest.TestCase):
             cls.images.append(name)
         docker("network", "create", cls.network)
         cls.network_created = True
-        cls.start(
-            "backend", "python:3.12-slim",
-            [
-                "--mount",
-                f"type=bind,source={Path(__file__).resolve()},target=/test_proxy.py,readonly",
-            ],
-            ["python", "/test_proxy.py", "--backend"],
-        )
+        for alias, port in (("backend", 8000), ("auth-api", 8003)):
+            cls.start(
+                alias, "python:3.12-slim",
+                [
+                    "--mount",
+                    f"type=bind,source={Path(__file__).resolve()},target=/test_proxy.py,readonly",
+                ],
+                ["python", "/test_proxy.py", "--upstream", str(port)],
+            )
         cls.ports = []
         for alias, image, port in (("web-app", web_image, 8002), ("edge", edge_image, 80)):
             name = cls.start(
@@ -144,6 +152,27 @@ class ProxyTests(unittest.TestCase):
                 path = "/api/events/event?actor_id=owner&viewer_id=owner"
                 self.assertEqual(json.loads(self.request(port, "GET", path)[1])["path"], path)
 
+    def test_auth_proxy_routes_and_propagates_request_id(self) -> None:
+        request_id = uuid4().hex
+        path = "/api/auth/probe?test=1"
+        headers = {
+            "X-Request-ID": request_id,
+            "traceparent": f"00-{uuid4().hex}-{uuid4().hex[:16]}-01",
+        }
+        for port in self.ports:
+            with self.subTest(port=port):
+                status, body = self.request(port, "GET", path, headers=headers)
+                self.assertEqual(status, 200)
+                result = json.loads(body)
+                self.assertEqual(result["path"], path)
+                self.assertEqual(result["port"], 8003)
+                self.assertIsNone(result["traceparent"])
+                self.assertRegex(result["request_id"], r"^[0-9a-f]{32}$")
+                if port == self.ports[0]:
+                    self.assertEqual(result["request_id"], request_id)
+                else:
+                    self.assertNotEqual(result["request_id"], request_id)
+
     def test_declared_overflow_never_reaches_backend(self) -> None:
         for port in self.ports:
             with self.subTest(port=port):
@@ -175,7 +204,7 @@ class ProxyTests(unittest.TestCase):
 
 
 if __name__ == "__main__":
-    if "--backend" in sys.argv:
-        HTTPServer(("0.0.0.0", 8000), Backend).serve_forever()
+    if "--upstream" in sys.argv:
+        HTTPServer(("0.0.0.0", int(sys.argv[-1])), Upstream).serve_forever()
     else:
         unittest.main(verbosity=2)
