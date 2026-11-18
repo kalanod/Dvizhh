@@ -1,5 +1,4 @@
 import os
-import re
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -9,6 +8,7 @@ from uuid import UUID
 
 from pydantic import BaseModel
 
+from .model_registry import register_model_version, validate_model_uri
 from .retrieval import EmbeddingSpace
 
 ENCODER_FILE = "encoder.json"
@@ -65,15 +65,10 @@ def _adapter(kind: str) -> tuple[Callable[[Path, str], EmbeddingEncoder], tuple[
     raise ValueError("Unsupported embedding encoder kind")
 
 
-def _validate_model_uri(uri: str) -> None:
-    if re.fullmatch(r"models:/[^/@\s]+/[1-9][0-9]*", uri) is None:
-        raise ValueError("Use an exact MLflow model URI: models:/<name>/<version>")
-
-
 def load_encoder(uri: str) -> EmbeddingEncoder:
     from mlflow.artifacts import download_artifacts
 
-    _validate_model_uri(uri)
+    validate_model_uri(uri)
     with TemporaryDirectory() as directory:
         manifest = Path(
             download_artifacts(artifact_uri=f"{uri}/{ENCODER_FILE}", dst_path=directory)
@@ -95,30 +90,19 @@ def register_encoder(
     params: Mapping[str, object],
 ) -> str:
     import mlflow
-    from mlflow.exceptions import MlflowException
 
-    _validate_model_uri(f"models:/{name}/1")
+    validate_model_uri(f"models:/{name}/1")
     kind = _EncoderKind.model_validate_json((directory / ENCODER_FILE).read_bytes()).kind
     _, files = _adapter(kind)
     artifacts = [directory / filename for filename in (ENCODER_FILE, *files)]
     if not all(artifact.is_file() for artifact in artifacts):
         raise ValueError("Embedding encoder artifact is incomplete")
 
-    mlflow.set_experiment(experiment)
-    client = mlflow.MlflowClient()
-    try:
-        client.create_registered_model(name)
-    except MlflowException as error:
-        if error.error_code != "RESOURCE_ALREADY_EXISTS":
-            raise
-
-    model_tags = {**tags, "encoder_kind": kind}
-    with mlflow.start_run(tags=model_tags) as run:
+    def log_run(artifact_path: str) -> None:
         mlflow.log_params(params)
         mlflow.log_metrics(metrics)
         for artifact in artifacts:
-            mlflow.log_artifact(str(artifact), artifact_path="encoder")
-        version = client.create_model_version(
-            name, mlflow.get_artifact_uri("encoder"), run_id=run.info.run_id, tags=model_tags,
-        )
-    return f"models:/{version.name}/{version.version}"
+            mlflow.log_artifact(str(artifact), artifact_path=artifact_path)
+
+    model_tags = {**tags, "encoder_kind": kind}
+    return register_model_version(experiment, name, "encoder", model_tags, log_run)

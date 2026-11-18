@@ -8,7 +8,7 @@ from typing import Literal
 from pydantic import BaseModel, Field, JsonValue
 
 from .features import FEATURE_SCHEMAS, encode_features
-from .model_registry import MODEL_FILE, LinearModel
+from .model_registry import MODEL_FILE, LinearModel, register_model_version
 
 
 class Example(BaseModel):
@@ -89,34 +89,22 @@ def train_and_register(
     config: TrainingConfig | None = None,
 ) -> str:
     import mlflow
-    from mlflow.exceptions import MlflowException
 
     config = config or TrainingConfig()
     model, dataset_version, metrics = fit_ranker(dataset, config)
-    mlflow.set_experiment(experiment)
-    client = mlflow.MlflowClient()
-    try:
-        client.create_registered_model(name)
-    except MlflowException as error:
-        if error.error_code != "RESOURCE_ALREADY_EXISTS":
-            raise
     tags = {
         "dataset_version": dataset_version,
         "feature_version": model.feature_version,
         "git_sha": git_sha,
     }
-    with mlflow.start_run(tags=tags) as run:
+
+    def log_run(artifact_path: str) -> None:
         mlflow.log_param("algorithm", model.kind)
         mlflow.log_params(config.model_dump())
         mlflow.log_metrics(metrics)
-        mlflow.log_dict(model.model_dump(mode="json"), f"ranker/{MODEL_FILE}")
-        version = client.create_model_version(
-            name,
-            mlflow.get_artifact_uri("ranker"),
-            run_id=run.info.run_id,
-            tags=tags,
-        )
-    return f"models:/{version.name}/{version.version}"
+        mlflow.log_dict(model.model_dump(mode="json"), f"{artifact_path}/{MODEL_FILE}")
+
+    return register_model_version(experiment, name, "ranker", tags, log_run)
 
 
 def main() -> None:
