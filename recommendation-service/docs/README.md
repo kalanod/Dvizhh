@@ -16,7 +16,7 @@
 
 ## Two-Tower и HNSW
 
-Контракты векторов пользователя и мероприятий и поиска HNSW определены
+Типы векторов, метаданных и результатов поиска определены
 в [retrieval.py](../src/dvizh_recommendation/retrieval.py).
 
 | Тип | Данные |
@@ -24,7 +24,6 @@
 | `EmbeddingSpace` | Версия модели `model_id`, размерность `dimension`, метрика `metric`. |
 | `Embedding` | Описание пространства `space` и координаты вектора `values`. |
 | `IndexedItem` | `item_id`, `embedding` и метаданные из схемы `event_embeddings`. |
-| `ItemSearchQuery` | Вектор пользователя `embedding`, `filters`, число айтемов `limit`. |
 | `ScoredItem` | `item_id`, `retrieval_score`. |
 
 `model_id` обозначает версию модели и подготовки признаков.
@@ -72,7 +71,8 @@ uv run python -m dvizh_recommendation.vector_index embeddings.json
 `users` с `user_id` и `values`. Хэш вычисляет `catalog_content_hash`.
 Команда публикации возвращает ключ неизменяемого набора в поле `revision`.
 Для выкладки задайте `VECTOR_MODEL_ID` и точный `VECTOR_INDEX_REVISION` из вывода
-команды публикации. Без ревизии новые сессии берут последнюю публикацию энкодера.
+команды публикации. Без явно заданной ревизии RecSys при запуске выбирает
+последнюю публикацию энкодера для новых сессий.
 Продолжение использует исходную публикацию, в том числе после перезапуска.
 Если есть подходящие мероприятия, но в наборе нет вектора пользователя,
 RecSys возвращает `FAILED_PRECONDITION` с метаданными `recsys-reason=no-user-vector`.

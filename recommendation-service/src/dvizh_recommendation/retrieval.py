@@ -6,7 +6,6 @@ from pydantic import (
     BaseModel,
     Field,
     FiniteFloat,
-    JsonValue,
     model_validator,
 )
 
@@ -46,12 +45,6 @@ class IndexedItem(BaseModel, extra="forbid", frozen=True, allow_inf_nan=False):
     latitude: FiniteFloat | None = Field(default=None, ge=-90, le=90)
     longitude: FiniteFloat | None = Field(default=None, ge=-180, le=180)
     topic_ids: tuple[UUID, ...] = ()
-
-
-class ItemSearchQuery(BaseModel, extra="forbid", frozen=True, allow_inf_nan=False):
-    embedding: Embedding
-    filters: dict[str, JsonValue] = Field(default_factory=dict)
-    limit: int = Field(gt=0, strict=True)
 
 
 class ScoredItem(BaseModel, extra="forbid", frozen=True, allow_inf_nan=False):

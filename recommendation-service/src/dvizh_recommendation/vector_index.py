@@ -4,18 +4,16 @@ import hashlib
 import json
 import os
 import struct
-from collections.abc import Sequence
 from contextlib import AsyncExitStack
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Self
 from uuid import UUID
 
 import asyncpg
-from pydantic import AwareDatetime, BaseModel, Field, FiniteFloat, model_validator
 
-from .recommendations import Candidate, CandidateBatch, NoUserVector, RecommendationQuery
-from .retrieval import Embedding, EmbeddingSpace, IndexedItem, ScoredItem
+from .embedding_snapshot import EmbeddingSnapshot, catalog_content_hash
+from .index_revision import find_published_revision, hnsw_index_name
+from .retrieval import Embedding, IndexedItem
 
 _CATALOG = """
 SELECT DISTINCT ON (item_id) item_id, title, description, price_type, format, city,
@@ -37,55 +35,6 @@ INSERT INTO public.event_embeddings (
     last_ends_at, next_starts_at, price_type, format, city, latitude, longitude, topic_ids
 ) VALUES ($1, $2, $3::text::vector, $4, true, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 """
-
-_PUBLISHED_INDEX = """
-SELECT model_name, generated_at, artifact_sha256, dimension, metric
-FROM public.embedding_index_versions
-WHERE (model_id = $1 OR (model_id IS NULL AND model_name = $1))
-  AND ($2::text IS NULL OR model_name = $2)
-ORDER BY generated_at DESC
-LIMIT 1
-"""
-
-
-class ItemVector(BaseModel, extra="forbid", frozen=True):
-    item_id: UUID
-    content_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
-    values: tuple[FiniteFloat, ...]
-
-
-class UserVector(BaseModel, extra="forbid", frozen=True):
-    user_id: UUID
-    values: tuple[FiniteFloat, ...]
-
-
-class EmbeddingSnapshot(BaseModel, extra="forbid", frozen=True):
-    space: EmbeddingSpace
-    generated_at: AwareDatetime
-    items: tuple[ItemVector, ...]
-    users: tuple[UserVector, ...]
-
-    @model_validator(mode="after")
-    def validate_space_and_ids(self) -> Self:
-        if self.space.dimension != 384 or self.space.metric != "cosine":
-            raise ValueError("The index requires 384-dimensional cosine embeddings")
-        if len({item.item_id for item in self.items}) != len(self.items):
-            raise ValueError("Embedding snapshot contains duplicate item IDs")
-        if len({user.user_id for user in self.users}) != len(self.users):
-            raise ValueError("Embedding snapshot contains duplicate user IDs")
-        return self
-
-
-def catalog_content_hash(title: str, description: str, topic_ids: Sequence[UUID]) -> str:
-    payload = [title, description, sorted(map(str, topic_ids))]
-    content = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
-    return hashlib.sha256(content.encode()).hexdigest()
-
-
-def _index_name(model_id: str) -> str:
-    digest = hashlib.sha256(model_id.encode()).hexdigest()[:32]
-    return f"event_embeddings_hnsw_{digest}"
-
 
 def _vector_text(embedding: Embedding) -> str:
     shape = f"{embedding.space.dimension}f"
@@ -152,7 +101,7 @@ async def refresh_index(
         await vectors.execute(
             "SELECT pg_advisory_xact_lock(hashtextextended('event_embeddings', 0))"
         )
-        published = await vectors.fetchrow(_PUBLISHED_INDEX, model_id, None)
+        published = await find_published_revision(vectors, model_id)
         if published is not None and published["generated_at"] >= snapshot.generated_at:
             if published["artifact_sha256"] != digest:
                 raise ValueError("A newer or different snapshot has already been published")
@@ -201,7 +150,7 @@ async def refresh_index(
         )
         literal = await vectors.fetchval("SELECT quote_literal($1::text)", revision)
         await vectors.execute(
-            f"CREATE INDEX {_index_name(revision)} "
+            f"CREATE INDEX {hnsw_index_name(revision)} "
             "ON public.event_embeddings USING hnsw (embedding vector_cosine_ops) "
             f"WHERE is_candidate AND model_name = {literal}"
         )
@@ -212,102 +161,6 @@ async def refresh_index(
         "inactive_items": len(items) - len(indexed) - stale,
         "indexed_users": len(user_rows),
     }
-
-
-class HnswCandidates:
-    def __init__(self, pool: asyncpg.Pool, model_id: str, revision: str | None = None) -> None:
-        self.pool = pool
-        self.model_id = model_id
-        self.revision = revision
-
-    async def check_ready(self) -> bool:
-        published = await self.pool.fetchrow(_PUBLISHED_INDEX, self.model_id, self.revision)
-        if published is None or published["dimension"] != 384 or published["metric"] != "cosine":
-            return False
-        revision = published["model_name"]
-        if not await self.pool.fetchval(
-            """
-            SELECT EXISTS (
-                SELECT 1 FROM pg_index JOIN pg_class ON oid = indexrelid
-                JOIN pg_am ON pg_am.oid = pg_class.relam
-                WHERE indexrelid = to_regclass($1) AND indisvalid AND indisready
-                  AND amname = 'hnsw'
-                  AND indrelid = 'public.event_embeddings'::regclass
-            )
-            """,
-            f"public.{_index_name(revision)}",
-        ):
-            return False
-        self.revision = revision
-        return True
-
-    async def generate(
-        self,
-        query: RecommendationQuery,
-        *,
-        limit: int,
-        exclude_ids: Sequence[UUID],
-        eligible_ids: Sequence[UUID] | None = None,
-    ) -> CandidateBatch:
-        if limit <= 0:
-            raise ValueError("Candidate limit must be positive")
-        if eligible_ids is not None and not eligible_ids:
-            return CandidateBatch((), exhausted=True)
-        viewer = query.viewer_id
-        if viewer is None:
-            raise NoUserVector
-        excluded = list(exclude_ids)
-        eligible = None if eligible_ids is None else list(eligible_ids)
-        async with (
-            self.pool.acquire() as connection,
-            connection.transaction(isolation="repeatable_read", readonly=True),
-        ):
-            user = await connection.fetchrow(
-                "SELECT embedding::text AS embedding, quote_literal(model_name) AS version "
-                "FROM public.user_embeddings WHERE model_name = $1 AND user_id = $2",
-                self.revision,
-                viewer,
-            )
-            if user is None:
-                raise NoUserVector
-            await connection.execute("SET LOCAL hnsw.iterative_scan = 'strict_order'")
-            rows = await connection.fetch(
-                f"""
-                WITH nearest AS MATERIALIZED (
-                    SELECT event_id, embedding <=> $1::text::vector AS distance
-                    FROM public.event_embeddings
-                    WHERE is_candidate AND model_name = {user["version"]}
-                        AND NOT (event_id = ANY($3::uuid[]))
-                        AND ($4::uuid[] IS NULL OR event_id = ANY($4))
-                    ORDER BY embedding <=> $1::text::vector
-                    LIMIT $2
-                )
-                SELECT event_id AS item_id, 1 - distance AS retrieval_score
-                FROM nearest ORDER BY distance, event_id
-                """,
-                user["embedding"],
-                limit,
-                excluded,
-                eligible,
-            )
-            has_more = len(rows) == limit or await connection.fetchval(
-                """
-                SELECT EXISTS (
-                    SELECT 1 FROM public.event_embeddings
-                    WHERE is_candidate AND model_name = $1
-                        AND NOT (event_id = ANY($2::uuid[]))
-                        AND ($3::uuid[] IS NULL OR event_id = ANY($3))
-                )
-                """,
-                self.revision,
-                excluded + [row["item_id"] for row in rows],
-                eligible,
-            )
-        scored = (ScoredItem.model_validate(dict(row)) for row in rows)
-        return CandidateBatch(
-            tuple(Candidate(item.item_id, item.retrieval_score) for item in scored),
-            exhausted=not has_more,
-        )
 
 
 async def _refresh(snapshot: EmbeddingSnapshot) -> dict[str, str | int]:
