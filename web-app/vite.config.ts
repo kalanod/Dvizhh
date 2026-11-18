@@ -13,7 +13,10 @@ export default defineConfig(({ mode }) => {
             port: 5173,
             proxy: {
                 "/api/auth": env.AUTH_URL || "http://localhost:8003",
-                "/api": env.BACKEND_URL || "http://localhost:8000",
+                "/api": {
+                    target: env.BACKEND_URL || "http://localhost:8000",
+                    changeOrigin: false,
+                },
             },
         },
     };
