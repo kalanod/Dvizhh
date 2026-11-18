@@ -16,6 +16,12 @@ import pytest
 from redis.asyncio import Redis
 
 from dvizh_recommendation.config import Settings
+from dvizh_recommendation.embedding_snapshot import (
+    EmbeddingSnapshot,
+    ItemVector,
+    UserVector,
+    catalog_content_hash,
+)
 from dvizh_recommendation.generated import recommendation_service_pb2 as pb
 from dvizh_recommendation.generated.recommendation_service_pb2_grpc import (
     RecommendationServiceStub,
@@ -25,13 +31,7 @@ from dvizh_recommendation.pagination import SessionStore
 from dvizh_recommendation.prepare_model import prepare_ranker
 from dvizh_recommendation.retrieval import EmbeddingSpace
 from dvizh_recommendation.train import train_and_register
-from dvizh_recommendation.vector_index import (
-    EmbeddingSnapshot,
-    ItemVector,
-    UserVector,
-    catalog_content_hash,
-    refresh_index,
-)
+from dvizh_recommendation.vector_index import refresh_index
 
 if TYPE_CHECKING:
     from conftest import IntegrationDatabases

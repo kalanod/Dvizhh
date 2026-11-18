@@ -18,13 +18,13 @@ from .config import Settings, get_settings
 from .database import Databases, connect_databases
 from .feedback_health import monitor_feedback
 from .generated import recommendation_service_pb2_grpc
+from .hnsw import HnswCandidates
 from .journal import RecommendationJournal
 from .model_registry import load_ranker
 from .pagination import Pagination, SessionStore
 from .recommendations import BASELINE_VERSION, Ranker, RecommendationProvider
 from .redis import connect_redis
 from .service import SERVICE_NAME, RecommendationService
-from .vector_index import HnswCandidates
 
 HEALTH_CHECK_INTERVAL_SECONDS = 5
 logger = logging.getLogger(__name__)
