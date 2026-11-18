@@ -125,6 +125,11 @@ services:
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
       REDIS_TIMEOUT_SECONDS: ${REDIS_TIMEOUT_SECONDS:-5}
       RECOMMENDATION_TIMEOUT_SECONDS: ${RECOMMENDATION_TIMEOUT_SECONDS:-5}
+      RANKER_MODEL_URI: ${RANKER_MODEL_URI:-}
+      PREVIOUS_RANKER_MODEL_URI: ${PREVIOUS_RANKER_MODEL_URI:-}
+      RANKER_MODEL_DIR: /models
+    volumes:
+      - ranker-models:/models:ro
     depends_on:
       database-init:
         condition: service_completed_successfully
@@ -141,6 +146,23 @@ services:
       retries: 5
       start_period: 10s
     restart: unless-stopped
+
+  prepare-ranker:
+    profiles: [tools]
+    build:
+      context: ./recommendation-service
+      additional_contexts:
+        dvizh_logging: ./packages/dvizh-logging
+    environment:
+      MLFLOW_TRACKING_URI: ${MLFLOW_TRACKING_URI:-http://mlflow:5000}
+      MLFLOW_TRACKING_USERNAME: ${MLFLOW_TRACKING_USERNAME:-}
+      MLFLOW_TRACKING_PASSWORD: ${MLFLOW_TRACKING_PASSWORD:-}
+      MLFLOW_ENABLE_PROXY_MULTIPART_DOWNLOAD: "false"
+      RANKER_MODEL_DIR: /models
+    volumes:
+      - ranker-models:/models
+    entrypoint: ["python", "-m", "dvizh_recommendation.prepare_model"]
+    command: []
 
   database-init:
     build:
@@ -262,3 +284,4 @@ volumes:
   pgvector-data:
   redis-data:
   minio-data:
+  ranker-models:

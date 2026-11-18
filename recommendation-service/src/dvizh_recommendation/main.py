@@ -16,12 +16,20 @@ from .config import Settings, get_settings
 from .database import Databases, connect_databases
 from .generated import recommendation_service_pb2_grpc
 from .journal import RecommendationJournal
+from .model_registry import load_ranker
 from .pagination import Pagination, SessionStore
 from .redis import connect_redis
 from .service import SERVICE_NAME, RecommendationService
 
 HEALTH_CHECK_INTERVAL_SECONDS = 5
 logger = logging.getLogger(__name__)
+
+
+async def _load_provider(
+    databases: Databases, settings: Settings, ranker_uri: str | None
+) -> LatestRecommendations:
+    ranker = await load_ranker(ranker_uri, settings.ranker_model_dir) if ranker_uri else None
+    return LatestRecommendations(databases.source, settings.database_timeout_seconds, ranker=ranker)
 
 
 async def _update_readiness(
@@ -82,8 +90,18 @@ async def running_server(
         connect_databases(settings) as databases,
         connect_redis(settings) as redis,
     ):
-        store = SessionStore(redis)
-        provider = LatestRecommendations(databases.source, settings.database_timeout_seconds)
+        baseline = LatestRecommendations(databases.source, settings.database_timeout_seconds)
+        provider = (
+            await _load_provider(databases, settings, settings.ranker_model_uri)
+            if settings.ranker_model_uri else baseline
+        )
+        previous_providers = {baseline.version: baseline}
+        if settings.previous_ranker_model_uri:
+            previous_provider = await _load_provider(
+                databases, settings, settings.previous_ranker_model_uri
+            )
+            previous_providers[previous_provider.version] = previous_provider
+        store = SessionStore(redis, initial_version=provider.version)
         availability_filter = partial(
             filter_available_items,
             databases.source,
@@ -94,6 +112,8 @@ async def running_server(
             provider,
             availability_filter,
             timeout_seconds=settings.recommendation_timeout_seconds,
+            provider_version=provider.version,
+            previous_providers=previous_providers,
         )
         journal = RecommendationJournal(
             databases.vector, timeout_seconds=settings.database_timeout_seconds

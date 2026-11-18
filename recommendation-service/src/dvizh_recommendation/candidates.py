@@ -1,5 +1,6 @@
 from collections.abc import Sequence
 from datetime import UTC, datetime
+from math import isfinite
 from uuid import UUID
 
 import asyncpg
@@ -8,11 +9,20 @@ from .catalog import CatalogFilters, catalog_items
 from .recommendations import (
     BASELINE_VERSION,
     FeatureSnapshot,
+    Ranker,
     RecommendationBatch,
     RecommendationQuery,
 )
 
 FEATURE_VERSION = "catalog-v1"
+FEATURE_SCHEMA = {
+    "hours_until_start": "number",
+    "hours_since_publication": "number",
+    "participants_count": "number",
+    "price_type": "category",
+    "format": "category",
+    "join_policy": "category",
+}
 
 
 async def get_candidates(
@@ -60,10 +70,15 @@ class LatestRecommendations:
         self,
         pool: asyncpg.Pool,
         timeout_seconds: float = 5,
+        *,
+        ranker: Ranker | None = None,
     ) -> None:
+        if ranker is not None and ranker.feature_version != FEATURE_VERSION:
+            raise ValueError("Ranker feature schema is incompatible")
         self.pool = pool
         self.timeout_seconds = timeout_seconds
-        self.version = BASELINE_VERSION
+        self.ranker = ranker
+        self.version = ranker.version if ranker is not None else BASELINE_VERSION
 
     async def recommend(
         self,
@@ -84,9 +99,15 @@ class LatestRecommendations:
             limit=limit + 1,
             timeout_seconds=self.timeout_seconds,
         )
-        page = rows[:limit]
+        snapshots = [_snapshot(row, as_of, self.version) for row in rows]
+        order = list(range(len(rows)))
+        if self.ranker is not None and snapshots:
+            scores = await self.ranker.score([snapshot.features for snapshot in snapshots])
+            if len(scores) != len(rows) or not all(map(isfinite, scores)):
+                raise RuntimeError("Ranker returned invalid scores")
+            order.sort(key=lambda index: -scores[index])
         return RecommendationBatch(
-            item_ids=tuple(str(row["item_id"]) for row in page),
+            item_ids=tuple(str(rows[index]["item_id"]) for index in order[:limit]),
             exhausted=len(rows) <= limit,
-            snapshots=tuple(_snapshot(row, as_of, self.version) for row in page),
+            snapshots=tuple(snapshots[index] for index in order[:limit]),
         )

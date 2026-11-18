@@ -1,4 +1,4 @@
-"""Check the recommendation bridge and failover on a disposable Compose project."""
+"""Check recommendation attribution and failover on a disposable Compose project."""
 
 import argparse
 import json
@@ -75,9 +75,9 @@ def run(command: list[str], *, observability: bool = False) -> None:
         mapping = compose("port", service, port)
         return f"http://127.0.0.1:{mapping.rsplit(':', 1)[1]}"
 
-    def sql(service: str, statement: str) -> str:
+    def source_sql(statement: str) -> str:
         return compose(
-            "exec", "-T", service, "sh", "-ec",
+            "exec", "-T", "postgres", "sh", "-ec",
             'psql -X -q -U "$POSTGRES_USER" -d "$POSTGRES_DB" -At -v ON_ERROR_STOP=1',
             stdin=statement,
         )
@@ -135,8 +135,7 @@ def run(command: list[str], *, observability: bool = False) -> None:
 
     oldest, older, recent = event("oldest"), event("older"), event("recent")
     recommended = event("recurring", selected - timedelta(days=1))
-    occurrence = sql(
-        "postgres",
+    occurrence = source_sql(
         "INSERT INTO event_occurrences (event_id, starts_at, timezone) "
         f"VALUES ('{UUID(recommended['id'])}', '{selected.isoformat()}', 'UTC') RETURNING id;"
     )
@@ -164,32 +163,27 @@ def run(command: list[str], *, observability: bool = False) -> None:
     accepted = post(viewer, "/api/interactions", {"interactions": [impression]}, actor=actor)
     assert accepted["accepted_interaction_ids"] == [impression["interaction_id"]], accepted
     signup = f"/api/events/{recommended['id']}/participants?occurrence_id={occurrence}"
-    click = feedback("JOIN_CLICK")
-    booking = post(viewer, signup, {"user_id": actor, "interaction": click}, actor=actor)
+    booking = post(viewer, signup, {"user_id": actor, "interaction": feedback("JOIN_CLICK")},
+                   actor=actor)
     assert booking["status"] == "GOING", booking
 
-    journal = json.loads(sql(
-        "pgvector",
-        "SELECT items FROM recommendation_pages "
-        f"WHERE request_id = '{UUID(origin['request_id'])}' "
-        f"AND session_id = '{UUID(origin['session_id'])}' AND user_id = '{UUID(actor)}'",
-    ))
-    assert len(journal) == 1 and journal[0]["item_id"] == recommended["id"], journal
-    assert journal[0]["occurrence_id"] == occurrence, journal
-    assert journal[0]["features"]["format"] == "ONLINE", journal
-    assert sql(
-        "postgres",
-        "SELECT count(*) FROM recsys_interactions "
-        f"WHERE interaction_id = '{UUID(impression['interaction_id'])}' "
-        f"AND request_id = '{UUID(origin['request_id'])}'",
-    ) == "1"
-    assert sql(
-        "postgres",
-        "SELECT count(*) FROM recsys_confirmed_registrations "
-        f"WHERE origin_interaction_id = '{UUID(click['interaction_id'])}' "
-        f"AND occurrence_id = '{UUID(occurrence)}'",
-    ) == "1"
-    print("The page journal, impression and confirmed signup share the request origin.")
+    output = f"/tmp/{marker}"
+    compose(
+        "exec", "-T", RECSYS, "python", "-m", "dvizh_recommendation.dataset", output,
+        "--start", (start - timedelta(minutes=1)).isoformat(),
+        "--validation-start", (start + timedelta(days=2)).isoformat(),
+        "--test-start", (start + timedelta(days=3)).isoformat(),
+        "--as-of", (start + timedelta(days=4)).isoformat(),
+        "--observation-hours", "24", "--feature-version", "catalog-v1",
+    )
+    exported = compose("exec", "-T", RECSYS, "cat", output + "/examples.jsonl")
+    examples = map(json.loads, exported.splitlines())
+    attributed = [row for row in examples if row["request_id"] == origin["request_id"]]
+    assert len(attributed) == 1, attributed
+    sample = attributed[0]
+    assert sample["item_id"] == recommended["id"] and sample["label"] == 1, sample
+    assert sample["features"]["format"] == "ONLINE", sample
+    print("HTTP recommendation, selected occurrence and confirmed signup reached the dataset.")
 
     refresh = f"{discovery}/refresh"
     original_cursor = first["next_cursor"]
@@ -202,8 +196,7 @@ def run(command: list[str], *, observability: bool = False) -> None:
 
     shortened = 30
     time.sleep(1)
-    sql(
-        "postgres",
+    source_sql(
         f"UPDATE discovery_sessions SET expires_at = now() + interval '{shortened} seconds' "
         f"{session_predicate};"
     )
@@ -211,8 +204,7 @@ def run(command: list[str], *, observability: bool = False) -> None:
     assert compose(*redis_cli, "EXPIRE", redis_key, str(shortened)) == "1"
     renewed_cursor = post(viewer, refresh, {"cursor": original_cursor}, actor=actor)["next_cursor"]
     assert renewed_cursor != original_cursor
-    assert float(sql(
-        "postgres",
+    assert float(source_sql(
         "SELECT extract(epoch FROM (expires_at - now())) FROM discovery_sessions "
         f"{session_predicate};"
     )) > shortened

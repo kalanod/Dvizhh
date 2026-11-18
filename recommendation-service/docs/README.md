@@ -8,7 +8,8 @@
 
 ## Расчёт
 
-SQL-выдача сортируется по дате публикации.
+По умолчанию SQL-выдача сортируется по дате публикации. Настройки запуска
+позволяют подключить обученный ранкер.
 
 Расчёт подключается через `RecommendationProvider` и возвращает порядок ID
 и признак окончания выдачи. Пагинация не зависит от алгоритма.
@@ -127,6 +128,43 @@ Frontend сохраняет их с карточками для отчёта о 
 Если при повторе запроса доступность карточек изменила страницу, RecSys возвращает
 `ABORTED`. Backend повторяет запрос с прежним `page_token` и новым `request_id`.
 Повтор запроса с прежним `request_id` и другим `page_size` возвращает `INVALID_ARGUMENT`.
+
+## Обучение
+
+Из каталога `recommendation-service` выгрузить фиксированный датасет и обучить ранкер:
+
+```shell
+uv run python -m dvizh_recommendation.dataset ./dataset \
+  --start "$START" --validation-start "$VALIDATION_START" \
+  --test-start "$TEST_START" --as-of "$AS_OF" \
+  --observation-hours "$OBSERVATION_HOURS" --feature-version catalog-v1
+uv run --group train python -m dvizh_recommendation.train ./dataset \
+  --experiment dvizh --model dvizh-ranker --git-sha "$(git rev-parse HEAD)"
+```
+
+Временные границы задаются в ISO 8601 с часовым поясом. Команда обучения использует
+`MLFLOW_TRACKING_URI`, записывает метрики и печатает точный `models:/имя/версия`.
+При запуске команды на хосте укажите доступный с хоста адрес MLflow.
+Параметры обучения передаются в `--config` как JSON.
+
+## Выкладка модели
+
+Укажите `MLFLOW_TRACKING_URI` и, при включённой авторизации, `MLFLOW_TRACKING_USERNAME`
+и `MLFLOW_TRACKING_PASSWORD`. Для обновления работающего RecSys подготовьте
+точную версию в Docker volume и переключите сервис после успешной проверки:
+
+```shell
+model_uri=models:/dvizh-ranker/3
+docker compose run --rm --build prepare-ranker "$model_uri" &&
+  RANKER_MODEL_URI="$model_uri" docker compose up -d --build --no-deps recommendation-service
+```
+
+Сохраните выбранный `RANKER_MODEL_URI` в окружении сервиса для следующих выкладок.
+RecSys при запуске читает локальный файл. Для продолжения активных сессий можно
+указать `PREVIOUS_RANKER_MODEL_URI`.
+Предыдущая версия ранкера также должна быть подготовлена в этом volume.
+При обновлении нескольких экземпляров сначала обновите код на всех экземплярах, затем
+смените версию модели. [Запуск MLflow](../../mlflow/docs/README.md).
 
 ## Запуск
 
