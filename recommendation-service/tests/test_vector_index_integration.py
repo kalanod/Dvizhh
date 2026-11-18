@@ -130,6 +130,7 @@ def test_sessions_keep_their_index_across_republication_and_restart(
             ) as vectors,
             source.acquire() as catalog,
             vectors.acquire() as writer,
+            integration_databases.connections() as (source, index),
             Redis.from_url(integration_redis_url) as redis,
         ):
             try:
@@ -166,7 +167,7 @@ def test_sessions_keep_their_index_across_republication_and_restart(
                 )
 
                 initial = snapshot(now, (nearest, distant, close, medium), (known_viewer,))
-                initial_revision = (await refresh_index(catalog, writer, initial))["revision"]
+                initial_revision = (await refresh_index(source, index, initial))["revision"]
                 async with server() as client:
                     by_index = await page(client, known_viewer, original, second)
                     assert UUID(by_index.items[0].occurrence_id) == occurrences[second]
@@ -193,11 +194,11 @@ def test_sessions_keep_their_index_across_republication_and_restart(
                     (nearest, close, distant, medium),
                     (known_viewer, new_viewer),
                 )
-                updated_revision = (await refresh_index(catalog, writer, updated))["revision"]
+                updated_revision = (await refresh_index(source, index, updated))["revision"]
                 assert updated_revision != initial_revision
                 assert isinstance(initial_revision, str) and isinstance(updated_revision, str)
                 with pytest.raises(ValueError, match="newer or different snapshot"):
-                    await refresh_index(catalog, writer, initial)
+                    await refresh_index(source, index, initial)
 
                 stale_item = updated.items[0].model_copy(update={
                     "content_hash": catalog_content_hash("old title", marker, ()),
@@ -206,7 +207,7 @@ def test_sessions_keep_their_index_across_republication_and_restart(
                     "generated_at": now + timedelta(seconds=2), "items": (stale_item,),
                 })
                 with pytest.raises(ValueError, match="no active items matching the catalogue"):
-                    await refresh_index(catalog, writer, stale)
+                    await refresh_index(source, index, stale)
 
                 async with server(initial_revision) as client:
                     await page(client, known_viewer, pinned_session, second)

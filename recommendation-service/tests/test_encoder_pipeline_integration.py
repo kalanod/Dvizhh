@@ -153,12 +153,11 @@ def test_confirmed_history_trains_and_serves_two_tower_through_hnsw(
             asyncpg.create_pool(
                 integration_databases.source_admin_url, min_size=1, max_size=1
             ) as catalogue,
-            asyncpg.create_pool(integration_databases.source_url, min_size=1, max_size=1) as reader,
             asyncpg.create_pool(
                 integration_databases.vector_url, min_size=1, max_size=1,
             ) as vector_db,
             catalogue.acquire() as source,
-            reader.acquire() as source_readonly,
+            integration_databases.connections() as (source_readonly, index),
             vector_db.acquire() as writer,
             Redis.from_url(integration_redis_url) as redis,
         ):
@@ -183,7 +182,7 @@ def test_confirmed_history_trains_and_serves_two_tower_through_hnsw(
                 output = tmp_path / "embeddings.json"
                 write_snapshot(snapshot, output)
                 loaded = EmbeddingSnapshot.model_validate_json(output.read_bytes())
-                published = await refresh_index(source_readonly, writer, loaded)
+                published = await refresh_index(source_readonly, index, loaded)
                 revision = str(published["revision"])
 
                 with socket.socket() as unavailable, monkeypatch.context() as offline:

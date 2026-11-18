@@ -1,13 +1,14 @@
 import asyncio
-from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 import asyncpg
 import pytest
+from sqlalchemy.pool import NullPool
 
 from dvizh_recommendation.candidates import RecommendationPipeline
 from dvizh_recommendation.catalog import filter_available_items
+from dvizh_recommendation.database import create_database_engine
 from dvizh_recommendation.recommendations import RecommendationQuery
 
 pytestmark = pytest.mark.integration
@@ -17,18 +18,13 @@ def test_latest_recommendations_filter_and_paginate(integration_databases):
     async def check():
         connection = await asyncpg.connect(integration_databases.source_admin_url)
 
-        class TestPool:
-            @asynccontextmanager
-            async def acquire(self, *, timeout):
-                yield connection
-
         now = datetime.now(UTC)
         future = now + timedelta(days=5)
         past = now - timedelta(days=5)
 
         profile_id = uuid4()
-        pool = TestPool()
-        provider = RecommendationPipeline(pool)
+        engine = create_database_engine(integration_databases.source_url, poolclass=NullPool)
+        provider = RecommendationPipeline(engine)
         query = RecommendationQuery(user_id=str(profile_id), context={}, filters={})
 
         cases = [
@@ -42,12 +38,7 @@ def test_latest_recommendations_filter_and_paginate(integration_databases):
 
         ids = {}
 
-        transaction = connection.transaction()
-        transaction_started = False
-
         try:
-            await transaction.start()
-            transaction_started = True
             existing_ids = [
                 str(row["id"]) for row in await connection.fetch("SELECT id FROM events")
             ]
@@ -165,7 +156,7 @@ def test_latest_recommendations_filter_and_paginate(integration_databases):
                 str(uuid4()),
                 expected[5],
             ]
-            available = await filter_available_items(pool, page_ids)
+            available = await filter_available_items(engine, page_ids)
             assert available == (expected[42], str(ids["valid"]), expected[5])
 
             first = await provider.recommend(query, limit=100, exclude_ids=existing_ids)
@@ -186,9 +177,12 @@ def test_latest_recommendations_filter_and_paginate(integration_databases):
 
         finally:
             try:
-                if transaction_started:
-                    await transaction.rollback()
+                await connection.execute(
+                    "DELETE FROM events WHERE organizer_user_id = $1", profile_id,
+                )
+                await connection.execute("DELETE FROM profiles WHERE id = $1", profile_id)
             finally:
+                await engine.dispose()
                 await connection.close()
 
     asyncio.run(check())

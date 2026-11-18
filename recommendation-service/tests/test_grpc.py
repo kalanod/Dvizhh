@@ -6,11 +6,11 @@ from io import StringIO
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
-import asyncpg
 import grpc
 import pytest
 from dvizh_logging import JsonFormatter
 from redis.exceptions import ConnectionError as RedisConnectionError
+from sqlalchemy.exc import OperationalError
 
 from dvizh_recommendation.config import Settings
 from dvizh_recommendation.database import Databases
@@ -43,10 +43,13 @@ async def grpc_client(pagination):
         _env_file=None,
     )
     redis = SimpleNamespace(ping=AsyncMock(return_value=True))
-    databases = Databases(
-        source=SimpleNamespace(fetchval=AsyncMock(return_value=1)),
-        vector=SimpleNamespace(fetchval=AsyncMock(return_value=1)),
-    )
+
+    @asynccontextmanager
+    async def connect():
+        yield SimpleNamespace(execute=AsyncMock())
+
+    engine = SimpleNamespace(connect=connect)
+    databases = Databases(source=engine, vector=engine)
     async with (
         _grpc_server(settings, pagination, redis, databases) as (_, port),
         grpc.aio.insecure_channel(f"127.0.0.1:{port}") as channel,
@@ -224,7 +227,9 @@ def test_grpc_does_not_return_unchecked_items_when_availability_check_fails(fail
 
         async def unavailable(item_ids, query, snapshots):
             if failure == "connection":
-                raise asyncpg.PostgresConnectionError("database unavailable")
+                raise OperationalError(
+                    None, None, OSError("database unavailable"), connection_invalidated=True
+                )
             await asyncio.Event().wait()
 
         check_availability = AsyncMock(side_effect=unavailable)

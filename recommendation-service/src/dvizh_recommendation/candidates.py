@@ -3,8 +3,9 @@ from datetime import UTC, datetime
 from math import isfinite
 from uuid import UUID
 
-import asyncpg
 from pydantic import JsonValue
+from sqlalchemy.engine import RowMapping
+from sqlalchemy.ext.asyncio import AsyncEngine
 
 from .catalog import CatalogFilters, catalog_items
 from .features import (
@@ -44,7 +45,7 @@ class RetrievalScoreRanker:
 class RecommendationPipeline:
     def __init__(
         self,
-        pool: asyncpg.Pool,
+        pool: AsyncEngine,
         timeout_seconds: float = 5,
         *,
         ranker: Ranker | None = None,
@@ -69,7 +70,7 @@ class RecommendationPipeline:
     async def _retrieve(
         self,
         query: RecommendationQuery,
-        eligible: Mapping[UUID, asyncpg.Record],
+        eligible: Mapping[UUID, RowMapping],
         excluded: Sequence[UUID],
         limit: int,
     ) -> tuple[dict[UUID, dict[str, float]], bool]:

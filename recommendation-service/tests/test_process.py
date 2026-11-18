@@ -136,11 +136,8 @@ async def verify_feedback_export(
             as_of=served_at + timedelta(days=1),
             observation_window=timedelta(hours=3),
         )
-        reader = await asyncpg.connect(databases.source_url)
-        try:
-            await export_dataset(reader, journal, output, window, registered["feature_version"])
-        finally:
-            await reader.close()
+        async with databases.connections() as (reader, pages):
+            await export_dataset(reader, pages, output, window, registered["feature_version"])
         rows = [json.loads(line) for line in (output / "examples.jsonl").read_text().splitlines()]
         assert [(row["item_id"], row["label"], row["split"]) for row in rows] == [
             (registered["item_id"], 1, "train"),

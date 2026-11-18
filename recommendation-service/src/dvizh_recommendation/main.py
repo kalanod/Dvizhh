@@ -10,11 +10,15 @@ import grpc
 from dvizh_logging import configure_logging, error_fields
 from grpc_health.v1 import health, health_pb2, health_pb2_grpc
 from redis.asyncio import Redis
+from sqlalchemy import select, true
+from sqlalchemy.ext.asyncio import AsyncEngine
+from sqlalchemy.sql import Select
 
 from .catalog import filter_available_items
 from .config import Settings, get_settings
 from .database import Databases, connect_databases
 from .feedback_health import monitor_feedback
+from .feedback_tables import recommendation_pages
 from .generated import recommendation_service_pb2_grpc
 from .journal import RecommendationJournal
 from .pagination import Pagination, SessionStore
@@ -22,9 +26,15 @@ from .pipelines import PipelineFactory
 from .recommendations import BASELINE_VERSION
 from .redis import connect_redis
 from .service import SERVICE_NAME, RecommendationService
+from .sql_catalog import recsys_catalog, recsys_dismissals
 
 HEALTH_CHECK_INTERVAL_SECONDS = 5
 logger = logging.getLogger(__name__)
+
+
+async def _probe(engine: AsyncEngine, statement: Select) -> None:
+    async with engine.connect() as connection:
+        await connection.execute(statement)
 
 
 async def _update_readiness(
@@ -37,13 +47,14 @@ async def _update_readiness(
     results = await asyncio.gather(
         asyncio.wait_for(redis.ping(), timeout=settings.redis_timeout_seconds),
         asyncio.wait_for(
-            databases.source.fetchval(
-                "SELECT 1 FROM public.recsys_catalog CROSS JOIN public.recsys_dismissals LIMIT 0"
+            _probe(
+                databases.source,
+                select(1).select_from(recsys_catalog.join(recsys_dismissals, true())).limit(0),
             ),
             timeout=settings.database_timeout_seconds,
         ),
         asyncio.wait_for(
-            databases.vector.fetchval("SELECT 1 FROM public.recommendation_pages LIMIT 0"),
+            _probe(databases.vector, select(1).select_from(recommendation_pages).limit(0)),
             timeout=settings.database_timeout_seconds,
         ),
         return_exceptions=True,

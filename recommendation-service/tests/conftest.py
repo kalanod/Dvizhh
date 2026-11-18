@@ -1,7 +1,13 @@
 import os
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 
 import pytest
+from sqlalchemy.ext.asyncio import AsyncConnection
+from sqlalchemy.pool import NullPool
+
+from dvizh_recommendation.database import create_database_engine
 
 
 @dataclass(frozen=True)
@@ -9,6 +15,14 @@ class IntegrationDatabases:
     source_url: str = field(repr=False)
     source_admin_url: str = field(repr=False)
     vector_url: str = field(repr=False)
+
+    @asynccontextmanager
+    async def connections(self) -> AsyncIterator[tuple[AsyncConnection, AsyncConnection]]:
+        async with (
+            create_database_engine(self.source_url, poolclass=NullPool).connect() as source,
+            create_database_engine(self.vector_url, poolclass=NullPool).connect() as vectors,
+        ):
+            yield source, vectors
 
 
 def pytest_configure(config: pytest.Config) -> None:
