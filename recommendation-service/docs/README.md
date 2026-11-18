@@ -47,8 +47,9 @@ uv run --group encoder python -m dvizh_recommendation.generate_embeddings \
   "$MODEL_URI" embeddings.json --history-start "$HISTORY_START" --as-of "$INDEX_AS_OF"
 ```
 
-`MODEL_URI` — точный `models:/имя/версия` из команды обучения. Выгрузке нужны
-`SOURCE_DATABASE_URL`, обучению и генерации — `MLFLOW_TRACKING_URI`.
+`MODEL_URI` — точный `models:/имя/версия` из команды обучения. Для выгрузки
+и генерации векторов нужен `SOURCE_DATABASE_URL`. Для обучения и генерации
+также задайте `MLFLOW_TRACKING_URI`.
 PyTorch используется только в командах обучения и генерации векторов.
 
 ## pgvector
@@ -253,7 +254,9 @@ Backend и пользователем `recsys_reader`, pgvector — с теку�
 Для тестов пагинации также нужен отдельный тестовый Redis.
 Задать `TEST_SOURCE_DATABASE_URL`, `TEST_SOURCE_ADMIN_DATABASE_URL`,
 `TEST_VECTOR_DATABASE_URL` и `TEST_REDIS_URL`, затем выполнить `uv run pytest -m integration`.
-Без этих переменных интеграционные тесты пропускаются. Рабочие БД для них не использовать.
+Для проверки обеих моделей дополнительно задайте `TEST_MLFLOW_TRACKING_URI`
+отдельного реестра и выполните `uv run --group train --group encoder pytest -m integration`.
+Рабочие БД для этих тестов не использовать.
 
 После изменения proto обновить Python-код Backend и RecSys:
 

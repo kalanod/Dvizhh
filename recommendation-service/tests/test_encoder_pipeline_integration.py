@@ -15,15 +15,17 @@ from redis.asyncio import Redis
 
 from dvizh_recommendation.config import Settings
 from dvizh_recommendation.embedding_encoder import load_encoder
+from dvizh_recommendation.embedding_snapshot import EmbeddingSnapshot
 from dvizh_recommendation.encoder_data import _export, read_snapshot_inputs
 from dvizh_recommendation.generate_embeddings import build_snapshot, write_snapshot
 from dvizh_recommendation.generated import recommendation_service_pb2 as pb
 from dvizh_recommendation.generated.recommendation_service_pb2_grpc import (
     RecommendationServiceStub,
 )
+from dvizh_recommendation.index_revision import hnsw_index_name
 from dvizh_recommendation.main import running_server
 from dvizh_recommendation.pagination import SessionStore
-from dvizh_recommendation.vector_index import EmbeddingSnapshot, _index_name, refresh_index
+from dvizh_recommendation.vector_index import refresh_index
 
 if TYPE_CHECKING:
     from conftest import IntegrationDatabases
@@ -201,7 +203,7 @@ def test_confirmed_history_trains_and_serves_two_tower_through_hnsw(
                     list(sessions.values()),
                 )
                 if revision is not None:
-                    await writer.execute(f"DROP INDEX public.{_index_name(revision)}")
+                    await writer.execute(f"DROP INDEX public.{hnsw_index_name(revision)}")
                     tables = ("user_embeddings", "event_embeddings", "embedding_index_versions")
                     for table in tables:
                         await writer.execute(

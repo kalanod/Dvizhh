@@ -2,9 +2,7 @@ import argparse
 import asyncio
 import hashlib
 import json
-import os
 import struct
-from contextlib import AsyncExitStack
 from datetime import UTC, datetime
 from pathlib import Path
 from uuid import UUID
@@ -13,6 +11,7 @@ import asyncpg
 
 from .embedding_snapshot import EmbeddingSnapshot, catalog_content_hash
 from .index_revision import find_published_revision, hnsw_index_name
+from .offline import connect_database
 from .retrieval import Embedding, IndexedItem
 
 _CATALOG = """
@@ -164,18 +163,10 @@ async def refresh_index(
 
 
 async def _refresh(snapshot: EmbeddingSnapshot) -> dict[str, str | int]:
-    async with AsyncExitStack() as resources:
-        connections = []
-        for name in ("SOURCE_DATABASE_URL", "VECTOR_DATABASE_URL"):
-            if not (url := os.environ.get(name)):
-                raise ValueError(f"{name} is required")
-            try:
-                connection = await asyncpg.connect(url, timeout=5)
-            except Exception as exc:
-                raise RuntimeError(f"Cannot connect using {name} ({type(exc).__name__})") from None
-            resources.push_async_callback(connection.close, timeout=5)
-            connections.append(connection)
-        source, vectors = connections
+    async with (
+        connect_database("SOURCE_DATABASE_URL", command_timeout=None) as source,
+        connect_database("VECTOR_DATABASE_URL", command_timeout=None) as vectors,
+    ):
         return await refresh_index(source, vectors, snapshot)
 
 

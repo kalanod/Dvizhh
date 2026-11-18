@@ -7,7 +7,6 @@ from datetime import datetime
 from itertools import batched
 from pathlib import Path
 
-from .dataset import _connect, _timestamp
 from .embedding_encoder import (
     EmbeddingEncoder,
     ItemEncoderInput,
@@ -15,9 +14,10 @@ from .embedding_encoder import (
     load_encoder,
     write_artifact,
 )
+from .embedding_snapshot import EmbeddingSnapshot, ItemVector, UserVector, catalog_content_hash
 from .encoder_data import read_snapshot_inputs
+from .offline import connect_database, parse_timestamp
 from .retrieval import Embedding
-from .vector_index import EmbeddingSnapshot, ItemVector, UserVector, catalog_content_hash
 
 _BATCH_SIZE = 256
 
@@ -66,7 +66,7 @@ def write_snapshot(snapshot: EmbeddingSnapshot, output: Path) -> None:
 async def _inputs(
     start: datetime, as_of: datetime,
 ) -> tuple[tuple[ItemEncoderInput, ...], tuple[UserEncoderInput, ...]]:
-    async with _connect("SOURCE_DATABASE_URL") as source:
+    async with connect_database("SOURCE_DATABASE_URL") as source:
         return await read_snapshot_inputs(source, start, as_of)
 
 
@@ -74,8 +74,8 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("uri", help="Exact MLflow model URI: models:/<name>/<version>")
     parser.add_argument("output", type=Path)
-    parser.add_argument("--history-start", required=True, type=_timestamp)
-    parser.add_argument("--as-of", required=True, type=_timestamp)
+    parser.add_argument("--history-start", required=True, type=parse_timestamp)
+    parser.add_argument("--as-of", required=True, type=parse_timestamp)
     args = parser.parse_args()
     if not os.environ.get("MLFLOW_TRACKING_URI"):
         parser.error("MLFLOW_TRACKING_URI is required")

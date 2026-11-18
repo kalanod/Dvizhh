@@ -2,18 +2,18 @@ import argparse
 import asyncio
 import hashlib
 import json
-import os
 from collections import Counter, defaultdict
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from uuid import UUID
 
 import asyncpg
 from pydantic import AwareDatetime, BaseModel, JsonValue
+
+from .offline import connect_database, parse_timestamp
 
 _PAGES = """
 SELECT request_id, session_id, user_id, served_at, items
@@ -195,28 +195,6 @@ async def export_dataset(
     return version
 
 
-@asynccontextmanager
-async def _connect(variable: str) -> AsyncIterator[asyncpg.Connection]:
-    url = os.environ.get(variable)
-    if not url:
-        raise ValueError(f"{variable} is required")
-    try:
-        connection = await asyncpg.connect(url, timeout=5, command_timeout=30)
-    except Exception as exc:
-        raise RuntimeError(f"Cannot connect using {variable} ({type(exc).__name__})") from None
-    try:
-        yield connection
-    finally:
-        await connection.close(timeout=5)
-
-
-def _timestamp(value: str) -> datetime:
-    timestamp = datetime.fromisoformat(value)
-    if timestamp.utcoffset() is None:
-        raise argparse.ArgumentTypeError("A time zone is required")
-    return timestamp.astimezone(UTC)
-
-
 async def _run(args: argparse.Namespace) -> str:
     window = DatasetWindow(
         args.start,
@@ -226,8 +204,8 @@ async def _run(args: argparse.Namespace) -> str:
         timedelta(hours=args.observation_hours),
     )
     async with (
-        _connect("SOURCE_DATABASE_URL") as source,
-        _connect("VECTOR_DATABASE_URL") as journal,
+        connect_database("SOURCE_DATABASE_URL") as source,
+        connect_database("VECTOR_DATABASE_URL") as journal,
     ):
         return await export_dataset(source, journal, args.output, window, args.feature_version)
 
@@ -236,7 +214,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("output", type=Path)
     for boundary in ("start", "validation-start", "test-start", "as-of"):
-        parser.add_argument(f"--{boundary}", required=True, type=_timestamp)
+        parser.add_argument(f"--{boundary}", required=True, type=parse_timestamp)
     parser.add_argument("--observation-hours", required=True, type=float)
     parser.add_argument("--feature-version", required=True)
     print(asyncio.run(_run(parser.parse_args())))

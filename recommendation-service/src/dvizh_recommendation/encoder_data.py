@@ -10,8 +10,8 @@ from uuid import UUID
 import asyncpg
 from pydantic import AwareDatetime, BaseModel, model_validator
 
-from .dataset import _connect, _timestamp
 from .embedding_encoder import ItemEncoderInput, UserEncoderInput, write_artifact
+from .offline import connect_database, parse_timestamp
 
 HISTORY_LIMIT = 20
 
@@ -124,7 +124,7 @@ async def read_snapshot_inputs(
 
 
 async def _export(output: Path, start: datetime, as_of: datetime) -> str:
-    async with _connect("SOURCE_DATABASE_URL") as source:
+    async with connect_database("SOURCE_DATABASE_URL") as source:
         data = await read_dataset(source, start, as_of)
     if not data.registrations:
         raise ValueError("No eligible confirmed registrations in the history window")
@@ -136,8 +136,8 @@ async def _export(output: Path, start: datetime, as_of: datetime) -> str:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("output", type=Path)
-    parser.add_argument("--history-start", type=_timestamp, required=True)
-    parser.add_argument("--as-of", type=_timestamp, required=True)
+    parser.add_argument("--history-start", type=parse_timestamp, required=True)
+    parser.add_argument("--as-of", type=parse_timestamp, required=True)
     args = parser.parse_args()
     print(asyncio.run(_export(args.output, args.history_start, args.as_of)))
 
