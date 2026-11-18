@@ -26,8 +26,6 @@ def test_export_checks_participation_at_the_show_for_the_recommended_occurrence(
         async with AsyncExitStack() as stack:
             writer = await asyncpg.connect(integration_databases.source_admin_url)
             stack.push_async_callback(writer.close)
-            source = await asyncpg.connect(integration_databases.source_url)
-            stack.push_async_callback(source.close)
             journal = await asyncpg.connect(integration_databases.vector_url)
             stack.push_async_callback(journal.close)
             stack.push_async_callback(
@@ -146,7 +144,8 @@ def test_export_checks_participation_at_the_show_for_the_recommended_occurrence(
             window = DatasetWindow(
                 shown_at - day, shown_at + 2 * day, shown_at + 3 * day, shown_at + 4 * day, day
             )
-            await export_dataset(source, journal, output, window, "catalog-v1")
+            async with integration_databases.connections() as (source, pages):
+                await export_dataset(source, pages, output, window, "catalog-v1")
             labels = {
                 row["request_id"]: row["label"]
                 for row in map(json.loads, (output / "examples.jsonl").read_text().splitlines())

@@ -4,11 +4,11 @@ from contextlib import asynccontextmanager
 from types import SimpleNamespace
 from unittest.mock import Mock
 
-import asyncpg
 import grpc
 import pytest
 from grpc_health.v1 import health_pb2, health_pb2_grpc
 from redis.exceptions import ConnectionError
+from sqlalchemy.exc import OperationalError
 
 from dvizh_recommendation.config import Settings
 from dvizh_recommendation.database import Databases
@@ -36,6 +36,13 @@ def test_health_tracks_failure_and_recovery_of_each_required_dependency(
             self.failed_checks = 0
             self.active = 0
 
+        @asynccontextmanager
+        async def connect(self):
+            yield self
+
+        async def execute(self, *args, **kwargs):
+            return await self.check()
+
         async def check(self, *args, **kwargs):
             self.active += 1
             try:
@@ -55,15 +62,15 @@ def test_health_tracks_failure_and_recovery_of_each_required_dependency(
     async def run():
         dependencies = {
             "redis": Dependency(ConnectionError),
-            "source": Dependency(asyncpg.PostgresConnectionError),
-            "vector": Dependency(asyncpg.PostgresConnectionError),
+            "source": Dependency(lambda msg: OperationalError(None, None, OSError(msg))),
+            "vector": Dependency(lambda msg: OperationalError(None, None, OSError(msg))),
         }
 
         @asynccontextmanager
         async def connect_databases(settings):
             yield Databases(
-                source=SimpleNamespace(fetchval=dependencies["source"].check),
-                vector=SimpleNamespace(fetchval=dependencies["vector"].check),
+                source=dependencies["source"],
+                vector=dependencies["vector"],
             )
 
         @asynccontextmanager

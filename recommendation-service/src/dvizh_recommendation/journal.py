@@ -1,11 +1,15 @@
+import asyncio
 import hashlib
 import json
 from collections.abc import Sequence
 from contextlib import suppress
 from uuid import UUID
 
-import asyncpg
+from sqlalchemy import and_, select
+from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.ext.asyncio import AsyncEngine
 
+from .feedback_tables import recommendation_pages
 from .recommendations import FeatureSnapshot, InvalidRequest, RecommendationQuery
 
 
@@ -14,8 +18,8 @@ class PageChanged(Exception):
 
 
 class RecommendationJournal:
-    def __init__(self, pool: asyncpg.Pool, *, timeout_seconds: float = 5) -> None:
-        self.pool = pool
+    def __init__(self, engine: AsyncEngine, *, timeout_seconds: float = 5) -> None:
+        self.engine = engine
         self.timeout_seconds = timeout_seconds
 
     async def record(
@@ -39,41 +43,39 @@ class RecommendationJournal:
         )
         parameters_hash = hashlib.sha256(parameters.encode()).hexdigest()
         snapshots = snapshots or (None,) * len(item_ids)
-        items = json.dumps(
-            [
-                {"item_id": item_id} | (snapshot.model_dump(mode="json") if snapshot else {})
-                for item_id, snapshot in zip(item_ids, snapshots, strict=True)
-            ],
-            separators=(",", ":"),
-            allow_nan=False,
+        items = [
+            {"item_id": item_id} | (snapshot.model_dump(mode="json") if snapshot else {})
+            for item_id, snapshot in zip(item_ids, snapshots, strict=True)
+        ]
+        page = recommendation_pages.c
+        statement = (
+            insert(recommendation_pages)
+            .values(
+                request_id=request_id,
+                session_id=session_id,
+                user_id=query.user_id,
+                parameters_hash=parameters_hash,
+                items=items,
+            )
+            .on_conflict_do_nothing(index_elements=[page.request_id])
+            .returning(page.request_id)
         )
-        arguments = (request_id, session_id, query.user_id, parameters_hash, items)
-        async with self.pool.acquire(timeout=self.timeout_seconds) as connection:
-            inserted = await connection.fetchval(
-                """
-                INSERT INTO public.recommendation_pages (
-                    request_id, session_id, user_id, parameters_hash, items
-                ) VALUES ($1, $2, $3, $4, $5::jsonb)
-                ON CONFLICT (request_id) DO NOTHING
-                RETURNING TRUE
-                """,
-                *arguments,
-                timeout=self.timeout_seconds,
-            )
-            if inserted:
+        async with asyncio.timeout(self.timeout_seconds), self.engine.begin() as connection:
+            if await connection.scalar(statement) is not None:
                 return
-
-            recorded = await connection.fetchrow(
-                """
-                SELECT session_id = $2 AND user_id = $3 AND parameters_hash = $4
-                    AS same_request, items = $5::jsonb AS same_items
-                FROM public.recommendation_pages
-                WHERE request_id = $1
-                """,
-                *arguments,
-                timeout=self.timeout_seconds,
-            )
-            if recorded is None or not recorded["same_request"]:
+            recorded = (
+                await connection.execute(
+                    select(
+                        and_(
+                            page.session_id == session_id,
+                            page.user_id == query.user_id,
+                            page.parameters_hash == parameters_hash,
+                        ).label("same_request"),
+                        (page["items"] == items).label("same_items"),
+                    ).where(page.request_id == request_id)
+                )
+            ).one_or_none()
+            if recorded is None or not recorded.same_request:
                 raise InvalidRequest("request_id was already used for a different page")
-            if not recorded["same_items"]:
+            if not recorded.same_items:
                 raise PageChanged

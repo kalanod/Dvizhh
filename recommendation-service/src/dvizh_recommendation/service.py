@@ -6,13 +6,13 @@ from contextlib import asynccontextmanager
 from time import monotonic
 from uuid import uuid4
 
-import asyncpg
 import grpc
 from dvizh_logging import error_fields, request_context
 from dvizh_logging.tracing import finish_span, keep_request_log, record_span_error, server_span
 from google.protobuf.empty_pb2 import Empty
 from google.protobuf.json_format import MessageToDict
 from redis.exceptions import RedisError
+from sqlalchemy import exc as db_error
 
 from .generated import recommendation_service_pb2 as pb
 from .generated import recommendation_service_pb2_grpc
@@ -70,15 +70,20 @@ def _rpc_error(exc: Exception) -> tuple[grpc.StatusCode, str]:
             return grpc.StatusCode.INVALID_ARGUMENT, str(exc)
         case NotImplementedError():
             return grpc.StatusCode.UNIMPLEMENTED, "Unsupported recommendations filters"
+        case db_error.DBAPIError() if (
+            exc.connection_invalidated or (getattr(exc.orig, "sqlstate", None) or "").startswith("08")
+        ):
+            return grpc.StatusCode.UNAVAILABLE, "Recommendations are temporarily unavailable"
         case (
             RedisError()
-            | asyncpg.PostgresConnectionError()
-            | asyncpg.InterfaceError()
+            | db_error.OperationalError()
+            | db_error.InterfaceError()
+            | db_error.TimeoutError()
             | OSError()
             | IncompleteRecommendations()
         ):
             return grpc.StatusCode.UNAVAILABLE, "Recommendations are temporarily unavailable"
-        case asyncpg.PostgresError():
+        case db_error.SQLAlchemyError():
             return grpc.StatusCode.INTERNAL, "Recommendation query failed"
         case _:
             return grpc.StatusCode.INTERNAL, "Recommendation request failed"

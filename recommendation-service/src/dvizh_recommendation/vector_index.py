@@ -7,35 +7,25 @@ from datetime import UTC, datetime
 from pathlib import Path
 from uuid import UUID
 
-import asyncpg
+import sqlalchemy as sa
+from sqlalchemy.dialects.postgresql import ARRAY, distinct_on
+from sqlalchemy.ext.asyncio import AsyncConnection
+from sqlalchemy.schema import CreateIndex
 
 from .embedding_snapshot import EmbeddingSnapshot, catalog_content_hash
 from .index_revision import find_published_revision, hnsw_index_name
 from .offline import connect_database
 from .retrieval import Embedding, IndexedItem
+from .sql_catalog import (
+    active_occurrence,
+    embedding_index_versions,
+    event_embeddings,
+    recsys_catalog,
+    user_embeddings,
+)
 
-_CATALOG = """
-SELECT DISTINCT ON (item_id) item_id, title, description, price_type, format, city,
-       latitude, longitude, topic_ids,
-       max(source_updated_at) OVER (PARTITION BY item_id) AS source_updated_at,
-       max(coalesce(ends_at, starts_at)) OVER (PARTITION BY item_id) AS last_ends_at,
-       min(starts_at) OVER (PARTITION BY item_id) AS next_starts_at
-FROM public.recsys_catalog
-WHERE item_id = ANY($1::uuid[])
-  AND (ends_at > $2::timestamptz OR (ends_at IS NULL AND starts_at >= $2) OR (
-       is_all_day AND (starts_at AT TIME ZONE timezone)::date =
-           ($2::timestamptz AT TIME ZONE timezone)::date))
-ORDER BY item_id, starts_at, occurrence_id
-"""
 
-_INSERT_ITEM = """
-INSERT INTO public.event_embeddings (
-    event_id, model_name, embedding, content_hash, is_candidate, source_updated_at,
-    last_ends_at, next_starts_at, price_type, format, city, latitude, longitude, topic_ids
-) VALUES ($1, $2, $3::text::vector, $4, true, $5, $6, $7, $8, $9, $10, $11, $12, $13)
-"""
-
-def _vector_text(embedding: Embedding) -> str:
+def _coordinates(embedding: Embedding) -> list[float]:
     shape = f"{embedding.space.dimension}f"
     try:
         coordinates = struct.unpack(shape, struct.pack(shape, *embedding.values))
@@ -43,16 +33,41 @@ def _vector_text(embedding: Embedding) -> str:
         raise ValueError("Embedding coordinates exceed pgvector's float32 range") from exc
     if not any(coordinates):
         raise ValueError("Cosine embeddings must remain nonzero in float32")
-    return json.dumps(coordinates, separators=(",", ":"))
+    return list(coordinates)
 
 
 async def _catalog_items(
-    source: asyncpg.Connection, snapshot: EmbeddingSnapshot, embeddings: dict[UUID, Embedding]
+    source: AsyncConnection,
+    snapshot: EmbeddingSnapshot,
+    embeddings: dict[UUID, Embedding],
 ) -> tuple[list[IndexedItem], int]:
-    catalog = {
-        row["item_id"]: row
-        for row in await source.fetch(_CATALOG, list(embeddings), datetime.now(UTC))
-    }
+    c = recsys_catalog.c
+    last_end = sa.func.max(sa.func.coalesce(c.ends_at, c.starts_at)).over(partition_by=c.item_id)
+    query = (
+        sa.select(
+            c.item_id,
+            c.title,
+            c.description,
+            c.price_type,
+            c.format,
+            c.city,
+            c.latitude,
+            c.longitude,
+            c.topic_ids,
+            sa.func.max(c.source_updated_at)
+            .over(partition_by=c.item_id)
+            .label("source_updated_at"),
+            last_end.label("last_ends_at"),
+            sa.func.min(c.starts_at).over(partition_by=c.item_id).label("next_starts_at"),
+        )
+        .where(
+            c.item_id == sa.any_(sa.literal(list(embeddings), ARRAY(sa.Uuid))),
+            active_occurrence(recsys_catalog, datetime.now(UTC), include_ending_now=False),
+        )
+        .ext(distinct_on(c.item_id))
+        .order_by(c.item_id, c.starts_at, c.occurrence_id)
+    )
+    catalog = {row["item_id"]: row for row in (await source.execute(query)).mappings()}
     indexed = []
     stale = 0
     for item in snapshot.items:
@@ -84,22 +99,28 @@ async def _catalog_items(
 
 
 async def refresh_index(
-    source: asyncpg.Connection, vectors: asyncpg.Connection, snapshot: EmbeddingSnapshot
+    source: AsyncConnection,
+    vectors: AsyncConnection,
+    snapshot: EmbeddingSnapshot,
 ) -> dict[str, str | int]:
     space = snapshot.space
     model_id = space.model_id
     digest = hashlib.sha256(snapshot.model_dump_json().encode()).hexdigest()
     revision = f"snapshot:{digest}"
     items = {item.item_id: Embedding(space=space, values=item.values) for item in snapshot.items}
-    item_vectors = {item_id: _vector_text(item) for item_id, item in items.items()}
+    item_vectors = {item_id: _coordinates(item) for item_id, item in items.items()}
     user_rows = [
-        (revision, user.user_id, _vector_text(Embedding(space=space, values=user.values)))
+        {
+            "model_name": revision,
+            "user_id": user.user_id,
+            "embedding": _coordinates(Embedding(space=space, values=user.values)),
+        }
         for user in snapshot.users
     ]
-    async with vectors.transaction():
-        await vectors.execute(
-            "SELECT pg_advisory_xact_lock(hashtextextended('event_embeddings', 0))"
-        )
+    transaction = vectors.begin_nested() if vectors.in_transaction() else vectors.begin()
+    async with transaction:
+        lock = sa.func.hashtextextended("event_embeddings", sa.literal(0, sa.BigInteger))
+        await vectors.execute(sa.select(sa.func.pg_advisory_xact_lock(lock)))
         published = await find_published_revision(vectors, model_id)
         if published is not None and published["generated_at"] >= snapshot.generated_at:
             if published["artifact_sha256"] != digest:
@@ -110,49 +131,48 @@ async def refresh_index(
         if not indexed:
             raise ValueError("The snapshot has no active items matching the catalogue")
         await vectors.execute(
-            """
-            INSERT INTO public.embedding_index_versions
-                (model_name, model_id, generated_at, artifact_sha256, dimension, metric)
-            VALUES ($1, $2, $3, $4, $5, $6)
-            """,
-            revision,
-            model_id,
-            snapshot.generated_at,
-            digest,
-            space.dimension,
-            space.metric,
+            sa.insert(embedding_index_versions).values(
+                model_name=revision,
+                model_id=model_id,
+                generated_at=snapshot.generated_at,
+                artifact_sha256=digest,
+                dimension=space.dimension,
+                metric=space.metric,
+            )
         )
-        await vectors.executemany(
-            _INSERT_ITEM,
+        await vectors.execute(
+            sa.insert(event_embeddings),
             [
-                (
-                    item.item_id,
-                    revision,
-                    item_vectors[item.item_id],
-                    item.content_hash,
-                    item.source_updated_at,
-                    item.last_ends_at,
-                    item.next_starts_at,
-                    item.price_type,
-                    item.format,
-                    item.city,
-                    item.latitude,
-                    item.longitude,
-                    list(item.topic_ids),
-                )
+                {
+                    "event_id": item.item_id,
+                    "model_name": revision,
+                    "embedding": item_vectors[item.item_id],
+                    "content_hash": item.content_hash,
+                    "is_candidate": True,
+                    "source_updated_at": item.source_updated_at,
+                    "last_ends_at": item.last_ends_at,
+                    "next_starts_at": item.next_starts_at,
+                    "price_type": item.price_type,
+                    "format": item.format,
+                    "city": item.city,
+                    "latitude": item.latitude,
+                    "longitude": item.longitude,
+                    "topic_ids": list(item.topic_ids),
+                }
                 for item in indexed
             ],
         )
-        await vectors.executemany(
-            "INSERT INTO public.user_embeddings VALUES ($1, $2, $3::text::vector)",
-            user_rows,
+        if user_rows:
+            await vectors.execute(sa.insert(user_embeddings), user_rows)
+        target = event_embeddings.to_metadata(sa.MetaData())
+        index = sa.Index(
+            hnsw_index_name(revision),
+            target.c.embedding,
+            postgresql_using="hnsw",
+            postgresql_ops={"embedding": "vector_cosine_ops"},
+            postgresql_where=sa.and_(target.c.is_candidate, target.c.model_name == revision),
         )
-        literal = await vectors.fetchval("SELECT quote_literal($1::text)", revision)
-        await vectors.execute(
-            f"CREATE INDEX {hnsw_index_name(revision)} "
-            "ON public.event_embeddings USING hnsw (embedding vector_cosine_ops) "
-            f"WHERE is_candidate AND model_name = {literal}"
-        )
+        await vectors.execute(CreateIndex(index))
     return {
         "revision": revision,
         "indexed_items": len(indexed),

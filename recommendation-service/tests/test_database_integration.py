@@ -6,6 +6,8 @@ from uuid import uuid4
 
 import asyncpg
 import pytest
+from sqlalchemy import text
+from sqlalchemy.exc import DBAPIError
 
 from dvizh_recommendation.config import Settings
 from dvizh_recommendation.database import connect_databases
@@ -57,65 +59,43 @@ def test_source_reader_and_vector_writer_work_with_real_schemas(
                     profile_id,
                 )
             async with connect_databases(settings) as databases:
-                event = await databases.source.fetchrow(
-                    "SELECT id, title FROM events WHERE id = $1", event_id
-                )
-                assert event is not None
-                assert event["id"] == event_id
-                assert event["title"] == title
-                with pytest.raises(asyncpg.InsufficientPrivilegeError):
-                    await databases.source.execute(
-                        """
-                        INSERT INTO events (
-                            id, slug, title, description, origin, format,
-                            online_url, organizer_user_id
-                        ) SELECT $1, $2, title, description, origin, format,
-                                 online_url, organizer_user_id
-                          FROM events WHERE id = $3
-                        """,
-                        denied_event_id,
-                        f"recsys-denied-{denied_event_id.hex}",
-                        event_id,
-                    )
-                with pytest.raises(asyncpg.InsufficientPrivilegeError):
-                    await databases.source.execute(
-                        "UPDATE events SET title = $2 WHERE id = $1", event_id, "Forbidden update"
-                    )
+                async with databases.source.connect() as reader:
+                    event = (await reader.execute(
+                        text("SELECT id, title FROM events WHERE id = :id"), {"id": event_id},
+                    )).one()
+                    assert (event.id, event.title) == (event_id, title)
 
-                async with databases.vector.acquire() as connection:
-                    transaction = connection.transaction()
-                    await transaction.start()
-                    try:
-                        await connection.execute(
-                            """
-                            INSERT INTO event_embeddings (
-                                event_id, embedding, model_name, content_hash,
-                                is_candidate, source_updated_at
-                            ) VALUES ($1, $2::vector, $3, $4, true, now())
-                            """,
-                            event_id,
-                            vector,
-                            "integration-test-model",
-                            "integration-test-content",
-                        )
-                        row = await connection.fetchrow(
-                            """
-                            SELECT vector_dims(embedding) AS dimensions,
-                                   embedding <=> $2::vector AS distance,
-                                   model_name
-                            FROM event_embeddings WHERE event_id = $1
-                            """,
-                            event_id,
-                            vector,
-                        )
-                        assert row is not None
-                        assert row["dimensions"] == 384
-                        assert row["distance"] == pytest.approx(0)
-                        assert row["model_name"] == "integration-test-model"
-                    finally:
-                        await transaction.rollback()
-            assert databases.source.get_size() == 0
-            assert databases.vector.get_size() == 0
+                for statement, parameters in (
+                    (
+                        "INSERT INTO events (id, slug, title, description, origin, format, "
+                        "online_url, organizer_user_id) SELECT :new_id, :slug, title, description, "
+                        "origin, format, online_url, organizer_user_id FROM events WHERE id = :id",
+                        {"id": event_id, "new_id": denied_event_id, "slug": f"denied-{event_id}"},
+                    ),
+                    ("UPDATE events SET title = 'Forbidden' WHERE id = :id", {"id": event_id}),
+                ):
+                    with pytest.raises(DBAPIError) as failure:
+                        async with databases.source.begin() as reader:
+                            await reader.execute(text(statement), parameters)
+                    assert failure.value.orig.sqlstate == "42501"
+
+                async with databases.vector.connect() as connection:
+                    await connection.execute(text("""
+                        INSERT INTO event_embeddings (
+                            event_id, embedding, model_name, content_hash,
+                            is_candidate, source_updated_at
+                        ) VALUES (:id, CAST(:vector AS vector), 'integration-test-model',
+                                  'integration-test-content', true, now())
+                    """), {"id": event_id, "vector": vector})
+                    row = (await connection.execute(text("""
+                        SELECT vector_dims(embedding) AS dimensions,
+                               embedding <=> CAST(:vector AS vector) AS distance, model_name
+                        FROM event_embeddings WHERE event_id = :id
+                    """), {"id": event_id, "vector": vector})).one()
+                    assert row.dimensions == 384
+                    assert row.distance == pytest.approx(0)
+                    assert row.model_name == "integration-test-model"
+            assert databases.source.pool.checkedin() == databases.vector.pool.checkedin() == 0
         finally:
             try:
                 await source_admin.execute(

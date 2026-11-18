@@ -3,54 +3,26 @@ import asyncio
 import hashlib
 import json
 from collections import Counter, defaultdict
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from uuid import UUID
 
-import asyncpg
 from pydantic import AwareDatetime, BaseModel, JsonValue
+from sqlalchemy import DateTime, RowMapping, Uuid, func, literal, select
+from sqlalchemy.dialects.postgresql import ARRAY
+from sqlalchemy.ext.asyncio import AsyncConnection
 
+from .database import read_snapshot
+from .feedback_tables import (
+    recommendation_pages,
+    recsys_confirmed_registrations,
+    recsys_interactions,
+    recsys_participation_history,
+)
 from .offline import connect_database, parse_timestamp
-
-_PAGES = """
-SELECT request_id, session_id, user_id, served_at, items
-FROM public.recommendation_pages
-WHERE served_at >= $1 AND served_at < $2
-ORDER BY served_at, request_id
-"""
-_IMPRESSIONS = """
-SELECT user_id, session_id, request_id, item_id, occurrence_id, occurred_at, received_at
-FROM public.recsys_interactions
-WHERE request_id = ANY($1::uuid[]) AND event_type = 'IMPRESSION'
-  AND received_at < $2
-ORDER BY occurred_at, received_at, interaction_id
-"""
-_REGISTRATIONS = """
-SELECT i.user_id, i.session_id, i.request_id, i.item_id, g.occurrence_id,
-       i.occurred_at AS clicked_at, i.received_at, g.confirmed_at
-FROM public.recsys_interactions i
-JOIN public.recsys_confirmed_registrations g
-  ON g.origin_interaction_id = i.interaction_id
- AND g.user_id = i.user_id AND g.item_id = i.item_id
-WHERE i.request_id = ANY($1::uuid[]) AND i.event_type = 'JOIN_CLICK'
-  AND i.received_at < $2 AND g.confirmed_at < $2
-"""
-_ALREADY_GOING = """
-SELECT impression.ordinality
-FROM unnest($1::uuid[], $2::uuid[], $3::timestamptz[]) WITH ORDINALITY
-     AS impression(user_id, occurrence_id, shown_at, ordinality)
-JOIN LATERAL (
-    SELECT status
-    FROM public.recsys_participation_history AS h
-    WHERE h.user_id = impression.user_id AND h.occurrence_id = impression.occurrence_id
-      AND h.changed_at <= impression.shown_at
-    ORDER BY h.changed_at DESC, h.change_id DESC
-    LIMIT 1
-) AS last_change ON last_change.status = 'GOING'
-"""
 
 
 class _ScoredItem(BaseModel):
@@ -99,13 +71,95 @@ class DatasetWindow:
         return "test", self.as_of
 
 
-def _feedback_key(record: asyncpg.Record) -> tuple[str, str, str, str]:
+def _feedback_key(record: RowMapping) -> tuple[str, str, str, str]:
     return tuple(str(record[key]) for key in ("user_id", "session_id", "request_id", "item_id"))
 
 
+type _Feedback = dict[tuple[str, str, str, str], list[RowMapping]]
+
+
+async def _read_feedback(
+    source: AsyncConnection,
+    request_ids: list[UUID],
+    as_of: datetime,
+) -> tuple[_Feedback, _Feedback]:
+    impressions = defaultdict(list)
+    registrations = defaultdict(list)
+    action = recsys_interactions.c
+    booking = recsys_confirmed_registrations.c
+    eligible = (action.request_id.in_(request_ids), action.received_at < as_of)
+    shows = (
+        select(
+            action.user_id,
+            action.session_id,
+            action.request_id,
+            action.item_id,
+            action.occurrence_id,
+            action.occurred_at,
+            action.received_at,
+        )
+        .where(*eligible, action.event_type == "IMPRESSION")
+        .order_by(action.occurred_at, action.received_at, action.interaction_id)
+    )
+    bookings = (
+        select(
+            action.user_id,
+            action.session_id,
+            action.request_id,
+            action.item_id,
+            booking.occurrence_id,
+            action.occurred_at.label("clicked_at"),
+            action.received_at,
+            booking.confirmed_at,
+        )
+        .join_from(
+            recsys_interactions,
+            recsys_confirmed_registrations,
+            (booking.origin_interaction_id == action.interaction_id)
+            & (booking.user_id == action.user_id)
+            & (booking.item_id == action.item_id),
+        )
+        .where(*eligible, action.event_type == "JOIN_CLICK", booking.confirmed_at < as_of)
+    )
+    for impression in (await source.execute(shows)).mappings():
+        impressions[_feedback_key(impression)].append(impression)
+    for registration in (await source.execute(bookings)).mappings():
+        registrations[_feedback_key(registration)].append(registration)
+    return impressions, registrations
+
+
+async def _already_registered(
+    source: AsyncConnection,
+    observed_items: Sequence[_ObservedItem],
+) -> set[int]:
+    shown = (
+        func.unnest(
+            literal([row.user_id for row in observed_items], ARRAY(Uuid)),
+            literal([row.item.occurrence_id for row in observed_items], ARRAY(Uuid)),
+            literal([row.shown_at for row in observed_items], ARRAY(DateTime(timezone=True))),
+        )
+        .table_valued("user_id", "occurrence_id", "shown_at", with_ordinality="ordinality")
+        .render_derived(name="shown")
+    )
+    history = recsys_participation_history.c
+    status_at_show = (
+        select(history.status)
+        .where(
+            history.user_id == shown.c.user_id,
+            history.occurrence_id == shown.c.occurrence_id,
+            history.changed_at <= shown.c.shown_at,
+        )
+        .order_by(history.changed_at.desc(), history.change_id.desc())
+        .limit(1)
+        .correlate(shown)
+        .scalar_subquery()
+    )
+    return set(await source.scalars(select(shown.c.ordinality).where(status_at_show == "GOING")))
+
+
 async def _examples(
-    source: asyncpg.Connection,
-    pages: list[asyncpg.Record],
+    source: AsyncConnection,
+    pages: Sequence[RowMapping],
     window: DatasetWindow,
     feature_version: str,
     counts: Counter[str],
@@ -121,16 +175,11 @@ async def _examples(
     if not page_keys:
         return
     request_ids = list({ids[2] for _, ids in page_keys})
-    impressions = defaultdict(list)
-    registrations = defaultdict(list)
-    for impression in await source.fetch(_IMPRESSIONS, request_ids, window.as_of):
-        impressions[_feedback_key(impression)].append(impression)
-    for registration in await source.fetch(_REGISTRATIONS, request_ids, window.as_of):
-        registrations[_feedback_key(registration)].append(registration)
+    impressions, registrations = await _read_feedback(source, request_ids, window.as_of)
 
     observed_items: list[_ObservedItem] = []
     for page, ids in page_keys:
-        for position, payload in enumerate(json.loads(page["items"])):
+        for position, payload in enumerate(page["items"]):
             item = _ScoredItem.model_validate(payload)
             if item.feature_version != feature_version or item.features is None:
                 counts["different_feature_version"] += 1
@@ -161,26 +210,22 @@ async def _examples(
                 and hit["occurrence_id"] == item.occurrence_id
                 for hit in registrations[key]
             )
-            observed_items.append(_ObservedItem(
-                user_id=ids[0],
-                request_id=page["request_id"],
-                item=item,
-                position=position,
-                shown_at=max(page["served_at"], min(shown_at, received_at)),
-                served_at=page["served_at"],
-                split=split,
-                label=label,
-            ))
+            observed_items.append(
+                _ObservedItem(
+                    user_id=ids[0],
+                    request_id=page["request_id"],
+                    item=item,
+                    position=position,
+                    shown_at=max(page["served_at"], min(shown_at, received_at)),
+                    served_at=page["served_at"],
+                    split=split,
+                    label=label,
+                )
+            )
 
     if not observed_items:
         return
-    rows = await source.fetch(
-        _ALREADY_GOING,
-        [observed.user_id for observed in observed_items],
-        [observed.item.occurrence_id for observed in observed_items],
-        [observed.shown_at for observed in observed_items],
-    )
-    already_going = {row["ordinality"] for row in rows}
+    already_going = await _already_registered(source, observed_items)
     for ordinal, observed in enumerate(observed_items, start=1):
         if ordinal in already_going:
             counts["already_registered"] += 1
@@ -202,8 +247,8 @@ async def _examples(
 
 
 async def export_dataset(
-    source: asyncpg.Connection,
-    journal: asyncpg.Connection,
+    source: AsyncConnection,
+    journal: AsyncConnection,
     output: Path,
     window: DatasetWindow,
     feature_version: str,
@@ -216,12 +261,20 @@ async def export_dataset(
         staging = Path(directory) / "dataset"
         staging.mkdir()
         with (staging / "examples.jsonl").open("wb") as stream:
+            page = recommendation_pages.c
+            statement = (
+                select(
+                    page.request_id, page.session_id, page.user_id, page.served_at, page["items"]
+                )
+                .where(page.served_at >= window.start, page.served_at < window.as_of)
+                .order_by(page.served_at, page.request_id)
+            )
             async with (
-                journal.transaction(isolation="repeatable_read", readonly=True),
-                source.transaction(isolation="repeatable_read", readonly=True),
+                read_snapshot(journal),
+                read_snapshot(source),
+                journal.stream(statement.execution_options(yield_per=200)) as rows,
             ):
-                cursor = await journal.cursor(_PAGES, window.start, window.as_of)
-                while pages := await cursor.fetch(200):
+                async for pages in rows.mappings().partitions(200):
                     async for row in _examples(source, pages, window, feature_version, counts):
                         line = (json.dumps(row, sort_keys=True, allow_nan=False) + "\n").encode()
                         stream.write(line)

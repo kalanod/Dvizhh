@@ -7,35 +7,18 @@ from pathlib import Path
 from typing import Literal, Self
 from uuid import UUID
 
-import asyncpg
 from pydantic import AwareDatetime, BaseModel, model_validator
+from sqlalchemy import RowMapping, Uuid, any_, func, literal, select
+from sqlalchemy.dialects.postgresql import ARRAY, distinct_on
+from sqlalchemy.ext.asyncio import AsyncConnection
 
+from .database import read_snapshot
 from .embedding_encoder import ItemEncoderInput, UserEncoderInput, write_artifact
+from .feedback_tables import recsys_confirmed_registrations, recsys_encoder_items
 from .offline import connect_database, parse_timestamp
+from .sql_catalog import active_occurrence, recsys_catalog
 
 HISTORY_LIMIT = 20
-
-_REGISTRATIONS = """
-    SELECT r.user_id, r.item_id, min(r.confirmed_at) AS confirmed_at
-    FROM public.recsys_confirmed_registrations AS r
-    JOIN public.recsys_encoder_items AS item ON item.item_id = r.item_id
-    WHERE r.confirmed_at >= $1 AND r.confirmed_at < $2
-    GROUP BY r.user_id, r.item_id
-    ORDER BY confirmed_at, r.user_id, r.item_id
-"""
-_HISTORICAL_ITEMS = """
-    SELECT item_id, title, description, topic_ids
-    FROM public.recsys_encoder_items WHERE item_id = ANY($1::uuid[])
-    ORDER BY item_id
-"""
-_ACTIVE_ITEMS = """
-    SELECT DISTINCT ON (item_id) item_id, title, description, topic_ids
-    FROM public.recsys_catalog
-    WHERE coalesce(ends_at, starts_at) >= $1::timestamptz
-       OR (is_all_day AND (starts_at AT TIME ZONE timezone)::date =
-           ($1::timestamptz AT TIME ZONE timezone)::date)
-    ORDER BY item_id, starts_at, occurrence_id
-"""
 
 
 class Registration(BaseModel, extra="forbid", frozen=True):
@@ -73,45 +56,73 @@ def _validate_window(start: datetime, as_of: datetime) -> None:
         raise ValueError("Expected timezone-aware history start before as_of")
 
 
-def _item_from_row(row: asyncpg.Record) -> ItemEncoderInput:
+def _item_from_row(row: RowMapping) -> ItemEncoderInput:
     return ItemEncoderInput(
-        row["item_id"], row["title"], row["description"], tuple(row["topic_ids"]),
+        row["item_id"],
+        row["title"],
+        row["description"],
+        tuple(row["topic_ids"]),
     )
 
 
 async def _read_history(
-    source: asyncpg.Connection, start: datetime, as_of: datetime,
+    source: AsyncConnection,
+    start: datetime,
+    as_of: datetime,
 ) -> EncoderDataset:
+    booking = recsys_confirmed_registrations.c
+    item = recsys_encoder_items.c
+    first_booking = func.min(booking.confirmed_at).label("confirmed_at")
+    statement = (
+        select(booking.user_id, booking.item_id, first_booking)
+        .join_from(
+            recsys_confirmed_registrations, recsys_encoder_items, item.item_id == booking.item_id
+        )
+        .where(booking.confirmed_at >= start, booking.confirmed_at < as_of)
+        .group_by(booking.user_id, booking.item_id)
+        .order_by(first_booking, booking.user_id, booking.item_id)
+    )
     registrations = tuple(
-        Registration.model_validate(dict(row))
-        for row in await source.fetch(_REGISTRATIONS, start, as_of)
+        Registration.model_validate(row) for row in (await source.execute(statement)).mappings()
     )
     item_ids = sorted({row.item_id for row in registrations})
+    historical_items = (
+        select(item.item_id, item.title, item.description, item.topic_ids)
+        .where(item.item_id == any_(literal(item_ids, ARRAY(Uuid))))
+        .order_by(item.item_id)
+    )
     items = tuple(
-        _item_from_row(row)
-        for row in await source.fetch(_HISTORICAL_ITEMS, item_ids)
+        _item_from_row(row) for row in (await source.execute(historical_items)).mappings()
     )
     return EncoderDataset(start=start, as_of=as_of, items=items, registrations=registrations)
 
 
 async def read_dataset(
-    source: asyncpg.Connection, start: datetime, as_of: datetime,
+    source: AsyncConnection,
+    start: datetime,
+    as_of: datetime,
 ) -> EncoderDataset:
     _validate_window(start, as_of)
-    async with source.transaction(isolation="repeatable_read", readonly=True):
+    async with read_snapshot(source):
         return await _read_history(source, start, as_of)
 
 
 async def read_snapshot_inputs(
-    source: asyncpg.Connection, start: datetime, as_of: datetime,
+    source: AsyncConnection,
+    start: datetime,
+    as_of: datetime,
 ) -> tuple[tuple[ItemEncoderInput, ...], tuple[UserEncoderInput, ...]]:
     _validate_window(start, as_of)
-    async with source.transaction(isolation="repeatable_read", readonly=True):
+    async with read_snapshot(source):
         history = await _read_history(source, start, as_of)
-        items = tuple(
-            _item_from_row(row)
-            for row in await source.fetch(_ACTIVE_ITEMS, as_of)
+        item = recsys_catalog.c
+        statement = (
+            select(item.item_id, item.title, item.description, item.topic_ids)
+            .ext(distinct_on(item.item_id))
+            .where(active_occurrence(recsys_catalog, as_of))
+            .order_by(item.item_id, item.starts_at, item.occurrence_id)
         )
+        items = tuple(_item_from_row(row) for row in (await source.execute(statement)).mappings())
     historical_items = {item.item_id: item for item in history.items}
     histories = defaultdict(lambda: deque(maxlen=HISTORY_LIMIT))
     for row in history.registrations:

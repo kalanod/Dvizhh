@@ -1,7 +1,8 @@
 import asyncio
 import traceback
-from collections.abc import AsyncIterator, Generator
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from unittest.mock import Mock
 
 import pytest
 
@@ -12,44 +13,38 @@ SOURCE_URL = "postgresql://reader:source-secret@source.invalid/source"
 VECTOR_URL = "postgresql://writer:vector-secret@vector.invalid/vectors"
 
 
-class Pool:
+class Engine:
     def __init__(
-        self,
-        *,
-        close_hangs: bool = False,
-        initialize_hangs: bool = False,
-        initialize_error: Exception | None = None,
-    ) -> None:
-        self.close_hangs = close_hangs
-        self.initialize_hangs = initialize_hangs
-        self.initialize_error = initialize_error
-        self.close_called = False
-        self.terminated = False
-
-    def __await__(self) -> Generator[None, None, "Pool"]:
-        return self.initialize().__await__()
-
-    async def initialize(self) -> "Pool":
-        if self.initialize_hangs:
-            await asyncio.Event().wait()
-        if self.initialize_error is not None:
-            raise self.initialize_error
-        return self
+        self, *, connection_error=None, probe_error=None, connect_hangs=False, dispose_hangs=False
+    ):
+        self.connection_error = connection_error
+        self.probe_error = probe_error
+        self.connect_hangs = connect_hangs
+        self.disposed = False
+        self.active = 0
+        self.dispose_hangs = dispose_hangs
 
     @asynccontextmanager
-    async def acquire(self, **_kwargs: object) -> AsyncIterator["Pool"]:
-        yield self
-
-    async def fetchval(self, *_args: object) -> int:
-        return 1
-
-    async def close(self) -> None:
-        self.close_called = True
-        if self.close_hangs:
+    async def connect(self) -> AsyncIterator["Engine"]:
+        if self.connect_hangs:
             await asyncio.Event().wait()
+        if self.connection_error:
+            raise self.connection_error
+        self.active += 1
+        try:
+            yield self
+        finally:
+            self.active -= 1
 
-    def terminate(self) -> None:
-        self.terminated = True
+    async def execute(self, statement):
+        if self.probe_error:
+            raise self.probe_error
+        return Mock()
+
+    async def dispose(self, *, close=True):
+        self.disposed = True
+        if close and self.dispose_hangs:
+            await asyncio.Event().wait()
 
 
 def database_settings() -> Settings:
@@ -62,103 +57,51 @@ def database_settings() -> Settings:
     )
 
 
-@pytest.mark.parametrize("close_hangs", [False, True])
-def test_vector_connection_failure_releases_source_without_leaking_credentials(
-    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture, close_hangs: bool
-) -> None:
-    source = Pool(close_hangs=close_hangs)
-    vector = Pool(initialize_error=OSError(f"Rejected credentials in {VECTOR_URL}"))
-    attempts = 0
+@pytest.mark.parametrize(
+    ("failure", "dispose_hangs"), [("connect", False), ("probe", False), ("connect", True)]
+)
+def test_vector_failure_disposes_both_engines_without_leaking_credentials(
+    monkeypatch, caplog, failure, dispose_hangs,
+):
+    error = OSError(f"Rejected credentials in {VECTOR_URL}")
+    source = Engine(dispose_hangs=dispose_hangs)
+    vector = Engine(connection_error=error) if failure == "connect" else Engine(probe_error=error)
+    driver = Mock()
+    driver.is_closed.return_value = not dispose_hangs
 
-    def create_pool(*_args: object, **_kwargs: object) -> Pool:
-        nonlocal attempts
-        attempts += 1
-        if attempts == 1:
+    def create_engine(dsn, *, live_connections, **kwargs):
+        if dsn == SOURCE_URL:
+            live_connections.add(driver)
             return source
         return vector
 
-    monkeypatch.setattr("dvizh_recommendation.database.asyncpg.create_pool", create_pool)
+    monkeypatch.setattr("dvizh_recommendation.database.create_database_engine", create_engine)
 
-    async def run() -> None:
-        async with asyncio.timeout(1):
-            async with connect_databases(database_settings()):
-                pytest.fail("Startup succeeded while the vector database was unavailable")
+    async def run():
+        async with asyncio.timeout(1), connect_databases(database_settings()):
+            pytest.fail("Startup succeeded with an unavailable vector database")
 
-    with pytest.raises(RuntimeError, match="vector database") as error:
+    with pytest.raises(RuntimeError, match="vector database") as caught:
         asyncio.run(run())
-
-    assert source.close_called
-    assert vector.close_called
-    assert source.terminated is close_hangs
-    diagnostics = "".join(traceback.format_exception(error.value)) + caplog.text
-    assert "source-secret" not in diagnostics
-    assert "vector-secret" not in diagnostics
-    assert SOURCE_URL not in diagnostics
-    assert VECTOR_URL not in diagnostics
+    assert source.disposed and vector.disposed
+    assert source.active == vector.active == 0
+    assert driver.terminate.call_count == int(dispose_hangs)
+    diagnostics = "".join(traceback.format_exception(caught.value)) + caplog.text
+    assert "source-secret" not in diagnostics and "vector-secret" not in diagnostics
 
 
-def test_unresponsive_database_connection_has_bounded_startup(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    source = Pool(initialize_hangs=True)
+@pytest.mark.parametrize("failure", ["timeout", "probe"])
+def test_source_failure_aborts_startup_before_opening_vector_database(monkeypatch, failure):
+    source = Engine(connect_hangs=True) if failure == "timeout" else Engine(probe_error=OSError())
+    create_engine = Mock(return_value=source)
+    monkeypatch.setattr("dvizh_recommendation.database.create_database_engine", create_engine)
 
-    def create_pool(*_args: object, **_kwargs: object) -> Pool:
-        return source
+    async def run():
+        async with asyncio.timeout(1), connect_databases(database_settings()):
+            pytest.fail("Startup succeeded with an unavailable source database")
 
-    monkeypatch.setattr("dvizh_recommendation.database.asyncpg.create_pool", create_pool)
-
-    async def run() -> None:
-        async with asyncio.timeout(1):
-            async with connect_databases(database_settings()):
-                pytest.fail("Startup succeeded while the source database was unresponsive")
-
-    with pytest.raises(RuntimeError, match="source database.*TimeoutError"):
+    message = "source database.*TimeoutError" if failure == "timeout" else "source database"
+    with pytest.raises(RuntimeError, match=message):
         asyncio.run(run())
-
-    assert source.close_called
-
-
-@pytest.mark.parametrize("failed_database", ["source", "vector"])
-def test_health_check_failure_closes_pools(
-    monkeypatch: pytest.MonkeyPatch,
-    failed_database: str,
-) -> None:
-    class FailingPool(Pool):
-        async def fetchval(self, *_args: object) -> int:
-            raise OSError("Health check failed")
-
-    source = FailingPool() if failed_database == "source" else Pool()
-    vector = FailingPool() if failed_database == "vector" else Pool()
-
-    created = []
-
-    def create_pool(*_args: object, **_kwargs: object) -> Pool:
-        pool = source if not created else vector
-        created.append(pool)
-        return pool
-
-    monkeypatch.setattr(
-        "dvizh_recommendation.database.asyncpg.create_pool",
-        create_pool,
-    )
-
-    async def run() -> None:
-        async with connect_databases(database_settings()):
-            pytest.fail("Startup succeeded despite failed health check")
-
-    with pytest.raises(
-        RuntimeError,
-        match=f"Cannot connect to {failed_database} database",
-    ) as error:
-        asyncio.run(run())
-
-    assert source.close_called
-
-    if failed_database == "source":
-        assert len(created) == 1
-    else:
-        assert len(created) == 2
-        assert vector.close_called
-
-    assert "source-secret" not in str(error.value)
-    assert "vector-secret" not in str(error.value)
+    assert source.disposed and source.active == 0
+    create_engine.assert_called_once()

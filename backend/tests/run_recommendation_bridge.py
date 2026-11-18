@@ -34,8 +34,8 @@ async def main():
     start, end = map(datetime.fromisoformat, sys.argv[1:])
     async with (
         connect_databases(get_settings()) as databases,
-        databases.source.acquire() as source,
-        databases.vector.acquire() as journal,
+        databases.source.connect() as source,
+        databases.vector.connect() as journal,
     ):
         print(json.dumps(await measure_feedback(source, journal, start, end)))
 

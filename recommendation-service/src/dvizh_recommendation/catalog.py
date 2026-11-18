@@ -1,3 +1,4 @@
+import asyncio
 import json
 import re
 from collections.abc import Mapping, Sequence
@@ -5,11 +6,15 @@ from datetime import UTC, date, datetime
 from typing import Annotated, Self
 from uuid import UUID
 
-import asyncpg
+import sqlalchemy as sa
 from dvizh_logging import log_dependency
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
+from sqlalchemy.dialects.postgresql import ARRAY, distinct_on
+from sqlalchemy.engine import RowMapping
+from sqlalchemy.ext.asyncio import AsyncEngine
 
 from .recommendations import FeatureSnapshot, InvalidRequest, RecommendationQuery
+from .sql_catalog import active_occurrence, local_date, recsys_catalog, recsys_dismissals
 
 
 class Viewport(BaseModel):
@@ -54,59 +59,85 @@ class CatalogFilters(BaseModel):
             raise InvalidRequest("Invalid recommendations filters") from exc
 
 
-_ELIGIBLE = """
-    (
-        COALESCE(c.ends_at, c.starts_at) >= $1
-        OR (c.is_all_day AND (c.starts_at AT TIME ZONE c.timezone)::date
-            = ($1::timestamptz AT TIME ZONE c.timezone)::date)
-    )
-"""
-
-_CATALOG_QUERY = f"""
-WITH matching AS (
-    SELECT DISTINCT ON (c.item_id)
-        c.item_id, c.occurrence_id, c.starts_at, c.participants_count,
-        c.published_at, c.created_at, c.price_type, c.format, c.join_policy
-    FROM public.recsys_catalog AS c
-    WHERE {_ELIGIBLE}
-        AND ($2::uuid[] IS NULL OR c.item_id = ANY($2))
-        AND ($17::uuid[] IS NULL OR EXISTS (
-            SELECT 1
-            FROM unnest($2::uuid[], $17) AS requested(item_id, occurrence_id)
-            WHERE requested.item_id = c.item_id
-              AND (requested.occurrence_id IS NULL OR requested.occurrence_id = c.occurrence_id)
-        ))
-        AND NOT (c.item_id = ANY($3::uuid[]))
-        AND NOT EXISTS (
-            SELECT 1 FROM public.recsys_dismissals AS d
-            WHERE d.user_id = $4::uuid AND d.item_id = c.item_id
+def _matching_items(
+    filters: CatalogFilters,
+    as_of: datetime,
+    user_id: UUID | None,
+    requested: Mapping[UUID, UUID | None] | None,
+    exclude_ids: Sequence[UUID],
+) -> sa.Subquery:
+    c = recsys_catalog.c
+    query = sa.select(
+        c.item_id,
+        c.occurrence_id,
+        c.starts_at,
+        c.participants_count,
+        c.published_at,
+        c.created_at,
+        c.price_type,
+        c.format,
+        c.join_policy,
+    ).where(active_occurrence(recsys_catalog, as_of))
+    if requested is not None:
+        ids = sa.literal(list(requested), ARRAY(sa.Uuid))
+        if any(requested.values()):
+            pairs = sa.func.unnest(ids, sa.literal(list(requested.values()), ARRAY(sa.Uuid)))
+            pairs = pairs.table_valued(
+                sa.column("item_id", sa.Uuid),
+                sa.column("occurrence_id", sa.Uuid),
+            ).render_derived(name="requested")
+            query = query.join(
+                pairs,
+                sa.and_(
+                    c.item_id == pairs.c.item_id,
+                    sa.or_(
+                        pairs.c.occurrence_id.is_(None), pairs.c.occurrence_id == c.occurrence_id
+                    ),
+                ),
+            )
+        else:
+            query = query.where(c.item_id == sa.any_(ids))
+    if exclude_ids:
+        query = query.where(c.item_id != sa.all_(sa.literal(list(exclude_ids), ARRAY(sa.Uuid))))
+    if user_id is not None:
+        d = recsys_dismissals.c
+        query = query.where(~sa.exists().where(d.user_id == user_id, d.item_id == c.item_id))
+    if filters.tag_id is not None:
+        query = query.where(filters.tag_id == sa.any_(c.topic_ids))
+    if filters.date_from:
+        end_date = local_date(sa.func.coalesce(c.ends_at, c.starts_at), c.timezone)
+        query = query.where(end_date >= filters.date_from)
+    if filters.date_to:
+        query = query.where(local_date(c.starts_at, c.timezone) <= filters.date_to)
+    if filters.free_only:
+        query = query.where(c.price_type == "FREE")
+    if filters.available_only:
+        query = query.where(sa.or_(c.capacity.is_(None), c.participants_count < c.capacity))
+    text = filters.q.strip()
+    if re.fullmatch(r"#\w+", text):
+        query = query.where(
+            c.title.regexp_match(rf"(^|[^[:alnum:]_#]){text}($|[^[:alnum:]_])", flags="i")
         )
-        AND ($5::uuid IS NULL OR $5 = ANY(c.topic_ids))
-        AND ($6::date IS NULL
-            OR (COALESCE(c.ends_at, c.starts_at) AT TIME ZONE c.timezone)::date >= $6)
-        AND ($7::date IS NULL OR (c.starts_at AT TIME ZONE c.timezone)::date <= $7)
-        AND (NOT $8::bool OR c.price_type = 'FREE')
-        AND (NOT $9::bool OR c.capacity IS NULL OR c.participants_count < c.capacity)
-        AND ($10::text = '' OR CASE WHEN $11::text IS NULL
-            THEN c.search_document @@ websearch_to_tsquery('russian', $10)
-            ELSE c.title ~* $11
-        END)
-        AND ($12::double precision IS NULL OR (
-            c.latitude BETWEEN $13::double precision AND $14::double precision
-            AND CASE WHEN $12 <= $15::double precision THEN c.longitude BETWEEN $12 AND $15
-                ELSE c.longitude >= $12 OR c.longitude <= $15 END
-        ))
-    ORDER BY c.item_id, (c.starts_at <= $1) DESC, c.starts_at, c.occurrence_id
-)
-SELECT *
-FROM matching
-ORDER BY published_at DESC NULLS LAST, item_id DESC
-LIMIT $16
-"""
+    elif text:
+        query = query.where(
+            c.search_document.bool_op("@@")(sa.func.websearch_to_tsquery("russian", text))
+        )
+    if viewport := filters.viewport:
+        longitude = (
+            c.longitude.between(viewport.west, viewport.east)
+            if viewport.west <= viewport.east
+            else sa.or_(c.longitude >= viewport.west, c.longitude <= viewport.east)
+        )
+        query = query.where(longitude, c.latitude.between(viewport.south, viewport.north))
+    return (
+        query.ext(distinct_on(c.item_id))
+        .order_by(c.item_id, (c.starts_at <= as_of).desc(), c.starts_at, c.occurrence_id)
+        .subquery("matching")
+    )
 
 
 async def catalog_items(
-    pool: asyncpg.Pool,
+    pool: AsyncEngine,
     filters: CatalogFilters,
     *,
     as_of: datetime,
@@ -115,40 +146,24 @@ async def catalog_items(
     exclude_ids: Sequence[UUID] = (),
     limit: int | None = None,
     timeout_seconds: float = 5,
-) -> list[asyncpg.Record]:
-    viewport = filters.viewport
-    text = filters.q.strip()
-    hashtag = None
-    if re.fullmatch(r"#\w+", text):
-        hashtag = rf"(^|[^[:alnum:]_#]){text}($|[^[:alnum:]_])"
+) -> Sequence[RowMapping]:
+    matching = _matching_items(filters, as_of, user_id, requested_occurrences, exclude_ids)
+    query = (
+        sa.select(matching)
+        .order_by(
+            matching.c.published_at.desc().nulls_last(),
+            matching.c.item_id.desc(),
+        )
+        .limit(limit)
+    )
     operation = "get_candidates" if requested_occurrences is None else "filter_available_items"
     with log_dependency("postgres", operation):
-        async with pool.acquire(timeout=timeout_seconds) as connection:
-            return await connection.fetch(
-                _CATALOG_QUERY,
-                as_of,
-                None if requested_occurrences is None else list(requested_occurrences),
-                list(exclude_ids),
-                user_id,
-                filters.tag_id,
-                filters.date_from,
-                filters.date_to,
-                filters.free_only,
-                filters.available_only,
-                text,
-                hashtag,
-                viewport.west if viewport else None,
-                viewport.south if viewport else None,
-                viewport.north if viewport else None,
-                viewport.east if viewport else None,
-                limit,
-                None if requested_occurrences is None else list(requested_occurrences.values()),
-                timeout=timeout_seconds,
-            )
+        async with asyncio.timeout(timeout_seconds), pool.connect() as connection:
+            return (await connection.execute(query)).mappings().all()
 
 
 async def filter_available_items(
-    pool: asyncpg.Pool,
+    pool: AsyncEngine,
     item_ids: Sequence[str],
     query: RecommendationQuery | None = None,
     snapshots: Sequence[FeatureSnapshot | None] = (),

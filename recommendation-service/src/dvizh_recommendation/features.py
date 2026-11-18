@@ -10,7 +10,7 @@ from pydantic import JsonValue
 from .recommendations import FeatureSnapshot
 
 if TYPE_CHECKING:
-    from asyncpg import Record
+    from sqlalchemy.engine import RowMapping
 
 
 type FeatureType = Literal["number", "category", "optional-number"]
@@ -36,7 +36,7 @@ FEATURE_SCHEMAS: dict[str, dict[str, FeatureType]] = {
 
 
 def catalog_feature_snapshot(
-    row: Record,
+    row: RowMapping,
     as_of: datetime,
     algorithm_version: str,
     *,

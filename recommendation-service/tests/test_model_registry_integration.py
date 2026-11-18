@@ -166,7 +166,8 @@ def test_prepared_model_version_controls_the_live_order_without_mlflow(
                     ItemVector(item_id=popular_event, content_hash=content_hash, values=distant),
                 ),
             )
-            revision = (await refresh_index(source, journal, snapshot))["revision"]
+            async with integration_databases.connections() as (catalog, vectors):
+                revision = (await refresh_index(catalog, vectors, snapshot))["revision"]
 
             for uri, session_id, expected in (
                 (first_uri, session_ids[0], [new_event, popular_event]),
