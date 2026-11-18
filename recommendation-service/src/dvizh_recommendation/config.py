@@ -15,6 +15,10 @@ class Settings(BaseSettings):
     ranker_model_dir: Path = DEFAULT_RANKER_MODEL_DIR
     ranker_model_uri: str | None = None
     previous_ranker_model_uri: str | None = None
+    vector_model_id: str | None = None
+    vector_index_revision: str | None = None
+    previous_vector_model_id: str | None = None
+    previous_vector_index_revision: str | None = None
     redis_url: SecretStr = Field(min_length=1)
     redis_timeout_seconds: float = Field(default=5, gt=0, allow_inf_nan=False)
     recommendation_timeout_seconds: float = Field(default=5, gt=0, allow_inf_nan=False)
@@ -30,6 +34,14 @@ class Settings(BaseSettings):
     def validate_pool_size(self) -> Self:
         if self.database_pool_min_size > self.database_pool_max_size:
             raise ValueError("database_pool_min_size must not exceed database_pool_max_size")
+        return self
+
+    @model_validator(mode="after")
+    def validate_vector_revisions(self) -> Self:
+        if self.vector_index_revision and not self.vector_model_id:
+            raise ValueError("VECTOR_INDEX_REVISION requires VECTOR_MODEL_ID")
+        if self.previous_vector_index_revision and not self.previous_vector_model_id:
+            raise ValueError("PREVIOUS_VECTOR_INDEX_REVISION requires PREVIOUS_VECTOR_MODEL_ID")
         return self
 
 

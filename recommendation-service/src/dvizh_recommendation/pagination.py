@@ -262,9 +262,11 @@ class Pagination:
         timeout_seconds: float = 5,
         provider_version: str = BASELINE_VERSION,
         previous_providers: Mapping[str, RecommendationProvider] | None = None,
+        resolve_provider: Callable[[str], Awaitable[RecommendationProvider | None]] | None = None,
     ) -> None:
         self.store = store
         self.providers = {**(previous_providers or {}), provider_version: provider}
+        self.resolve_provider = resolve_provider
         self.filter_available_items = filter_available_items
         self.timeout_seconds = timeout_seconds
 
@@ -298,6 +300,8 @@ class Pagination:
                 generation = result.generation
                 version = result.version
                 provider = self.providers.get(version)
+                if provider is None and self.resolve_provider is not None:
+                    provider = await self.resolve_provider(version)
                 if provider is None:
                     raise SessionVersionUnavailable
                 batch = await provider.recommend(

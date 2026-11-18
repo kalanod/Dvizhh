@@ -11,27 +11,20 @@ from dvizh_logging import configure_logging, error_fields
 from grpc_health.v1 import health, health_pb2, health_pb2_grpc
 from redis.asyncio import Redis
 
-from .candidates import LatestRecommendations
 from .catalog import filter_available_items
 from .config import Settings, get_settings
 from .database import Databases, connect_databases
 from .feedback_health import monitor_feedback
 from .generated import recommendation_service_pb2_grpc
 from .journal import RecommendationJournal
-from .model_registry import load_ranker
 from .pagination import Pagination, SessionStore
+from .pipelines import PipelineFactory
+from .recommendations import BASELINE_VERSION
 from .redis import connect_redis
 from .service import SERVICE_NAME, RecommendationService
 
 HEALTH_CHECK_INTERVAL_SECONDS = 5
 logger = logging.getLogger(__name__)
-
-
-async def _load_provider(
-    databases: Databases, settings: Settings, ranker_uri: str | None
-) -> LatestRecommendations:
-    ranker = await load_ranker(ranker_uri, settings.ranker_model_dir) if ranker_uri else None
-    return LatestRecommendations(databases.source, settings.database_timeout_seconds, ranker=ranker)
 
 
 async def _update_readiness(
@@ -92,17 +85,19 @@ async def running_server(
         connect_databases(settings) as databases,
         connect_redis(settings) as redis,
     ):
-        baseline = LatestRecommendations(databases.source, settings.database_timeout_seconds)
-        provider = (
-            await _load_provider(databases, settings, settings.ranker_model_uri)
-            if settings.ranker_model_uri else baseline
+        factory = PipelineFactory(databases, settings)
+        provider = await factory.load(
+            settings.ranker_model_uri, settings.vector_model_id, settings.vector_index_revision,
         )
-        previous_providers = {baseline.version: baseline}
-        if settings.previous_ranker_model_uri:
-            previous_provider = await _load_provider(
-                databases, settings, settings.previous_ranker_model_uri
+        previous_providers = {BASELINE_VERSION: factory.catalog()}
+        if settings.previous_ranker_model_uri or settings.previous_vector_model_id:
+            previous = await factory.load(
+                settings.previous_ranker_model_uri,
+                settings.previous_vector_model_id,
+                settings.previous_vector_index_revision,
             )
-            previous_providers[previous_provider.version] = previous_provider
+            previous_providers[previous.version] = previous
+
         store = SessionStore(redis, initial_version=provider.version)
         availability_filter = partial(
             filter_available_items,
@@ -116,6 +111,7 @@ async def running_server(
             timeout_seconds=settings.recommendation_timeout_seconds,
             provider_version=provider.version,
             previous_providers=previous_providers,
+            resolve_provider=factory.restore,
         )
         journal = RecommendationJournal(
             databases.vector, timeout_seconds=settings.database_timeout_seconds
