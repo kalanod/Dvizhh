@@ -104,8 +104,14 @@ after(() => {
 test("interaction delivery preserves account and payload across retry, auth and invalid actions", async (t) => {
     const previousWindow = globalThis.window;
     const pending = new Map();
+    const stored = new Map();
     let nextTimer = 0;
     globalThis.window = Object.assign(new EventTarget(), previousWindow, {
+        sessionStorage: {
+            getItem: (key) => stored.get(key) ?? null,
+            setItem: (key, value) => stored.set(key, value),
+            removeItem: (key) => stored.delete(key),
+        },
         setTimeout: (callback) => {
             pending.set(++nextTimer, callback);
             return nextTimer;
@@ -139,6 +145,7 @@ test("interaction delivery preserves account and payload across retry, auth and 
             return Response.json({ detail: "Delivery failed" }, { status });
         }
         if (rejectedId && ids.includes(rejectedId)) {
+            if (ids.length === 1) nextStatus = 503;
             return Response.json({ detail: "Event unavailable" }, { status: 422 });
         }
         return Response.json({ accepted_interaction_ids: ids });
@@ -185,6 +192,12 @@ test("interaction delivery preserves account and payload across retry, auth and 
         [invalid],
         [valid],
     ]);
+    const savedQueue = stored.get(`dvizh.interactions.${viewer}`);
+    assert.ok(savedQueue.includes(valid.interaction_id));
+    assert.ok(!savedQueue.includes(invalid.interaction_id));
+    await deliverNextBatch();
+    assert.deepEqual(JSON.parse(calls.at(-1).body).interactions, [valid]);
+    assert.equal(stored.size, 0);
     assert.equal(pending.size, 0);
 });
 

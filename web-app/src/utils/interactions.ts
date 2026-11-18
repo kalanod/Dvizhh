@@ -2,27 +2,26 @@ import { ApiError } from "../api/client";
 import { postInteractions } from "../api/interactions";
 import type { Interaction, InteractionOrigin, InteractionType } from "../models/interaction";
 
-interface QueueEntry {
-    interaction: Interaction;
-    rejected?: true;
-}
-
 const BATCH_SIZE = 20;
 const BATCH_DELAY_MS = 250;
 const INITIAL_RETRY_MS = 1000;
 const MAX_RETRY_MS = 60_000;
-const queues = new Map<string, QueueEntry[]>();
+const queues = new Map<string, Interaction[]>();
 let active: { userId: string; schedule: () => void; resume: () => void } | undefined;
 
 const storageKey = (userId: string) => `dvizh.interactions.${userId}`;
 
-function queueFor(userId: string): QueueEntry[] {
+function queueFor(userId: string): Interaction[] {
     let queue = queues.get(userId);
     if (queue) return queue;
     queue = [];
     try {
         const saved = JSON.parse(window.sessionStorage.getItem(storageKey(userId)) ?? "null") as unknown;
-        if (Array.isArray(saved)) queue = saved.filter((entry) => typeof entry?.interaction?.interaction_id === "string");
+        if (Array.isArray(saved)) {
+            queue = saved.filter((entry) => !entry?.rejected && typeof entry?.interaction?.interaction_id === "string")
+                .map((entry) => entry.interaction);
+            if (queue.length < saved.length) save(userId, queue);
+        }
     } catch {
         // Storage can be disabled. Pending actions remain available in this tab's memory.
     }
@@ -30,10 +29,9 @@ function queueFor(userId: string): QueueEntry[] {
     return queue;
 }
 
-function save(userId: string): void {
+function save(userId: string, queue: Interaction[]): void {
     try {
-        const queue = queueFor(userId);
-        if (queue.length) window.sessionStorage.setItem(storageKey(userId), JSON.stringify(queue));
+        if (queue.length) window.sessionStorage.setItem(storageKey(userId), JSON.stringify(queue.map((interaction) => ({ interaction }))));
         else window.sessionStorage.removeItem(storageKey(userId));
     } catch {
         // Sending does not depend on browser storage.
@@ -67,8 +65,9 @@ export function recordInteraction(
         timestamp: new Date().toISOString(),
         ...origin,
     };
-    queueFor(userId).push({ interaction });
-    save(userId);
+    const queue = queueFor(userId);
+    queue.push(interaction);
+    save(userId, queue);
     if (active?.userId === userId) active.schedule();
     return interaction;
 }
@@ -79,7 +78,7 @@ export function startInteractionDelivery(userId: string): () => void {
     let running = false;
     let awaitingAccount = false;
     let retryMs = INITIAL_RETRY_MS;
-    const batchToSend = () => queueFor(userId).filter((entry) => !entry.rejected).slice(0, BATCH_SIZE);
+    const batchToSend = () => queueFor(userId).slice(0, BATCH_SIZE);
 
     const suspendOnAuthError = (error: unknown): boolean => {
         if (!(error instanceof ApiError) || (error.status !== 401 && error.status !== 403)) return false;
@@ -89,27 +88,31 @@ export function startInteractionDelivery(userId: string): () => void {
         return true;
     };
 
-    const acknowledge = (batch: QueueEntry[], ids: string[]): boolean => {
-        const received = new Set(Array.isArray(ids) ? ids : []);
-        const accepted = new Set(batch.map(({ interaction }) => interaction.interaction_id).filter((id) => received.has(id)));
-        if (accepted.size) {
-            queues.set(userId, queueFor(userId).filter(({ interaction }) => !accepted.has(interaction.interaction_id)));
-            save(userId);
-        }
-        return accepted.size === batch.length;
+    const discard = (entries: Interaction[]) => {
+        if (!entries.length) return;
+        const done = new Set(entries);
+        const remaining = queueFor(userId).filter((entry) => !done.has(entry));
+        queues.set(userId, remaining);
+        save(userId, remaining);
     };
 
-    const send = async (batch: QueueEntry[]): Promise<void> => {
+    const acknowledge = (batch: Interaction[], ids: string[]): boolean => {
+        const received = new Set(Array.isArray(ids) ? ids : []);
+        const accepted = batch.filter((entry) => received.has(entry.interaction_id));
+        discard(accepted);
+        return accepted.length === batch.length;
+    };
+
+    const send = async (batch: Interaction[]): Promise<void> => {
         if (!batch.length || awaitingAccount || controller.signal.aborted) return;
         try {
-            const response = await postInteractions(userId, batch.map(({ interaction }) => interaction), { signal: controller.signal });
+            const response = await postInteractions(userId, batch, { signal: controller.signal });
             if (!acknowledge(batch, response.accepted_interaction_ids)) throw new Error("Incomplete interaction acknowledgement");
         } catch (error) {
             if (controller.signal.aborted || suspendOnAuthError(error)) return;
             if (!(error instanceof ApiError) || ![400, 409, 413, 422].includes(error.status)) throw error;
             if (batch.length === 1) {
-                batch[0].rejected = true;
-                save(userId);
+                discard(batch);
                 return;
             }
             const middle = Math.ceil(batch.length / 2);
@@ -154,7 +157,7 @@ export function startInteractionDelivery(userId: string): () => void {
         if (awaitingAccount) return;
         const batch = batchToSend();
         if (!batch.length) return;
-        void postInteractions(userId, batch.map(({ interaction }) => interaction), { keepalive: true })
+        void postInteractions(userId, batch, { keepalive: true })
             .then((response) => { acknowledge(batch, response.accepted_interaction_ids); })
             .catch(suspendOnAuthError);
     };
