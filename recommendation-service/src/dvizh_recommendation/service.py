@@ -26,7 +26,7 @@ from .pagination import (
     SessionParametersMismatch,
     SessionVersionUnavailable,
 )
-from .recommendations import InvalidRequest, NoUserVector, RecommendationQuery
+from .recommendations import GeneratorUnavailable, InvalidRequest, NoUserVector, RecommendationQuery
 
 SERVICE_NAME = pb.DESCRIPTOR.services_by_name["RecommendationService"].full_name
 logger = logging.getLogger(__name__)
@@ -64,6 +64,8 @@ def _rpc_error(exc: Exception) -> tuple[grpc.StatusCode, str]:
             return grpc.StatusCode.ABORTED, "Page changed. Retry with a new request_id."
         case NoUserVector():
             return grpc.StatusCode.FAILED_PRECONDITION, "User vector is unavailable"
+        case GeneratorUnavailable():
+            return grpc.StatusCode.FAILED_PRECONDITION, "No candidate source can serve this request"
         case InvalidRequest():
             return grpc.StatusCode.INVALID_ARGUMENT, str(exc)
         case NotImplementedError():

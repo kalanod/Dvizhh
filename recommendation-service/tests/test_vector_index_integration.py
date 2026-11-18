@@ -171,6 +171,11 @@ def test_sessions_keep_their_index_across_republication_and_restart(
                     by_index = await page(client, known_viewer, original, second)
                     assert UUID(by_index.items[0].occurrence_id) == occurrences[second]
                     assert by_index.HasField("next_page_token")
+                    logged_score = await writer.fetchval(
+                        "SELECT (items->0->'features'->>'hnsw_score')::float8 "
+                        "FROM public.recommendation_pages WHERE session_id = $1", original,
+                    )
+                    assert logged_score == pytest.approx(0.8)
                     with pytest.raises(grpc.aio.AioRpcError) as error:
                         await client.GetRecommendations(
                             request_for_page(new_viewer, cold), timeout=5

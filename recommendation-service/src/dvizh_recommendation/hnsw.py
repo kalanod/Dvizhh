@@ -9,6 +9,8 @@ from .retrieval import ScoredItem
 
 
 class HnswCandidates:
+    name = "hnsw"
+
     def __init__(self, pool: asyncpg.Pool, model_id: str, revision: str | None = None) -> None:
         self.pool = pool
         self.model_id = model_id
@@ -84,19 +86,21 @@ class HnswCandidates:
                 excluded,
                 eligible,
             )
-            has_more = len(rows) == limit or await connection.fetchval(
-                """
-                SELECT EXISTS (
-                    SELECT 1 FROM public.event_embeddings
-                    WHERE is_candidate AND model_name = $1
-                        AND NOT (event_id = ANY($2::uuid[]))
-                        AND ($3::uuid[] IS NULL OR event_id = ANY($3))
+            has_more = eligible is None or len(rows) < len(eligible)
+            if has_more and len(rows) < limit:
+                has_more = await connection.fetchval(
+                    """
+                    SELECT EXISTS (
+                        SELECT 1 FROM public.event_embeddings
+                        WHERE is_candidate AND model_name = $1
+                            AND NOT (event_id = ANY($2::uuid[]))
+                            AND ($3::uuid[] IS NULL OR event_id = ANY($3))
+                    )
+                    """,
+                    self.revision,
+                    excluded + [row["item_id"] for row in rows],
+                    eligible,
                 )
-                """,
-                self.revision,
-                excluded + [row["item_id"] for row in rows],
-                eligible,
-            )
         scored = (ScoredItem.model_validate(dict(row)) for row in rows)
         return CandidateBatch(
             tuple(Candidate(item.item_id, item.retrieval_score) for item in scored),

@@ -12,7 +12,11 @@ class InvalidRequest(ValueError):
     pass
 
 
-class NoUserVector(Exception):
+class GeneratorUnavailable(Exception):
+    pass
+
+
+class NoUserVector(GeneratorUnavailable):
     pass
 
 
@@ -62,7 +66,7 @@ class Ranker(Protocol):
     @property
     def feature_version(self) -> str: ...
 
-    async def score(self, items: Sequence[Mapping[str, JsonValue]]) -> Sequence[float]: ...
+    async def score(self, items: Sequence[Mapping[str, JsonValue]]) -> Sequence[float | None]: ...
 
 
 @dataclass(frozen=True)
@@ -78,6 +82,9 @@ class CandidateBatch:
 
 
 class CandidateGenerator(Protocol):
+    @property
+    def name(self) -> str: ...
+
     async def generate(
         self,
         query: RecommendationQuery,

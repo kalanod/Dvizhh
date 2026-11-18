@@ -7,7 +7,7 @@ from typing import Literal
 
 from pydantic import BaseModel, FiniteFloat, JsonValue
 
-from .features import FEATURE_SCHEMA, FEATURE_VERSION, FeatureType, encode_features
+from .features import FEATURE_SCHEMAS, FeatureType, encode_features
 
 MODEL_FILE = "ranker.json"
 
@@ -32,7 +32,7 @@ def ranker_artifact_path(uri: str, directory: Path) -> Path:
 
 
 def validate_ranker_features(model: LinearModel) -> None:
-    if model.feature_version != FEATURE_VERSION or model.feature_schema != FEATURE_SCHEMA:
+    if model.feature_schema != FEATURE_SCHEMAS.get(model.feature_version):
         raise ValueError("Ranker inputs are incompatible with catalog features")
 
 

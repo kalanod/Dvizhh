@@ -27,6 +27,7 @@ from dvizh_recommendation.generated.recommendation_service_pb2_grpc import (
     RecommendationServiceStub,
 )
 from dvizh_recommendation.main import running_server
+from dvizh_recommendation.model_registry import load_ranker
 from dvizh_recommendation.pagination import SessionStore
 from dvizh_recommendation.prepare_model import prepare_ranker
 from dvizh_recommendation.retrieval import EmbeddingSpace
@@ -39,11 +40,14 @@ if TYPE_CHECKING:
 pytestmark = pytest.mark.integration
 
 
-def write_learning_fixture(directory: Path, *, mark_popular_positive: bool) -> str:
+def write_learning_fixture(
+    directory: Path, feature_version: str, samples: list[tuple[dict[str, float | None], int]],
+) -> str:
     directory.mkdir()
     example = {
         "hours_until_start": 0,
         "hours_since_publication": 0,
+        "participants_count": 0,
         "price_type": "FREE",
         "format": "ONLINE",
         "join_policy": "OPEN",
@@ -52,17 +56,17 @@ def write_learning_fixture(directory: Path, *, mark_popular_positive: bool) -> s
         json.dumps(
             {
                 "split": split,
-                "features": {**example, "participants_count": participants},
-                "label": int(bool(participants) == mark_popular_positive),
+                "features": {**example, **features},
+                "label": label,
             }
         ).encode()
         + b"\n"
         for split in ("train", "validation", "test")
-        for participants in (0, 1)
+        for features, label in samples
     )
     manifest = {
         "schema_version": 1,
-        "feature_version": "catalog-v1",
+        "feature_version": feature_version,
         "examples_sha256": hashlib.sha256(examples).hexdigest(),
     }
     version = hashlib.sha256(json.dumps(manifest, sort_keys=True).encode()).hexdigest()
@@ -90,8 +94,14 @@ def test_prepared_model_version_controls_the_live_order_without_mlflow(
     experiment = f"pipeline-{profile}"
     vector_version = f"vectors-{profile}"
     prepared_directory = tmp_path / "prepared"
-    version = write_learning_fixture(tmp_path / "popular", mark_popular_positive=True)
-    write_learning_fixture(tmp_path / "newest", mark_popular_positive=False)
+    version = write_learning_fixture(
+        tmp_path / "catalog", "catalog-v1",
+        [({"participants_count": 0}, 1), ({"participants_count": 1}, 0)],
+    )
+    write_learning_fixture(
+        tmp_path / "scored", "catalog-hnsw-v1",
+        [({"hnsw_score": None}, 0), ({"hnsw_score": 0.0}, 1), ({"hnsw_score": 1.0}, 0)],
+    )
     client = mlflow.MlflowClient(tracking_uri=registry)
 
     async def serve(first_uri: str, second_uri: str) -> None:
@@ -159,8 +169,8 @@ def test_prepared_model_version_controls_the_live_order_without_mlflow(
             revision = (await refresh_index(source, journal, snapshot))["revision"]
 
             for uri, session_id, expected in (
-                (first_uri, session_ids[0], [popular_event, new_event]),
-                (second_uri, session_ids[1], [new_event, popular_event]),
+                (first_uri, session_ids[0], [new_event, popular_event]),
+                (second_uri, session_ids[1], [popular_event, new_event]),
             ):
                 settings = Settings(
                     grpc_bind_address="127.0.0.1:0",
@@ -184,6 +194,18 @@ def test_prepared_model_version_controls_the_live_order_without_mlflow(
                         request, timeout=5
                     )
                     assert [UUID(item.item_id) for item in response.items] == expected
+                    if uri == second_uri:
+                        page = await journal.fetchval(
+                            "SELECT items FROM recommendation_pages WHERE request_id = $1",
+                            request.request_id,
+                        )
+                        features = json.loads(page)[0]["features"]
+                        assert features["hnsw_score"] == pytest.approx(0)
+                        ranker = await load_ranker(uri, prepared_directory)
+                        observed, missing = await ranker.score(
+                            [features, {**features, "hnsw_score": None}]
+                        )
+                        assert observed > missing
         finally:
             await source.execute(
                 "DELETE FROM events WHERE id = ANY($1::uuid[])",
@@ -214,8 +236,8 @@ def test_prepared_model_version_controls_the_live_order_without_mlflow(
                 await redis.delete(*(SessionStore.key(session_id) for session_id in session_ids))
 
     try:
-        first = train_and_register(tmp_path / "popular", experiment, experiment, "fixture")
-        second = train_and_register(tmp_path / "newest", experiment, experiment, "fixture")
+        first = train_and_register(tmp_path / "catalog", experiment, experiment, "fixture")
+        second = train_and_register(tmp_path / "scored", experiment, experiment, "fixture")
         assert first != second
         model_version = client.get_model_version(experiment, first.rsplit("/", 1)[-1])
         run = client.get_run(model_version.run_id)

@@ -6,7 +6,7 @@ from uuid import uuid4
 import asyncpg
 import pytest
 
-from dvizh_recommendation.candidates import LatestRecommendations
+from dvizh_recommendation.candidates import RecommendationPipeline
 from dvizh_recommendation.catalog import filter_available_items
 from dvizh_recommendation.recommendations import RecommendationQuery
 
@@ -28,7 +28,7 @@ def test_latest_recommendations_filter_and_paginate(integration_databases):
 
         profile_id = uuid4()
         pool = TestPool()
-        provider = LatestRecommendations(pool)
+        provider = RecommendationPipeline(pool)
         query = RecommendationQuery(user_id=str(profile_id), context={}, filters={})
 
         cases = [
