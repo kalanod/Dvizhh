@@ -7,7 +7,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, JsonValue
 
-from .model_registry import MODEL_FILE, LinearModel, encode_features, feature_type
+from .features import encode_features, feature_type
+from .model_registry import MODEL_FILE, LinearModel
 
 
 class Example(BaseModel):
