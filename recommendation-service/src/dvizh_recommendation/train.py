@@ -7,7 +7,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, JsonValue
 
-from .features import encode_features, feature_type
+from .features import FEATURE_SCHEMAS, encode_features
 from .model_registry import MODEL_FILE, LinearModel
 
 
@@ -35,6 +35,9 @@ def fit_ranker(
         raise ValueError("Dataset manifest checksum mismatch")
     if manifest["schema_version"] != 1:
         raise ValueError("Unsupported dataset schema")
+    schema = FEATURE_SCHEMAS.get(manifest["feature_version"])
+    if schema is None:
+        raise ValueError("Unsupported ranking feature version")
 
     data = {"train": [], "validation": [], "test": []}
     checksum = hashlib.sha256()
@@ -50,7 +53,6 @@ def fit_ranker(
     if {row.label for row in data["train"]} != {0, 1}:
         raise ValueError("The training split must contain both booking outcomes")
 
-    schema = {name: feature_type(value) for name, value in data["train"][0].features.items()}
     vectorizer = DictVectorizer()
     inputs = {
         split: [encode_features(row.features, schema) for row in rows]
