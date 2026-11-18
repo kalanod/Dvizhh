@@ -38,6 +38,19 @@ JOIN public.recsys_confirmed_registrations g
 WHERE i.request_id = ANY($1::uuid[]) AND i.event_type = 'JOIN_CLICK'
   AND i.received_at < $2 AND g.confirmed_at < $2
 """
+_ALREADY_GOING = """
+SELECT impression.ordinality
+FROM unnest($1::uuid[], $2::uuid[], $3::timestamptz[]) WITH ORDINALITY
+     AS impression(user_id, occurrence_id, shown_at, ordinality)
+JOIN LATERAL (
+    SELECT status
+    FROM public.recsys_participation_history AS h
+    WHERE h.user_id = impression.user_id AND h.occurrence_id = impression.occurrence_id
+      AND h.changed_at <= impression.shown_at
+    ORDER BY h.changed_at DESC, h.change_id DESC
+    LIMIT 1
+) AS last_change ON last_change.status = 'GOING'
+"""
 
 
 class _ScoredItem(BaseModel):
@@ -47,6 +60,18 @@ class _ScoredItem(BaseModel):
     features: dict[str, JsonValue] | None = None
     calculated_at: AwareDatetime | None = None
     algorithm_version: str | None = None
+
+
+@dataclass(frozen=True)
+class _ObservedItem:
+    user_id: UUID
+    request_id: str
+    item: _ScoredItem
+    position: int
+    shown_at: datetime
+    served_at: datetime
+    split: str
+    label: bool
 
 
 @dataclass(frozen=True)
@@ -103,6 +128,7 @@ async def _examples(
     for registration in await source.fetch(_REGISTRATIONS, request_ids, window.as_of):
         registrations[_feedback_key(registration)].append(registration)
 
+    observed_items: list[_ObservedItem] = []
     for page, ids in page_keys:
         for position, payload in enumerate(json.loads(page["items"])):
             item = _ScoredItem.model_validate(payload)
@@ -135,19 +161,44 @@ async def _examples(
                 and hit["occurrence_id"] == item.occurrence_id
                 for hit in registrations[key]
             )
-            counts[split] += 1
-            counts[f"{split}_positive"] += label
-            yield {
-                "split": split,
-                "request_id": page["request_id"],
-                "item_id": str(item.item_id),
-                "position": position,
-                "served_at": page["served_at"].isoformat(),
-                "calculated_at": item.calculated_at.isoformat() if item.calculated_at else None,
-                "algorithm_version": item.algorithm_version,
-                "features": item.features,
-                "label": int(label),
-            }
+            observed_items.append(_ObservedItem(
+                user_id=ids[0],
+                request_id=page["request_id"],
+                item=item,
+                position=position,
+                shown_at=max(page["served_at"], min(shown_at, received_at)),
+                served_at=page["served_at"],
+                split=split,
+                label=label,
+            ))
+
+    if not observed_items:
+        return
+    rows = await source.fetch(
+        _ALREADY_GOING,
+        [observed.user_id for observed in observed_items],
+        [observed.item.occurrence_id for observed in observed_items],
+        [observed.shown_at for observed in observed_items],
+    )
+    already_going = {row["ordinality"] for row in rows}
+    for ordinal, observed in enumerate(observed_items, start=1):
+        if ordinal in already_going:
+            counts["already_registered"] += 1
+            continue
+        counts[observed.split] += 1
+        counts[f"{observed.split}_positive"] += observed.label
+        item = observed.item
+        yield {
+            "split": observed.split,
+            "request_id": observed.request_id,
+            "item_id": str(item.item_id),
+            "position": observed.position,
+            "served_at": observed.served_at.isoformat(),
+            "calculated_at": item.calculated_at.isoformat() if item.calculated_at else None,
+            "algorithm_version": item.algorithm_version,
+            "features": item.features,
+            "label": int(observed.label),
+        }
 
 
 async def export_dataset(

@@ -20,7 +20,9 @@ logger = logging.getLogger(__name__)
 
 
 class RecommendationUnavailable(Exception):
-    pass
+    def __init__(self, reason: str | StatusCode) -> None:
+        self.upstream_status = reason.name if isinstance(reason, StatusCode) else None
+        super().__init__(self.upstream_status or reason)
 
 
 @dataclass(frozen=True)
@@ -125,10 +127,11 @@ class RecommendationClient:
                         request, timeout=remaining, metadata=metadata,
                     )
         except aio.AioRpcError as exc:
-            if exc.code() in _FALLBACK_STATUSES or (
-                page_token is not None and exc.code() == StatusCode.INVALID_ARGUMENT
+            status = exc.code()
+            if status in _FALLBACK_STATUSES or (
+                page_token is not None and status == StatusCode.INVALID_ARGUMENT
             ):
-                raise RecommendationUnavailable(exc.code().name) from exc
+                raise RecommendationUnavailable(status) from exc
             raise
 
         try:
@@ -150,6 +153,7 @@ class RecommendationClient:
                     request, timeout=self.timeout_seconds, metadata=metadata,
                 )
         except aio.AioRpcError as exc:
-            if exc.code() in _FALLBACK_STATUSES:
-                raise RecommendationUnavailable(exc.code().name) from exc
+            status = exc.code()
+            if status in _FALLBACK_STATUSES:
+                raise RecommendationUnavailable(status) from exc
             raise
